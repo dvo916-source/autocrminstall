@@ -1,0 +1,288 @@
+@import "tailwindcss";
+
+@theme {
+  --color-glass-100: rgba(255, 255, 255, 0.1);
+  --color-glass-200: rgba(255, 255, 255, 0.2);
+  --color-glass-300: rgba(255, 255, 255, 0.3);
+  --color-glass-dark: rgba(0, 0, 0, 0.5);
+  --background-image-main-gradient: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  --font-rajdhani: "Rajdhani", sans-serif;
+}
+
+
+
+@layer base {
+  body {
+    margin: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    background-color: #0f172a;
+    color: white;
+    overflow: hidden;
+    overscroll-behavior: none;
+    width: 100vw;
+    height: 100vh;
+    user-select: none;
+    -webkit-user-select: none;
+    /* Compatibilidade Electron */
+  }
+
+  /* Impedir que imagens sejam arrastadas */
+  img {
+    -webkit-user-drag: none;
+  }
+
+  /* Permitir seleção apenas em campos de entrada e texto */
+  input,
+  textarea,
+  [contenteditable="true"] {
+    user-select: text !important;
+  }
+
+  #root {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
+/* Scrollbar Customizada */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  /* Adicionado para barra horizontal */
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+/* Utilitário para Esconder Scrollbar mas manter funcionalidade */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Remover setinhas de input number */
+.no-spinner input::-webkit-outer-spin-button,
+.no-spinner input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
+/* === RESPONSIVIDADE ADAPTATIVA === */
+/* Previne overflow horizontal em qualquer resolução */
+* {
+  min-width: 0;
+}
+
+/* Container Full Width */
+.adaptive-container {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+/* Escalonamento fluido de texto */
+.fluid-text-sm {
+  font-size: clamp(0.75rem, 0.5vw + 0.5rem, 0.875rem);
+}
+
+.fluid-text-base {
+  font-size: clamp(0.875rem, 0.5vw + 0.75rem, 1rem);
+}
+
+.fluid-text-lg {
+  font-size: clamp(1rem, 1vw + 0.5rem, 1.25rem);
+}
+
+.fluid-text-xl {
+  font-size: clamp(1.25rem, 1.5vw + 0.5rem, 1.5rem);
+}
+
+.fluid-text-2xl {
+  font-size: clamp(1.5rem, 2vw + 0.5rem, 2rem);
+}
+
+/* === CYBERPUNK BUTTONS === */
+
+/* PRIMARY BUTTON (Ação Principal) - Limpo, Foco na Escrita e Glow */
+.btn-cyber-primary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1.75rem;
+  border-radius: 0.75rem;
+  background: transparent;
+  border: 1px solid rgba(34, 211, 238, 0.4);
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 700;
+  /* text-transform: uppercase; */
+  letter-spacing: 0.15em;
+  color: #22d3ee;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.btn-cyber-primary:hover {
+  background: rgba(34, 211, 238, 0.05);
+  color: #ffffff;
+  border-color: #22d3ee;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.3);
+  text-shadow: 0 0 10px rgba(34, 211, 238, 0.8);
+  transform: translateY(-1px);
+}
+
+.btn-cyber-primary:active {
+  transform: scale(0.95);
+}
+
+/* Efeito sutil de brilho interno no hover */
+.btn-cyber-primary::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(34, 211, 238, 0.15) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.btn-cyber-primary:hover::before {
+  opacity: 1;
+}
+
+/* SECONDARY BUTTON (Ação Secundária / Filtros) */
+.btn-cyber-secondary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.5rem 1rem;
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 700;
+  color: #d1d5db;
+  /* text-transform: uppercase; */
+  letter-spacing: 0.1em;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.btn-cyber-secondary:hover {
+  border-color: rgba(6, 182, 212, 0.5);
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.2);
+}
+
+/* DANGER BUTTON (Excluir / Cancelar) */
+.btn-cyber-danger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.1);
+  padding: 0.5rem 1rem;
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 700;
+  color: #f87171;
+  /* text-transform: uppercase; */
+  letter-spacing: 0.1em;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.btn-cyber-danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fecaca;
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+  transform: scale(0.95);
+}
+
+/* GHOST/GLASS BUTTON (Links / Ações Sutis) */
+.btn-cyber-glass {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  background: transparent;
+  padding: 0.25rem 0.75rem;
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 700;
+  /* text-transform: uppercase; */
+  letter-spacing: 0.05em;
+  color: #9ca3af;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.btn-cyber-glass:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+}
+
+/* TAB BUTTON (Seleção de abas) */
+.btn-cyber-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  padding: 0.5rem 1rem;
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 700;
+  /* text-transform: uppercase; */
+  letter-spacing: 0.1em;
+  font-size: 0.75rem;
+  transition: all 0.3s ease;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.btn-cyber-tab.active {
+  background: rgba(34, 211, 238, 0.1);
+  color: #22d3ee;
+  border-color: rgba(34, 211, 238, 0.2);
+  box-shadow: 0 0 15px rgba(34, 211, 238, 0.15);
+}
+
+.btn-cyber-tab.inactive {
+  color: #6b7280;
+}
+
+.btn-cyber-tab.inactive:hover {
+  color: #d1d5db;
+  background: rgba(255, 255, 255, 0.05);
+}
