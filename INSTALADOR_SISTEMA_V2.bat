@@ -104,7 +104,12 @@ echo [4/4] GERANDO SISTEMA (.EXE)...
 echo ========================================================
 echo.
 
-call npm run build:portable
+:: Limpa builds antigos para forcar codigo novo
+if exist dist rmdir /s /q dist
+mkdir dist
+
+:: Executa o comando direto para nao depender do script no package.json
+call npx vite build && npx electron-builder --win portable
 
 if %errorlevel% neq 0 (
     color 0C

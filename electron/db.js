@@ -4,10 +4,22 @@ import { app, BrowserWindow } from 'electron';
 import bcrypt from 'bcryptjs';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = "https://whyfmogbayqwaeddoxwf.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoeWZtb2diYXlxd2FlZGRveHdmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0NTQyMjksImV4cCI6MjA4NTAzMDIyOX0.CUTT4JXNpoeqa_uzb8C3XkxVXqqRdtNdTqqg9t8SO8U";
+// --- SUPABASE CONFIG ---
+const SUPABASE_CONFIG = {
+    url: "https://whyfmogbayqwaeddoxwf.supabase.co",
+    key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoeWZtb2diYXlxd2FlZGRveHdmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0NTQyMjksImV4cCI6MjA4NTAzMDIyOX0.CUTT4JXNpoeqa_uzb8C3XkxVXqqRdtNdTqqg9t8SO8U"
+};
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+console.log("[DB] Iniciando Supabase com:", SUPABASE_CONFIG.url); // Log para debug em produção
+
+let supabase;
+try {
+    supabase = createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key);
+} catch (err) {
+    console.error("[DB] CRITICAL SUPABASE ERROR:", err);
+    // Fallback nulo para não crashar o app imediatamente na inicialização
+    supabase = null;
+}
 
 const dbPath = path.join(path.dirname(app.getAppPath()), 'sistema_visitas.db');
 const db = new Database(dbPath); // Removido verbose para limpar o console
