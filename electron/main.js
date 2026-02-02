@@ -145,14 +145,20 @@ function createWindow() {
     });
 
     // Auto Updater - Aguarda carregar totalmente para evitar perder eventos IPC
+    autoUpdater.logger = console;
+
     win.webContents.on('did-finish-load', () => {
         setTimeout(() => {
             console.log('[Updater] Iniciando verificação programada...');
+            console.log('[Updater] Versão Atual:', app.getVersion());
             autoUpdater.checkForUpdatesAndNotify().catch(err => console.error('[Updater] Erro Check:', err));
         }, 3000); // 3 segundos de folga para o React montar
     });
 
-    autoUpdater.on('checking-for-updates', () => console.log('[Updater] Verificando...'));
+    autoUpdater.on('checking-for-updates', () => console.log('[Updater] Verificando novos pacotes no GitHub...'));
+    autoUpdater.on('update-not-available', (info) => {
+        console.log('[Updater] Nenhuma atualização encontrada (Já está na última versão?).', info.version);
+    });
     autoUpdater.on('update-available', (info) => {
         console.log('[Updater] Atualização disponível:', info.version);
         win.webContents.send('update-available', info);
