@@ -72,6 +72,13 @@ const Shell = ({ children, user, onLogout }) => {
             ipcRenderer.on('update-available', updateAvail);
             ipcRenderer.on('update-progress', updateProg);
             ipcRenderer.on('update-downloaded', updateReady);
+
+            // Bridge IPC notifications to DOM listener
+            const ipcNotifyHandler = (e, data) => {
+                window.dispatchEvent(new CustomEvent('show-notification', { detail: data }));
+            };
+            ipcRenderer.on('show-notification', ipcNotifyHandler);
+
             window.addEventListener('show-notification', notifyHandler);
 
             return () => {
@@ -79,6 +86,7 @@ const Shell = ({ children, user, onLogout }) => {
                 ipcRenderer.removeListener('update-available', updateAvail);
                 ipcRenderer.removeListener('update-progress', updateProg);
                 ipcRenderer.removeListener('update-downloaded', updateReady);
+                ipcRenderer.removeListener('show-notification', ipcNotifyHandler);
                 window.removeEventListener('show-notification', notifyHandler);
             };
         } catch (err) { console.error(err); }
@@ -234,7 +242,7 @@ const Shell = ({ children, user, onLogout }) => {
                         </button>
 
                         <div className={`mt-2 text-center transition-all duration-300 ${isSidebarHovered ? 'opacity-30 translate-y-0' : 'opacity-0 translate-y-2'}`}>
-                            <p className="text-[9px] font-black text-cyan-200 tracking-[0.2em]">VERSION 1.0.5</p>
+                            <p className="text-[9px] font-black text-cyan-200 tracking-[0.2em]">VERSION 1.0.6</p>
                         </div>
                     </div>
                 </div>
