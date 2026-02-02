@@ -262,7 +262,7 @@ const Login = ({ onLogin }) => {
                     {/* Footer Clean */}
                     <div className="mt-8 text-center relative z-10 opacity-60 hover:opacity-100 transition-opacity duration-300">
                         <p className="text-[11px] text-cyan-100 font-bold tracking-[0.2em] uppercase">
-                            IRW Motors &copy; 2026 <span className="mx-2 opacity-30">|</span> v1.0.4
+                            IRW Motors &copy; 2026 <span className="mx-2 opacity-30">|</span> v1.0.5
                         </p>
                     </div>
                 </div>
