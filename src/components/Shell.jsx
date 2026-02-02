@@ -234,7 +234,7 @@ const Shell = ({ children, user, onLogout }) => {
                         </button>
 
                         <div className={`mt-2 text-center transition-all duration-300 ${isSidebarHovered ? 'opacity-30 translate-y-0' : 'opacity-0 translate-y-2'}`}>
-                            <p className="text-[9px] font-black text-cyan-200 tracking-[0.2em]">VERSION 1.0.4</p>
+                            <p className="text-[9px] font-black text-cyan-200 tracking-[0.2em]">VERSION 1.0.5</p>
                         </div>
                     </div>
                 </div>

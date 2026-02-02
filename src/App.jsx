@@ -173,10 +173,10 @@ const useAutoScaling = () => {
       // Calcula o fator de escala baseando-se na menor proporção para não cortar nada
       const scaleWidth = width / baseWidth;
       const scaleHeight = height / baseHeight;
-      const scale = Math.min(scaleWidth, scaleHeight, 1); // Nunca escala para cima de 1 (100%)
+      const scaleCalc = Math.min(scaleWidth, scaleHeight, 1);
+      // 🔥 Ajuste de Legibilidade: Nunca escala abaixo de 0.85 para não ficar ilegível em notebooks pequenos
+      const scale = Math.max(scaleCalc, 0.85);
 
-      // Aplica o zoom no corpo do documento (Chrome/Electron suportam zoom)
-      // Usamos zoom para não quebrar posicionamento fixed de alguns componentes
       if (scale < 1) {
         document.body.style.zoom = scale;
       } else {

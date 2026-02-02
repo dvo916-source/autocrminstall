@@ -393,15 +393,7 @@ export async function syncConfig() {
                     });
                 }
 
-                // Limpeza Mirror (Remove locais que sumiram na nuvem - exceto devs)
-                if (cloudUsers.length > 0) {
-                    const markers = cloudUsers.map(() => '?').join(',');
-                    db.prepare(`
-                        DELETE FROM usuarios 
-                        WHERE username NOT IN(${markers}) 
-                        AND username NOT IN('diego', 'Diego', 'admin', 'Admin')
-                        `).run(...localUserIds);
-                }
+                // Limpeza Mirror REMOVIDA para evitar sumiço de usuários locais não sincronizados
             })();
             stats.users = cloudUsers.length;
             console.log("✅ Usuários sincronizados.");
