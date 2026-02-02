@@ -6,6 +6,7 @@ echo   BUSCANDO ATUALIZACOES NA NUVEM...
 echo ===================================================
 echo.
 cd /d "%~dp0"
+cd ../..
 
 echo 1. Baixando novidades do GitHub...
 git pull

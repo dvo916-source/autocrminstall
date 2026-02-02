@@ -335,7 +335,7 @@ const Usuarios = ({ user }) => {
                                 <h2 className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-300">
                                     USUÁRIOS DO SISTEMA
                                 </h2>
-                                <p className="text-gray-400 text-[10px] tracking-widest  mt-1">Gestão de Contas e Permissões de Login</p>
+                                <p className="text-gray-400 text-[11px] tracking-widest mt-1 uppercase">Gestão de Contas e Permissões de Login</p>
                             </div>
                             <button className={`p-3 rounded-xl transition-all shadow-lg border border-white/5 ${showUserForm ? 'bg-blue-500/20 text-blue-400 rotate-45' : 'bg-[#131b29] text-gray-400 hover:text-blue-400 hover:border-blue-500/30'}`}>
                                 <Plus size={20} />
@@ -399,7 +399,7 @@ const Usuarios = ({ user }) => {
                                                     required
                                                 />
                                                 {passwordStrength.text && (
-                                                    <p className={`text-[9px] ml-2 font-bold ${passwordStrength.color}`}>
+                                                    <p className={`text-[11px] ml-2 font-bold uppercase ${passwordStrength.color}`}>
                                                         Força: {passwordStrength.text}
                                                     </p>
                                                 )}
@@ -432,7 +432,7 @@ const Usuarios = ({ user }) => {
                                             </button>
                                         </div>
                                         <div className="mt-4 p-4 bg-black/20 rounded-2xl border border-white/5">
-                                            <h4 className="text-[10px] font-bold text-gray-400  tracking-widest mb-3 flex items-center gap-2">
+                                            <h4 className="text-[11px] font-bold text-gray-400 tracking-widest mb-3 flex items-center gap-2 uppercase">
                                                 <Shield size={12} className="text-blue-400" /> Permissões de Acesso
                                             </h4>
                                             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -449,7 +449,7 @@ const Usuarios = ({ user }) => {
                                                                     : [...current, page.id];
                                                                 setNewUser({ ...newUser, permissions: newPerms });
                                                             }}
-                                                            className={`text-[9px] font-bold  py-2 px-3 rounded-xl border transition-all text-left flex items-center gap-2 ${isChecked
+                                                            className={`text-[11px] font-bold py-2 px-3 rounded-xl border transition-all text-left flex items-center gap-2 uppercase ${isChecked
                                                                 ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
                                                                 : 'bg-white/5 border-white/5 text-gray-500 hover:bg-white/10'
                                                                 }`}
@@ -489,13 +489,13 @@ const Usuarios = ({ user }) => {
                                             <p className={`font-bold text-sm flex items-center gap-2 truncate ${!u.ativo && 'text-gray-600 line-through'}`}>
                                                 {u.nome_completo || u.username || 'USUÁRIO SEM NOME'}
                                                 {u.reset_password === 1 && (
-                                                    <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 text-[8px] font-bold rounded-full  shrink-0">
+                                                    <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 text-[10px] font-bold rounded-full shrink-0 uppercase">
                                                         Senha Resetada
                                                     </span>
                                                 )}
                                             </p>
-                                            <p className="text-[10px]  font-semibold text-gray-500 tracking-widest truncate">{u.email || u.username || 'SEM EMAIL'}</p>
-                                            <p className="text-[9px]  font-semibold text-blue-500/60 tracking-tight">{!u.role ? 'SEM PERFIL' : (u.role === 'sdr' ? 'VENDEDOR (SDR)' : u.role.toUpperCase())} • {u.whatsapp || 'SEM WHATSAPP'}</p>
+                                            <p className="text-[11px] font-semibold text-gray-500 tracking-widest truncate uppercase">{u.email || u.username || 'SEM EMAIL'}</p>
+                                            <p className="text-[10px] font-semibold text-blue-500/60 tracking-tight uppercase">{!u.role ? 'SEM PERFIL' : (u.role === 'sdr' ? 'VENDEDOR (SDR)' : u.role.toUpperCase())} • {u.whatsapp || 'SEM WHATSAPP'}</p>
                                         </div>
                                     </div>
 
@@ -603,13 +603,13 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
                         <Edit size={160} />
                     </div>
 
-                    <h2 className="text-3xl font-black text-white italic mb-2 tracking-tighter">EDITAR <span className="text-blue-400">USUÁRIO</span></h2>
-                    <p className="text-gray-400 text-[10px] font-black  tracking-widest mb-8">Alterar credenciais e permissões de acesso</p>
+                    <h2 className="text-3xl font-black text-white mb-2 tracking-tighter uppercase">EDITAR <span className="text-blue-400">USUÁRIO</span></h2>
+                    <p className="text-gray-400 text-[11px] font-black tracking-widest mb-8 uppercase">Alterar credenciais e permissões de acesso</p>
 
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-gray-500  ml-2 tracking-widest">Nome Completo</label>
+                                <label className="text-[11px] font-bold text-gray-500 ml-2 tracking-widest uppercase">Nome Completo</label>
                                 <input
                                     className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 transition-all font-bold text-sm text-white"
                                     value={user.nome_completo}
@@ -618,7 +618,7 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
                                 />
                             </div>
                             <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-gray-500  ml-2 tracking-widest">WhatsApp / Celular</label>
+                                <label className="text-[11px] font-bold text-gray-500 ml-2 tracking-widest uppercase">WhatsApp / Celular</label>
                                 <input
                                     className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 transition-all font-bold text-sm text-white"
                                     value={user.whatsapp}
@@ -629,7 +629,7 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-gray-500  ml-2 tracking-widest">E-mail de Login</label>
+                                <label className="text-[11px] font-bold text-gray-500 ml-2 tracking-widest uppercase">E-mail de Login</label>
                                 <input
                                     type="email"
                                     className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 transition-all font-bold text-sm text-white"
@@ -639,7 +639,7 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
                                 />
                             </div>
                             <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-gray-400  ml-2 tracking-widest">Perfil (Role)</label>
+                                <label className="text-[11px] font-bold text-gray-400 ml-2 tracking-widest uppercase">Perfil (Role)</label>
                                 <select
                                     className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 transition-all font-bold text-sm text-white appearance-none"
                                     value={user.role}
@@ -654,7 +654,7 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
                         </div>
 
                         <div className="p-6 bg-black/20 rounded-[2rem] border border-white/5 space-y-4 mt-2">
-                            <h4 className="text-[10px] font-black text-blue-400  tracking-widest flex items-center gap-2">
+                            <h4 className="text-[11px] font-black text-blue-400 tracking-widest flex items-center gap-2 uppercase">
                                 <Key size={12} /> Alterar Senha (Opcional)
                             </h4>
                             <div className="grid grid-cols-2 gap-4">
@@ -674,7 +674,7 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
                                 />
                             </div>
                             <div className="p-6 bg-black/20 rounded-[2rem] border border-white/5 space-y-4 mt-2">
-                                <h4 className="text-[10px] font-black text-gray-400  tracking-widest flex items-center gap-2">
+                                <h4 className="text-[11px] font-black text-gray-400 tracking-widest flex items-center gap-2 uppercase">
                                     <Shield size={12} className="text-purple-400" /> Permissões do Usuário
                                 </h4>
                                 <div className="grid grid-cols-2 gap-2">
@@ -691,7 +691,7 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
                                                         : [...current, page.id];
                                                     setUser({ ...user, permissions: newPerms });
                                                 }}
-                                                className={`text-[10px] font-bold  py-3 px-4 rounded-xl border transition-all text-left flex items-center gap-3 ${isChecked
+                                                className={`text-[11px] font-bold py-3 px-4 rounded-xl border transition-all text-left flex items-center gap-3 uppercase ${isChecked
                                                     ? 'bg-purple-500/20 border-purple-500/50 text-purple-300'
                                                     : 'bg-white/5 border-white/5 text-gray-500 hover:bg-white/10'
                                                     }`}
@@ -708,13 +708,13 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
                                 <button
                                     type="button"
                                     onClick={onClose}
-                                    className="flex-1 bg-white/5 hover:bg-white/10 text-white font-black py-4 rounded-2xl transition-all  text-[10px] tracking-widest"
+                                    className="flex-1 bg-white/5 hover:bg-white/10 text-white font-black py-4 rounded-2xl transition-all text-[11px] tracking-widest uppercase"
                                 >
                                     Cancelar
                                 </button>
                                 <button
                                     type="submit"
-                                    className="flex-2 bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-500 hover:to-indigo-400 text-white font-black py-4 px-12 rounded-2xl transition-all shadow-xl  text-[10px] tracking-widest active:scale-95"
+                                    className="flex-2 bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-500 hover:to-indigo-400 text-white font-black py-4 px-12 rounded-2xl transition-all shadow-xl text-[11px] tracking-widest active:scale-95 uppercase"
                                 >
                                     Salvar Alterações
                                 </button>
@@ -753,7 +753,7 @@ const ConsultoresManager = React.memo(({ vendedores, isMasterOrAdmin, handleAddV
                     <h2 className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-300">
                         VENDEDORES DE SALÃO
                     </h2>
-                    <p className="text-gray-400 text-[10px] tracking-widest  mt-1">Cadastro de Consultores do Estabelecimento</p>
+                    <p className="text-gray-400 text-[11px] tracking-widest mt-1 uppercase">Cadastro de Consultores do Estabelecimento</p>
                 </div>
                 <button className={`p-3 rounded-xl transition-all shadow-lg border border-white/5 ${showForm ? 'bg-blue-500/20 text-blue-400 rotate-45' : 'bg-[#131b29] text-gray-400 hover:text-blue-400 hover:border-blue-500/30'}`}>
                     <Plus size={20} />

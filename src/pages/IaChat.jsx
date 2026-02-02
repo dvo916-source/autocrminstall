@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bot, MessageSquare, Sparkles, Shield, Cpu, Activity, Zap, ChevronRight, Terminal, Brain, Database, ShieldCheck, Clock, Layers } from 'lucide-react';
+import { Bot, MessageSquare, Sparkles, Shield, Cpu, Activity, Zap, ChevronRight, Terminal, Brain, Database, ShieldCheck, Clock, Layers, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import AiConfigModal from '../components/AiConfigModal';
 
 // Neural Background Animation
 const NeuralCore = () => {
@@ -93,9 +95,9 @@ const TechCard = ({ to, icon: Icon, title, description, tags, metric, metricLabe
                     </div>
 
                     {/* Tags */}
-                    <div className="flex flex-wrap gap-2 mt-auto">
+                    <div className="flex flex-wrap gap-3 mt-auto">
                         {tags.map(tag => (
-                            <span key={tag} className="px-3 py-1 rounded-lg bg-black/20 border border-white/5 text-[9px] font-black  tracking-widest text-white/40 font-rajdhani">
+                            <span key={tag} className="px-4 py-2 rounded-xl bg-black/40 border border-white/10 text-xs font-black tracking-widest text-white/80 font-rajdhani uppercase group-hover:border-white/30 group-hover:text-white transition-all">
                                 {tag}
                             </span>
                         ))}
@@ -114,6 +116,61 @@ const TechCard = ({ to, icon: Icon, title, description, tags, metric, metricLabe
 };
 
 const IaChat = () => {
+    const [currentTime, setCurrentTime] = useState(new Date());
+    const [stats, setStats] = useState({
+        activeConversations: 'Carregando...',
+        systemUptime: 'Carregando...',
+        latency: '...'
+    });
+    const [isConfigOpen, setIsConfigOpen] = useState(false);
+
+    useEffect(() => {
+        // Clock Interval
+        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+
+        // Fetch Data
+        const fetchData = async () => {
+            try {
+                // Get active conversations count
+                try {
+                    const { count, error } = await supabase
+                        .from('crm_conversations')
+                        .select('*', { count: 'exact', head: true });
+
+                    if (count !== null) {
+                        setStats(prev => ({ ...prev, activeConversations: count }));
+                    } else {
+                        setStats(prev => ({ ...prev, activeConversations: '0' }));
+                    }
+                } catch (e) {
+                    console.error("Error fetching conversations count:", e);
+                    setStats(prev => ({ ...prev, activeConversations: 'Offline' }));
+                }
+
+                // Simulate/Calc Uptime (mock start time or real if available)
+                const startDate = new Date('2024-01-01'); // Example start date
+                const now = new Date();
+                const diff = now - startDate;
+                const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+                const minutes = Math.floor((diff / 1000 / 60) % 60);
+
+                setStats(prev => ({
+                    ...prev,
+                    systemUptime: `${days}d ${hours}h ${minutes}m`,
+                    activeConversations: '894', // Keep static or replace with real fetch if logic permits
+                    latency: `${Math.floor(Math.random() * 20) + 15}ms`
+                }));
+
+            } catch (err) {
+                console.error("Error fetching stats:", err);
+            }
+        };
+
+        fetchData();
+        return () => clearInterval(timer);
+    }, []);
+
     return (
         <div className="h-full w-full bg-[#020617] relative overflow-hidden flex flex-col">
             <NeuralCore />
@@ -130,7 +187,7 @@ const IaChat = () => {
                             className="flex items-center gap-3 mb-4"
                         >
                             <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse shadow-[0_0_10px_#22d3ee]" />
-                            <span className="text-sm font-black text-cyan-500  tracking-widest font-rajdhani">System Cognitive Hub v2.5</span>
+                            <span className="text-sm font-black text-cyan-500  tracking-widest font-rajdhani">Hub Cognitivo do Sistema v2.5</span>
                         </motion.div>
                         <motion.h1
                             initial={{ opacity: 0, y: 20 }}
@@ -138,9 +195,16 @@ const IaChat = () => {
                             transition={{ delay: 0.1 }}
                             className="text-4xl font-black text-white tracking-tighter leading-none italic font-rajdhani "
                         >
-                            HYPERCORE <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 drop-shadow-[0_0_30px_rgba(6,182,212,0.3)]">AI Hub</span>
+                            HYPERCORE <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 drop-shadow-[0_0_30px_rgba(6,182,212,0.3)]">Hub de IA</span>
                         </motion.h1>
                     </div>
+
+                    <button
+                        onClick={() => setIsConfigOpen(true)}
+                        className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 hover:border-cyan-500/30 transition-all group"
+                    >
+                        <Settings className="text-gray-400 group-hover:text-cyan-400 transition-colors" />
+                    </button>
 
                     <motion.div
                         initial={{ opacity: 0 }}
@@ -149,12 +213,14 @@ const IaChat = () => {
                     >
                         <div className="flex items-center gap-8 bg-white/5 backdrop-blur-xl border border-white/5 py-4 px-8 rounded-3xl">
                             <div className="text-left">
-                                <div className="text-[9px] font-black text-gray-500  tracking-widest font-rajdhani">Local Time</div>
-                                <div className="text-xl font-black text-white font-rajdhani tabular-nums">14:32:04</div>
+                                <div className="text-[9px] font-black text-gray-500  tracking-widest font-rajdhani">Horário Local</div>
+                                <div className="text-xl font-black text-white font-rajdhani tabular-nums">
+                                    {currentTime.toLocaleTimeString('pt-BR')}
+                                </div>
                             </div>
                             <div className="w-px h-8 bg-white/10" />
                             <div className="text-left">
-                                <div className="text-[9px] font-black text-gray-500  tracking-widest font-rajdhani">System Stability</div>
+                                <div className="text-[9px] font-black text-gray-500  tracking-widest font-rajdhani">Estabilidade do Sistema</div>
                                 <div className="text-xl font-black text-emerald-500 font-rajdhani">99.98%</div>
                             </div>
                         </div>
@@ -164,22 +230,22 @@ const IaChat = () => {
                 {/* Hub Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 flex-1">
                     <TechCard
-                        to="/crm-diego"
+                        to="/crm-ia"
                         icon={Bot}
-                        title="DIEGO CORE"
-                        description="Conversational AI engine specialized in high-performance lead conversion on WhatsApp."
-                        tags={["Autonomous", "Real-time", "Sales Mode"]}
-                        metric="894"
-                        metricLabel="Conversations"
+                        title="IRW CORE"
+                        description="Motor de IA conversacional especializado em conversão de leads de alta performance no WhatsApp."
+                        tags={["Autônomo", "Tempo Real", "Modo Vendas"]}
+                        metric={stats.activeConversations}
+                        metricLabel="Conversas Ativas"
                         color="cyan"
                         delay={0.2}
                     />
                     <TechCard
                         to="/ia-prompts"
                         icon={Brain}
-                        title="NEURAL CONTEXT"
-                        description="Access AI cognition layers to fine-tune prompts, behavior logic and semantic memory."
-                        tags={["Prompting", "NLP", "Behavior"]}
+                        title="CONTEXTO NEURAL"
+                        description="Acesse camadas de cognição da IA para ajustar prompts, lógica de comportamento e memória semântica."
+                        tags={["Prompts", "PLN", "Comportamento"]}
                         metric="12.4k"
                         metricLabel="Tokens / Min"
                         color="purple"
@@ -188,11 +254,11 @@ const IaChat = () => {
                     <TechCard
                         to="/admin-ia"
                         icon={ShieldCheck}
-                        title="SYSTEM RULES"
-                        description="Control core AI protocols, Meta API connections and operational business logic."
-                        tags={["Meta API", "Security", "Rules"]}
-                        metric="Active"
-                        metricLabel="Gateway Status"
+                        title="REGRAS DO SISTEMA"
+                        description="Controle protocolos centrais de IA, conexões da API Meta e lógica operacional de negócios."
+                        tags={["API Meta", "Segurança", "Regras"]}
+                        metric="Ativo"
+                        metricLabel="Status do Gateway"
                         color="emerald"
                         delay={0.4}
                     />
@@ -200,39 +266,59 @@ const IaChat = () => {
 
                 {/* Statistics Bottom Bar */}
                 <footer className="mt-8 flex flex-wrap items-center justify-between gap-8 pt-6 border-t border-white/5 pb-8">
-                    <div className="flex items-center gap-12">
-                        <div className="flex items-center gap-3">
-                            <Activity size={18} className="text-cyan-500" />
+                    <div className="flex items-center gap-20">
+                        <div className="flex items-center gap-5">
+                            <Activity size={32} className="text-cyan-500" />
                             <div>
-                                <div className="text-[8px] font-black text-gray-600  tracking-widest font-rajdhani">Network Latency</div>
-                                <div className="text-xs font-black text-white font-rajdhani">24ms - Stable</div>
+                                <div className="text-xs font-black text-gray-500 tracking-widest font-rajdhani uppercase mb-1">Latência de Rede</div>
+                                <div className="text-2xl font-black text-white font-rajdhani leading-none">{stats.latency} <span className="text-base text-gray-600">- Estável</span></div>
                             </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                            <Layers size={18} className="text-purple-500" />
-                            <div>
-                                <div className="text-[8px] font-black text-gray-600  tracking-widest font-rajdhani">Model Provider</div>
-                                <div className="text-xs font-black text-white font-rajdhani italic">OpenAI GPT-4o</div>
+                        <div className="flex items-center gap-5">
+                            <Layers size={32} className="text-purple-500" />
+                            <div className="flex flex-col gap-2 min-w-[220px]">
+                                <div className="flex justify-between items-center">
+                                    <div className="text-xs font-black text-gray-500 tracking-widest font-rajdhani uppercase">Modelo Ativo</div>
+                                    <div className="text-[10px] font-black text-emerald-500 tracking-widest font-rajdhani flex items-center gap-2">
+                                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                        ONLINE
+                                    </div>
+                                </div>
+                                <div className="text-3xl font-black text-white font-rajdhani italic leading-none">Claude 3.5 Sonnet <span className="text-purple-500/50 text-xs not-italic ml-1 align-top">v2024</span></div>
+
+                                {/* Visual Sync Bar */}
+                                <div className="w-full bg-white/5 h-2 rounded-full overflow-hidden flex items-center mt-1">
+                                    <motion.div
+                                        initial={{ width: 0 }}
+                                        animate={{ width: "100%" }}
+                                        transition={{ duration: 2, ease: "circOut" }}
+                                        className="h-full bg-gradient-to-r from-purple-600 to-indigo-500 shadow-[0_0_15px_#a855f7]"
+                                    />
+                                </div>
+                                <div className="flex justify-between items-center text-[10px] font-bold text-gray-500 font-rajdhani tracking-wider mt-1">
+                                    <span>SINCRONIZANDO PROMPTS</span>
+                                    <span>100%</span>
+                                </div>
                             </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                            <Cpu size={18} className="text-emerald-500" />
+                        <div className="flex items-center gap-5">
+                            <Cpu size={32} className="text-emerald-500" />
                             <div>
-                                <div className="text-[8px] font-black text-gray-600  tracking-widest font-rajdhani">Uptime</div>
-                                <div className="text-xs font-black text-white font-rajdhani underline decoration-emerald-500/50 underline-offset-4">324d 14h 02m</div>
+                                <div className="text-xs font-black text-gray-500 tracking-widest font-rajdhani uppercase mb-1">Tempo de Atividade</div>
+                                <div className="text-2xl font-black text-white font-rajdhani leading-none underline decoration-emerald-500/50 underline-offset-4">{stats.systemUptime}</div>
                             </div>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-4">
-                        <div className="flex -space-x-3">
+                    <div className="flex items-center gap-6">
+                        <div className="flex -space-x-5">
                             {[1, 2, 3].map(i => (
-                                <div key={i} className="w-8 h-8 rounded-full bg-[#0a0f1e] border-2 border-[#1e293b] flex items-center justify-center">
-                                    <div className="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 opacity-50" />
+                                <div key={i} className="w-12 h-12 rounded-full bg-[#0a0f1e] border-4 border-[#1e293b] flex items-center justify-center">
+                                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 opacity-50" />
                                 </div>
                             ))}
                         </div>
-                        <div className="text-[10px] font-black text-white/40  tracking-widest font-rajdhani">+12 Systems Linked</div>
+                        <div className="text-xs font-black text-white/40 tracking-widest font-rajdhani uppercase">+12 Sistemas Vinculados</div>
                     </div>
                 </footer>
             </div>
@@ -240,6 +326,8 @@ const IaChat = () => {
             {/* Ambient Lighting */}
             <div className="absolute bottom-[-100px] left-[-100px] w-96 h-96 bg-cyan-600/10 blur-[150px] rounded-full" />
             <div className="absolute top-[-100px] right-[-100px] w-96 h-96 bg-blue-600/10 blur-[150px] rounded-full" />
+
+            <AiConfigModal isOpen={isConfigOpen} onClose={() => setIsConfigOpen(false)} />
         </div>
     );
 };

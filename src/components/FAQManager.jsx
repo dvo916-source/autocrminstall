@@ -559,12 +559,12 @@ const FAQManager = () => {
                                 {/* Answer */}
                                 <div>
                                     <label className="text-sm text-gray-400 font-bold mb-2 block">
-                                        Resposta do Diego
+                                        Resposta do Agente IA
                                     </label>
                                     <textarea
                                         value={formData.answer}
                                         onChange={(e) => setFormData({ ...formData, answer: e.target.value })}
-                                        placeholder="Escreva a resposta que o Diego vai usar..."
+                                        placeholder="Escreva a resposta que o Agente IA vai usar..."
                                         rows={6}
                                         className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:border-cyan-500 focus:outline-none resize-none"
                                     />
@@ -583,7 +583,7 @@ const FAQManager = () => {
                                         className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:border-cyan-500 focus:outline-none"
                                     />
                                     <p className="text-xs text-gray-500 mt-1">
-                                        O Diego usa essas palavras para encontrar a resposta certa
+                                        O Agente IA usa essas palavras para encontrar a resposta certa
                                     </p>
                                 </div>
 
@@ -612,8 +612,8 @@ const FAQManager = () => {
                                         <button
                                             onClick={() => setFormData({ ...formData, is_active: !formData.is_active })}
                                             className={`w-full px-4 py-3 rounded-xl font-bold transition-all ${formData.is_active
-                                                    ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                                                    : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                                ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                                                : 'bg-red-500/20 text-red-400 border border-red-500/30'
                                                 }`}
                                         >
                                             {formData.is_active ? '✓ Ativa' : '✗ Inativa'}

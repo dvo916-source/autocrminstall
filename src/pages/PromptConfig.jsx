@@ -123,12 +123,12 @@ const PromptConfig = () => {
                             <ArrowLeft size={24} />
                         </motion.button>
                         <div>
-                            <h1 className="text-4xl font-black text-white italic tracking-tighter  font-rajdhani">
+                            <h1 className="text-4xl font-black text-white tracking-tighter">
                                 Neural<span className="text-cyan-400">Context</span>
                             </h1>
                             <div className="flex items-center gap-3">
                                 <Terminal size={12} className="text-cyan-500" />
-                                <span className="text-sm font-black text-gray-500  tracking-widest font-rajdhani">Cognition Configuration Interface</span>
+                                <span className="text-sm font-black text-gray-500 tracking-widest uppercase">Cognition Configuration Interface</span>
                             </div>
                         </div>
                     </div>
@@ -142,7 +142,7 @@ const PromptConfig = () => {
                             className="bg-gradient-to-br from-cyan-600 to-blue-600 px-8 py-3 rounded-2xl flex items-center gap-3 shadow-xl shadow-cyan-500/20 active:shadow-none transition-all group"
                         >
                             {saving ? <Activity className="animate-spin text-white" /> : <Save size={20} className="text-white group-hover:scale-110 transition-transform" />}
-                            <span className="text-sm font-black text-white  tracking-widest font-rajdhani">Commit Changes</span>
+                            <span className="text-sm font-black text-white tracking-widest uppercase">Commit Changes</span>
                         </motion.button>
                     </div>
                 </header>
@@ -156,13 +156,13 @@ const PromptConfig = () => {
                                 <div className="p-3 bg-cyan-500/10 rounded-xl">
                                     <ImageIcon size={20} className="text-cyan-400" />
                                 </div>
-                                <div className="text-[10px] font-black text-gray-600  font-rajdhani tracking-widest">Display Core</div>
+                                <div className="text-[11px] font-black text-gray-600 tracking-widest uppercase">Display Core</div>
                             </div>
-                            <h3 className="text-lg font-black text-white font-rajdhani  tracking-tight mb-4">Photos per Lead</h3>
+                            <h3 className="text-lg font-black text-white tracking-tight mb-4 uppercase">Photos per Lead</h3>
                             <select
                                 value={humanSettings.maxPhotos}
                                 onChange={(e) => setHumanSettings({ ...humanSettings, maxPhotos: e.target.value })}
-                                className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-sm text-cyan-400 font-bold outline-none focus:border-cyan-500/30 transition-all font-rajdhani"
+                                className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-sm text-cyan-400 font-bold outline-none focus:border-cyan-500/30 transition-all uppercase"
                             >
                                 <option value="5">5 UNIDADES</option>
                                 <option value="10">10 UNIDADES</option>
@@ -177,12 +177,12 @@ const PromptConfig = () => {
                                 <div className="p-3 bg-purple-500/10 rounded-xl">
                                     <Clock size={20} className="text-purple-400" />
                                 </div>
-                                <div className="text-[10px] font-black text-gray-600  font-rajdhani tracking-widest">Latency Engine</div>
+                                <div className="text-[11px] font-black text-gray-600 tracking-widest uppercase">Latency Engine</div>
                             </div>
-                            <h3 className="text-lg font-black text-white font-rajdhani  tracking-tight mb-4">Human Latency</h3>
+                            <h3 className="text-lg font-black text-white tracking-tight mb-4 uppercase">Human Latency</h3>
                             <button
                                 onClick={() => setHumanSettings({ ...humanSettings, typingDelay: !humanSettings.typingDelay })}
-                                className="flex items-center justify-between w-full bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs font-black  tracking-widest font-rajdhani"
+                                className="flex items-center justify-between w-full bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs font-black tracking-widest uppercase"
                             >
                                 <span className={humanSettings.typingDelay ? 'text-emerald-400' : 'text-gray-500'}>
                                     {humanSettings.typingDelay ? 'ENABLED' : 'DISABLED'}
@@ -199,15 +199,15 @@ const PromptConfig = () => {
                                 <div className="p-3 bg-blue-500/10 rounded-xl">
                                     <Zap size={20} className="text-blue-400" />
                                 </div>
-                                <div className="text-[10px] font-black text-gray-600  font-rajdhani tracking-widest">Processing Power</div>
+                                <div className="text-[11px] font-black text-gray-600 tracking-widest uppercase">Processing Power</div>
                             </div>
-                            <h3 className="text-lg font-black text-white font-rajdhani  tracking-tight mb-4">Inference Speed</h3>
+                            <h3 className="text-lg font-black text-white tracking-tight mb-4 uppercase">Inference Speed</h3>
                             <div className="flex gap-2">
                                 {['fast', 'normal', 'slow'].map((speed) => (
                                     <button
                                         key={speed}
                                         onClick={() => setHumanSettings({ ...humanSettings, responseSpeed: speed })}
-                                        className={`flex-1 py-3 rounded-xl text-[10px] font-black  tracking-widest font-rajdhani border transition-all ${humanSettings.responseSpeed === speed ? 'bg-blue-600 border-blue-400 text-white' : 'bg-black/20 border-white/5 text-gray-500'}`}
+                                        className={`flex-1 py-3 rounded-xl text-[11px] font-black tracking-widest border transition-all uppercase ${humanSettings.responseSpeed === speed ? 'bg-blue-600 border-blue-400 text-white' : 'bg-black/20 border-white/5 text-gray-500'}`}
                                     >
                                         {speed}
                                     </button>
@@ -220,7 +220,7 @@ const PromptConfig = () => {
                     <section className="space-y-6">
                         <div className="flex items-center gap-3 mb-6">
                             <Activity size={20} className="text-cyan-500" />
-                            <h2 className="text-2xl font-black text-white italic font-rajdhani ">Cognitive Modules</h2>
+                            <h2 className="text-2xl font-black text-white uppercase">Cognitive Modules</h2>
                         </div>
 
                         {Object.entries(prompts).map(([key, prompt]) => {
@@ -249,9 +249,9 @@ const PromptConfig = () => {
                                             </div>
                                             <div className="text-left">
                                                 <div className="flex items-center gap-3 mb-1">
-                                                    <h3 className="text-2xl font-black text-white font-rajdhani  tracking-tight">{prompt.title}</h3>
+                                                    <h3 className="text-2xl font-black text-white tracking-tight">{prompt.title}</h3>
                                                     <div className="h-4 w-px bg-white/10" />
-                                                    <span className="text-[10px] font-black text-cyan-500/60  tracking-widest font-rajdhani">{prompt.subtitle}</span>
+                                                    <span className="text-[11px] font-black text-cyan-500/60 tracking-widest uppercase">{prompt.subtitle}</span>
                                                 </div>
                                                 <p className="text-sm text-gray-500 font-medium">{prompt.description}</p>
                                             </div>
@@ -301,9 +301,9 @@ const PromptConfig = () => {
                                 </div>
                                 <div className="text-left">
                                     <div className="flex items-center gap-3 mb-1">
-                                        <h3 className="text-2xl font-black text-white font-rajdhani  tracking-tight">Knowledge Base</h3>
+                                        <h3 className="text-2xl font-black text-white tracking-tight">Knowledge Base</h3>
                                         <div className="h-4 w-px bg-white/10" />
-                                        <span className="text-[10px] font-black text-indigo-400  tracking-widest font-rajdhani">SEMANTIC_ANSWERS</span>
+                                        <span className="text-[11px] font-black text-indigo-400 tracking-widest uppercase">SEMANTIC_ANSWERS</span>
                                     </div>
                                     <p className="text-sm text-gray-500 font-medium">Configure perguntas e respostas específicas para agilizar a cognição da IA.</p>
                                 </div>
@@ -338,7 +338,7 @@ const PromptConfig = () => {
                         className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] px-8 py-4 bg-emerald-500 text-white rounded-2xl shadow-2xl flex items-center gap-3"
                     >
                         <CheckCircle2 size={24} />
-                        <span className="font-black  tracking-widest text-sm font-rajdhani">Neural Synapse Updated</span>
+                        <span className="font-black tracking-widest text-sm uppercase">Neural Synapse Updated</span>
                     </motion.div>
                 )}
             </AnimatePresence>

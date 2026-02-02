@@ -21,7 +21,7 @@ try {
     supabase = null;
 }
 
-const dbPath = path.join(path.dirname(app.getAppPath()), 'sistema_visitas.db');
+const dbPath = path.join(app.getPath('userData'), 'sistema_visitas.db');
 const db = new Database(dbPath); // Removido verbose para limpar o console
 db.pragma('journal_mode = WAL');
 
@@ -64,7 +64,8 @@ export function initDb() {
       status TEXT DEFAULT 'Pendente'
     );
     CREATE TABLE IF NOT EXISTS estoque (
-      nome TEXT PRIMARY KEY, 
+      id TEXT PRIMARY KEY,
+      nome TEXT, 
       foto TEXT,
       fotos TEXT,
       link TEXT,
@@ -86,6 +87,11 @@ export function initDb() {
       ativo INTEGER DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS config (chave TEXT PRIMARY KEY, valor TEXT);
+    CREATE TABLE IF NOT EXISTS crm_settings (
+        key TEXT PRIMARY KEY, 
+        value TEXT,
+        updated_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS usuarios (
       username TEXT PRIMARY KEY, 
       password TEXT, 
@@ -110,6 +116,7 @@ export function initDb() {
     // Migrações de segurança (Essencial para manter dados em bancos existentes)
     const migrations = [
         "ALTER TABLE estoque ADD COLUMN fotos TEXT",
+        "ALTER TABLE estoque ADD COLUMN id TEXT",
         "ALTER TABLE estoque ADD COLUMN km TEXT",
         "ALTER TABLE estoque ADD COLUMN cambio TEXT",
         "ALTER TABLE estoque ADD COLUMN valor TEXT",
@@ -145,6 +152,46 @@ export function initDb() {
         try { db.exec(query); } catch (e) { }
     });
 
+    // --- MIRAÇÃO CRÍTICA: REESTRUTURAÇÃO DA TABELA ESTOQUE (Nome -> ID como PK) ---
+    try {
+        const tableInfo = db.prepare("PRAGMA table_info(estoque)").all();
+        const pkColumn = tableInfo.find(c => c.pk === 1);
+
+        // Se a PK atual for 'nome' (antiga) ou se não tiver a coluna 'id', precisamos reconstruir
+        if (!pkColumn || pkColumn.name === 'nome' || !tableInfo.find(c => c.name === 'id')) {
+            console.log("🛠️ [DB Migration] Reconstruindo tabela 'estoque' para nova arquitetura de IDs...");
+            db.transaction(() => {
+                // 1. Cria tabela temporária com a estrutura nova
+                db.exec(`
+                    CREATE TABLE IF NOT EXISTS estoque_new (
+                        id TEXT PRIMARY KEY,
+                        nome TEXT, 
+                        foto TEXT,
+                        fotos TEXT,
+                        link TEXT,
+                        km TEXT,
+                        cambio TEXT,
+                        ano TEXT,
+                        valor TEXT,
+                        ativo INTEGER DEFAULT 1
+                    )
+                `);
+
+                // 2. Tenta migrar os dados (usando o link como ID temporário caso o ID esteja nulo)
+                db.exec(`
+                    INSERT OR IGNORE INTO estoque_new (id, nome, foto, fotos, link, km, cambio, ano, valor, ativo)
+                    SELECT IFNULL(id, link), nome, foto, fotos, link, km, cambio, ano, valor, ativo FROM estoque
+                `);
+
+                // 3. Substitui a tabela
+                db.exec("DROP TABLE estoque");
+                db.exec("ALTER TABLE estoque_new RENAME TO estoque");
+            })();
+            console.log("✅ [DB Migration] Tabela 'estoque' atualizada com sucesso.");
+        }
+    } catch (e) {
+        console.error("❌ [DB Migration] Erro ao reconstruir tabela estoque:", e.message);
+    }
     // === SEED INICIAL (AUTO CONFIGURAÇÃO) ===
     try {
         // 1. Configurar Metas Padrão se não existirem
@@ -192,6 +239,15 @@ export function initDb() {
     console.log("✅ [DB] Banco de dados pronto e verificado.");
 }
 
+// --- UTIL ---
+function toPerfectSlug(text) {
+    if (!text) return "";
+    return text.toString().toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove acentos
+        .replace(/[^a-z0-9]+/g, '-') // substitui tudo que não é letra/numero por -
+        .replace(/^-+|-+$/g, ''); // remove traços no inicio e fim
+}
+
 // --- Sync Hybrid Logic (API Real-time + XML Fallback) ---
 
 export async function syncXml() {
@@ -224,328 +280,48 @@ export async function syncXml() {
 
     let finalVehicles = [];
     let methodUsed = '';
-
     // 🔥 SYNC ESTOQUE FROM CLOUD (PULL) - Ensures new machines get data immediately
     try {
         console.log("[SupabaseSync] Buscando estoque da nuvem...");
         const { data: cloudEstoque, error: ceErr } = await supabase.from('estoque').select('*');
-        if (!ceErr && cloudEstoque && cloudEstoque.length > 0) {
-            const stmt = db.prepare(`
-                INSERT INTO estoque (nome, foto, fotos, link, km, cambio, ano, valor, ativo) 
-                VALUES (@nome, @foto, @fotos, @link, @km, @cambio, @ano, @valor, @ativo) 
-                ON CONFLICT(nome) DO UPDATE SET 
-                    foto=excluded.foto, fotos=excluded.fotos, link=excluded.link, 
-                    km=excluded.km, cambio=excluded.cambio, ano=excluded.ano, valor=excluded.valor, ativo=excluded.ativo
-            `);
+
+        if (!ceErr && cloudEstoque) {
             db.transaction((items) => {
-                for (const v of items) {
-                    stmt.run({
-                        ...v,
-                        fotos: typeof v.fotos === 'string' ? v.fotos : JSON.stringify(v.fotos),
-                        ativo: v.ativo ? 1 : 0
-                    });
-                }
-            })(cloudEstoque);
-            console.log(`✅ [SupabaseSync] ${cloudEstoque.length} veículos carregados da nuvem.`);
-        }
-    } catch (e) {
-        console.warn("[SupabaseSync] Falha ao puxar estoque da nuvem:", e.message);
-    }
+                // 🔥 ESTRATÉGIA "ESPELHO PERFEITO": Zera o local e clona a nuvem
+                db.prepare("DELETE FROM estoque").run();
 
-    // --- TENTATIVA 1: API (OURO) ---
-    try {
-        console.log(`[SupabaseSync] 1. Tentando API Autoconf (POST)...`);
-        const params = new URLSearchParams();
-        params.append('token', TOKEN_REVENDA);
-        params.append('pagina', '1');
-        params.append('registros_por_pagina', '200');
-
-        const headers = {
-            'Authorization': TOKEN_BEARER,
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json'
-        };
-
-        let resp = await fetch(`${API_URL}?t=${Date.now()}`, { method: 'POST', headers, body: params });
-
-        // Se o endpoint home falhar, tenta o normal
-        if (!resp.ok && resp.status === 404) {
-            console.log("[SupabaseSync] Endpoint Home 404. Tentando endpoint padrão...");
-            resp = await fetch(`${FALLBACK_API_URL}?t=${Date.now()}`, { method: 'POST', headers, body: params });
-        }
-
-        if (!resp.ok) throw new Error(`API Status ${resp.status} - ${resp.statusText}`);
-
-        const data = await resp.json();
-        let apiItems = [];
-        if (Array.isArray(data)) apiItems = data;
-        else if (data.data && Array.isArray(data.data)) apiItems = data.data;
-        else if (data.veiculos && Array.isArray(data.veiculos)) apiItems = data.veiculos;
-        else if (data.registros && Array.isArray(data.registros)) apiItems = data.registros;
-
-        if (apiItems.length === 0) throw new Error("API retornou lista vazia");
-
-        console.log(`[SupabaseSync] API Sucesso! Encontrados: ${apiItems.length}`);
-
-        // Processa Itens da API
-        const seenNames = {}; // Contador para nomes duplicados
-
-        finalVehicles = apiItems.map(item => {
-            // Mapeamento Flexível
-            const marca = item.marca_nome || item.Marca || item.marca || '';
-            const modelo = item.modelopai_nome || item.Modelo || item.modelo || '';
-            const versao = item.modelo_nome || item.Versao || item.versao || '';
-
-            // 🔥 ETIQUETA / ID ÚNICO (Prioridade para o que o usuário chamou de etiqueta)
-            const etiqueta = item.CodigoVeiculo || item.veiculo_id || item.codigo || item.id || '';
-
-            // 🔥 FILTRO DE SHOWROOM (Restaurado)
-            const status = item.status || item.situacao || item.localizacao || item.Status || '';
-            if (status && status.length > 2) {
-                const s = status.toLowerCase();
-                if (s.includes('vendid') || s.includes('entreg') || s.includes('reserv')) return null;
-            }
-
-            let nome = `${marca} ${modelo} ${versao}`.trim();
-            if (nome === '') nome = item.versao_descricao || 'Veículo sem Nome';
-
-            // Adiciona a Etiqueta ao nome para gerar unicidade absoluta "Kwid #1050" vs "Kwid #1051"
-            if (etiqueta) nome += ` #${etiqueta}`;
-
-            // 🔥 Fallback para unicidade (caso etiqueta venha vazia ou duplicada por erro da API)
-            if (seenNames[nome]) {
-                seenNames[nome]++;
-                nome = `${nome} (${seenNames[nome]})`;
-            } else {
-                seenNames[nome] = 1;
-            }
-
-            const fotosRaw = item.fotos || item.Fotos || [];
-            const fotosSet = new Set();
-
-            // Tenta pegar a foto principal da API (campo 'foto' ou 'FotoPrincipal')
-            const mainApiPhoto = item.foto || item.FotoPrincipal || '';
-            if (mainApiPhoto) {
-                const cleanMain = normalizePhotoUrl(mainApiPhoto);
-                if (cleanMain) fotosSet.add(cleanMain);
-            }
-
-            if (Array.isArray(fotosRaw)) {
-                fotosRaw.forEach(f => {
-                    const url = typeof f === 'string' ? f : (f.url || f.Url || f.caminho || '');
-                    const clean = normalizePhotoUrl(url);
-                    if (clean) fotosSet.add(clean);
-                });
-            }
-            const fotoPrincipal = fotosSet.size > 0 ? [...fotosSet][0] : '';
-            if (!fotoPrincipal) {
-                // console.warn(`[SupabaseSync] Veículo sem foto: ${nome}`);
-            }
-
-            // Sanitização de Valor: Prioriza o campo 'valorpromocao' (Preço de oferta/site)
-            const precoRaw = item.valorpromocao || item.valorvenda || item.PrecoVenda || item.PrecoSite || item.preco || item.valor || '0';
-
-            const valNum = parseFloat(precoRaw);
-            const valor = valNum > 0
-                ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valNum)
-                : 'Consulte';
-
-            const km = (item.km || item.Quilometragem || 'Consulte').toString();
-            const cambio = (item.cambio_nome || item.Cambio || item.cambio || 'Consulte').toString();
-
-            const anoFab = item.anofabricacao || item.AnoFabricacao || item.ano_fabricacao || '';
-            const anoMod = item.anomodelo || item.AnoModelo || item.ano_modelo || '';
-            const ano = (anoFab && anoMod) ? `${anoFab}/${anoMod}` : (anoFab || anoMod || 'Consulte');
-
-            return { nome, foto: fotoPrincipal, fotos: JSON.stringify(Array.from(fotosSet)), link: '', km, cambio, ano, valor };
-        }).filter(item => item !== null); // Remove itens nulos (filtrados pelo status)
-
-        methodUsed = 'API (Tempo Real)';
-
-    } catch (apiError) {
-        console.warn(`[SupabaseSync] !!! FALHA NA API (${apiError.message}) - ATIVANDO PLANO B (XML) !!!`);
-
-        // --- TENTATIVA 2: XML (BRONZE) ---
-        try {
-            const resp = await fetch(`${XML_URL}?t=${Date.now()}`);
-            if (!resp.ok) throw new Error(`XML Status ${resp.status}`);
-            const text = await resp.text();
-
-            const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-            const titleRegex = /<(?:g:)?title>(.*?)<\/(?:g:)?title>/;
-            const linkRegex = /<(?:g:)?link>(.*?)<\/(?:g:)?link>/;
-            const imageRegex = /<(?:g:)?image_link>(.*?)<\/(?:g:)?image_link>/;
-            const additionalImagesRegex = /<(?:g:)?additional_image_link>(.*?)<\/(?:g:)?additional_image_link>/g;
-            const priceRegex = /<(?:g:)?price>(.*?)<\/(?:g:)?price>/;
-            const salePriceRegex = /<(?:g:)?sale_price>(.*?)<\/(?:g:)?sale_price>/;
-            const idRegex = /<(?:g:)?id>(.*?)<\/(?:g:)?id>/;
-            const customLabelRegex = /<g:custom_label_(\d+)>(.*?)<\/g:custom_label_\d+>/g;
-
-            const items = Array.from(text.matchAll(itemRegex));
-
-            finalVehicles = [];
-            for (const itemMatch of items) {
-                const itemContent = itemMatch[1];
-                const titleMatch = itemContent.match(titleRegex);
-
-                if (titleMatch) {
-                    const idMatch = itemContent.match(idRegex);
-                    const id = idMatch ? idMatch[1].trim() : '';
-                    const nomeBase = titleMatch[1].trim();
-                    let nome = id ? `${nomeBase} #${id}` : nomeBase;
-
-                    // 🔥 GARANTE UNICIDADE REAL (XML)
-                    // Como não está dentro de um .map(), verificamos se já existe no array final
-                    // Mas para ser mais seguro e rápido, vamos usar um map auxiliar local também se necessário,
-                    // mas aqui podemos verificar direto no own array se quisermos, ou usar um Set global para o loop.
-                    // Vamos usar um contador local simples como fizemos no API.
-
-                    if (!this.xmlSeenNames) this.xmlSeenNames = {};
-                    if (this.xmlSeenNames[nome]) {
-                        this.xmlSeenNames[nome]++;
-                        nome = `${nome} (${this.xmlSeenNames[nome]})`;
-                    } else {
-                        this.xmlSeenNames[nome] = 1;
-                    }
-
-                    const link = (itemContent.match(linkRegex)?.[1] || '').trim();
-                    const fotoPrincipal = (itemContent.match(imageRegex)?.[1] || '').trim();
-
-                    const fotosSet = new Set();
-                    const mainClean = normalizePhotoUrl(fotoPrincipal);
-                    if (mainClean) fotosSet.add(mainClean);
-                    [...itemContent.matchAll(additionalImagesRegex)].forEach(m => {
-                        const clean = normalizePhotoUrl(m[1].trim());
-                        if (clean) fotosSet.add(clean);
-                    });
-
-                    // Lógica de Preço PROMOÇÃO > NORMAL
-                    const rawRegular = itemContent.match(priceRegex)?.[1]?.trim() || '';
-                    const rawSale = itemContent.match(salePriceRegex)?.[1]?.trim() || '';
-
-                    // Se tiver sale_price (ex: 180000.00 BRL), usa ele. Senão usa o price.
-                    const priceToUse = rawSale || rawRegular || '0';
-
-                    // Remove caracteres não numéricos exceto ponto e virgula pra tentar parsear
-                    // Mas o parseInt pega o primeiro inteiro. XML padrão usually is "190000.00 BRL" -> parseInt 190000
-                    const valor = parseInt(priceToUse) > 0
-                        ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parseInt(priceToUse))
-                        : 'Consulte';
-
-                    const description = itemContent.match(/<(?:g:)?description>(.*?)<\/(?:g:)?description>/)?.[1] || '';
-                    let km = 'Consulte';
-                    let cambio = 'Consulte';
-                    let ano = 'Consulte';
-
-                    const fullText = (nome + ' ' + description).toLowerCase();
-                    if (fullText.includes(' aut') || fullText.includes('at.')) cambio = 'Automático';
-                    else if (fullText.includes(' mec') || fullText.includes('mt.')) cambio = 'Manual';
-
-                    const yearMatch = fullText.match(/\b(19|20)\d{2}\b/);
-                    if (yearMatch) ano = yearMatch[0];
-
-                    if (cambio === 'Consulte' || km === 'Consulte') {
-                        [...itemContent.matchAll(customLabelRegex)].forEach(m => {
-                            const val = m[2].toLowerCase();
-                            if (val.includes('aut')) cambio = 'Automático';
-                            if (val.includes('man') || val.includes('mec')) cambio = 'Manual';
-                            if (val.includes('km')) km = m[2].trim();
+                if (items.length > 0) {
+                    const stmt = db.prepare(`
+                        INSERT INTO estoque (id, nome, foto, fotos, link, km, cambio, ano, valor, ativo) 
+                        VALUES (@id, @nome, @foto, @fotos, @link, @km, @cambio, @ano, @valor, @ativo) 
+                        ON CONFLICT(id) DO UPDATE SET 
+                            nome=excluded.nome, foto=excluded.foto, fotos=excluded.fotos, link=excluded.link, 
+                            km=excluded.km, cambio=excluded.cambio, ano=excluded.ano, valor=excluded.valor, ativo=excluded.ativo
+                    `);
+                    for (const v of items) {
+                        stmt.run({
+                            ...v,
+                            fotos: typeof v.fotos === 'string' ? v.fotos : JSON.stringify(v.fotos),
+                            ativo: v.ativo ? 1 : 0
                         });
                     }
-
-                    finalVehicles.push({
-                        nome,
-                        foto: fotoPrincipal,
-                        fotos: JSON.stringify(Array.from(fotosSet)),
-                        link,
-                        km,
-                        cambio,
-                        ano,
-                        valor
-                    });
                 }
-            }
-            methodUsed = 'XML (Backup)';
-            console.log(`[SupabaseSync] Sucesso via XML! ${finalVehicles.length} veículos.`);
+            })(cloudEstoque);
 
-        } catch (xmlError) {
-            console.error("Fatal: Ambas tentativas falharam.", xmlError);
-            return { success: false, message: `Erro Fatal: API (${apiError.message}) e XML (${xmlError.message}) falharam.` };
-        }
-    }
-
-    // --- SALVAMENTO (LOCAL + NUVEM) ---
-    try {
-        const namesInSync = [];
-
-        const stmt = db.prepare(`
-            INSERT INTO estoque (nome, foto, fotos, link, km, cambio, ano, valor, ativo) 
-            VALUES (@nome, @foto, @fotos, @link, @km, @cambio, @ano, @valor, 1) 
-            ON CONFLICT(nome) DO UPDATE SET 
-                foto=excluded.foto, fotos=excluded.fotos, link=excluded.link, 
-                km=excluded.km, cambio=excluded.cambio, ano=excluded.ano, valor=excluded.valor, ativo=1
-        `);
-
-        db.transaction((items) => {
-            for (const v of items) {
-                stmt.run(v);
-                namesInSync.push(v.nome);
-            }
-        })(finalVehicles);
-
-        if (namesInSync.length > 0) {
-            const placeholders = namesInSync.map(() => '?').join(',');
-            db.prepare(`DELETE FROM estoque WHERE nome NOT IN (${placeholders})`).run(...namesInSync);
-        }
-
-        // Envia para Supabase com Sanitização
-        const uniqueVehicles = [...new Map(finalVehicles.map(item => [item.nome, item])).values()];
-        const supabaseData = uniqueVehicles.map(v => ({
-            ...v,
-            fotos: JSON.parse(v.fotos),
-            // Sanitização final para Supabase se necessário, por padrão mandamos o que temos
-            valor: sanitizeValor(v.valor),
-            ativo: true
-        }));
-
-        const { error } = await supabase.from('estoque').upsert(supabaseData, { onConflict: 'nome' });
-
-        if (!error) {
-            // 🔥 NUVEM: Sincronização de Deletados (Lógica de Auto-Limpeza)
-            try {
-                const { data: currentCloud, error: fetchError } = await supabase.from('estoque').select('nome');
-                if (!fetchError && currentCloud) {
-                    const cloudNames = currentCloud.map(c => c.nome);
-                    const obsoleteNames = cloudNames.filter(n => !namesInSync.includes(n));
-
-                    if (obsoleteNames.length > 0) {
-                        console.log(`[SupabaseSync] Desativando/Removendo ${obsoleteNames.length} veículos da nuvem...`);
-
-                        // Passo 1: Marcar como inativo (Garante que suma da UI mesmo se o DELETE falhar)
-                        const obsoleteData = obsoleteNames.map(n => ({ nome: n, ativo: false }));
-                        await supabase.from('estoque').upsert(obsoleteData, { onConflict: 'nome' });
-
-                        // Passo 2: Tentar deletar de verdade
-                        await supabase.from('estoque').delete().in('nome', obsoleteNames);
-                    }
-                }
-                console.log(`[SupabaseSync] Nuvem Sincronizada com Sucesso!`);
-            } catch (cleanError) {
-                console.error(`[SupabaseSync] AVISO: Erro na limpeza da nuvem (Inativando como fallback):`, cleanError.message);
-            }
+            console.log(`✅ [SupabaseSync] Sincronia Completa: ${cloudEstoque.length} veículos ativos.`);
+            BrowserWindow.getAllWindows().forEach(w => {
+                w.webContents.send('sync-status', { table: 'estoque', loading: false });
+                w.webContents.send('refresh-data', 'estoque');
+            });
+            return { success: true, message: `Sincronizado: ${cloudEstoque.length} veículos.` };
         } else {
-            console.error(`[SupabaseSync] Erro Upload Nuvem:`, error);
+            console.log("[SupabaseSync] Falha na conexão ou nuvem inacessível.", ceErr);
+            return { success: false, message: "Erro de Sincronia." };
         }
 
-        // 🔔 NOTIFICA O FRONT-END QUE O ESTOQUE MUDOU
-        const windows = BrowserWindow.getAllWindows();
-        windows.forEach(w => w.webContents.send('sync-status', { table: 'estoque', loading: false }));
-
-        return { success: true, message: `Sincronizado via ${methodUsed}: ${uniqueVehicles.length} veículos.` };
-
-    } catch (dbError) {
-        console.error("Erro Banco de Dados:", dbError);
-        return { success: false, message: "Erro ao salvar dados: " + dbError.message };
+    } catch (e) {
+        console.warn("[SupabaseSync] Falha ao puxar estoque da nuvem:", e.message);
+        return { success: false, message: e.message };
     }
 }
 
@@ -1343,6 +1119,17 @@ export async function checkLogin(identifier, pass) {
     return userWithoutPassword;
 }
 
+export function getUserByUsername(username) {
+    try {
+        const user = db.prepare("SELECT * FROM usuarios WHERE username = ? COLLATE NOCASE").get(username);
+        if (user) {
+            const { password, ...safeUser } = user;
+            return safeUser;
+        }
+        return null;
+    } catch (e) { return null; }
+}
+
 // Generic CRUD
 export function getList(table) {
     if (!['estoque', 'portais', 'vendedores'].includes(table)) return [];
@@ -1523,16 +1310,38 @@ export function getAgendamentosPorUsuario() {
         SELECT 
             u.username as nome, 
             u.nome_completo, 
-            u.email, 
-            u.whatsapp, 
-            u.ativo, 
-            u.role,
-            COUNT(v.id) as total 
+            u.role, 
+            u.ativo,
+            COUNT(v.id) as total
         FROM usuarios u
         LEFT JOIN visitas v ON u.username = v.vendedor_sdr
-        WHERE u.role = 'sdr'
+        WHERE u.role IN('sdr', 'vendedor', 'admin', 'master', 'developer')
         GROUP BY u.username
     `).all();
+}
+
+export function getAgendamentosDetalhes(username = null) {
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        let query = `
+SELECT * FROM visitas
+WHERE(status_pipeline = 'Agendado' OR status_pipeline IS NULL OR status_pipeline = '')
+AND(substr(data_agendamento, 1, 10) >= ? OR data_agendamento IS NULL OR data_agendamento = '')
+            `;
+        const params = [today];
+
+        if (username) {
+            query += " AND (vendedor_sdr = ? OR vendedor = ?)";
+            params.push(username, username);
+        }
+
+        query += " ORDER BY data_agendamento ASC, datahora DESC LIMIT 100";
+
+        return db.prepare(query).all(...params);
+    } catch (err) {
+        console.error("Erro ao buscar detalhes de agendamentos:", err);
+        return [];
+    }
 }
 
 export function getTemperatureStats() {
@@ -1544,8 +1353,8 @@ export function getTemperatureStats() {
                 SUM(CASE WHEN temperatura = 'Morno' THEN 1 ELSE 0 END) as morno,
                 SUM(CASE WHEN temperatura = 'Frio' THEN 1 ELSE 0 END) as frio
             FROM visitas
-            WHERE substr(data_agendamento, 1, 10) = ? OR substr(datahora, 1, 10) = ?
-        `).get(today, today);
+            WHERE substr(data_agendamento, 1, 10) = ?
+        `).get(today);
 
         return {
             quente: stats.quente || 0,
@@ -1606,6 +1415,26 @@ export async function migrateAllToCloud() {
             else console.log(`✅ ${scripts.length} scripts sincronizados`);
         }
 
+        // 6. Configurações Globais (Prompts de IA, Params do Sistema)
+        console.log("🧩 [SyncConfig] Buscando Configurações Globais (Prompts)...");
+        const { data: remoteSettings, error: settingsError } = await supabase.from('crm_settings').select('*');
+
+        if (!settingsError && remoteSettings) {
+            const upsertStmt = db.prepare(`
+                INSERT INTO crm_settings(key, value, updated_at) VALUES(@key, @value, @updated_at)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            `);
+
+            const insertMany = db.transaction((settings) => {
+                for (const s of settings) upsertStmt.run(s);
+            });
+
+            insertMany(remoteSettings);
+            console.log(`✅ ${remoteSettings.length} configurações globais sincronizadas.`);
+        } else {
+            console.log("⚠️ Nenhuma configuração remota encontrada ou erro:", settingsError?.message);
+        }
+
         return { success: true, message: "Sincronização com a nuvem concluída com sucesso!" };
     } catch (err) {
         console.error("Erro na Migração:", err);
@@ -1642,12 +1471,12 @@ export function enableRealtimeSync() {
                         if (newRec.username === 'diego' || newRec.username === 'admin') return;
 
                         db.prepare(`
-                            INSERT INTO usuarios (username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions)
-                            VALUES (@username, @password, @role, @reset_password, @nome_completo, @email, @whatsapp, @ativo, @permissions)
+                            INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions)
+        VALUES(@username, @password, @role, @reset_password, @nome_completo, @email, @whatsapp, @ativo, @permissions)
                             ON CONFLICT(username) DO UPDATE SET
-                            password=excluded.password, role=excluded.role, reset_password=excluded.reset_password,
-                            nome_completo=excluded.nome_completo, email=excluded.email, whatsapp=excluded.whatsapp, ativo=excluded.ativo, permissions=excluded.permissions
-                         `).run({
+        password = excluded.password, role = excluded.role, reset_password = excluded.reset_password,
+            nome_completo = excluded.nome_completo, email = excluded.email, whatsapp = excluded.whatsapp, ativo = excluded.ativo, permissions = excluded.permissions
+                `).run({
                             username: newRec.username,
                             password: newRec.password,
                             role: newRec.role,
@@ -1656,7 +1485,12 @@ export function enableRealtimeSync() {
                             email: newRec.email || '',
                             whatsapp: newRec.whatsapp || '',
                             ativo: newRec.ativo ? 1 : 0,
-                            permissions: newRec.permissions || '[]'
+                            permissions: typeof newRec.permissions === 'string' ? newRec.permissions : JSON.stringify(newRec.permissions || [])
+                        });
+
+                        // 📢 AVISA O FRONTEND SE FOR O USUÁRIO LOGADO
+                        BrowserWindow.getAllWindows().forEach(w => {
+                            w.webContents.send('user-data-updated', newRec.username);
                         });
                     }
                     // Apenas avisa a UI para recarregar do BANCO LOCAL (que já está atualizado)
@@ -1677,11 +1511,11 @@ export function enableRealtimeSync() {
                         db.prepare("DELETE FROM vendedores WHERE nome = ?").run(oldRec.nome);
                     } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
                         db.prepare(`
-                            INSERT INTO vendedores (nome, sobrenome, telefone, ativo) 
-                            VALUES (@nome, @sobrenome, @telefone, @ativo)
-                            ON CONFLICT(nome) DO UPDATE SET 
-                            sobrenome=excluded.sobrenome, telefone=excluded.telefone, ativo=excluded.ativo
-                         `).run({
+                            INSERT INTO vendedores(nome, sobrenome, telefone, ativo)
+        VALUES(@nome, @sobrenome, @telefone, @ativo)
+                            ON CONFLICT(nome) DO UPDATE SET
+        sobrenome = excluded.sobrenome, telefone = excluded.telefone, ativo = excluded.ativo
+            `).run({
                             nome: newRec.nome,
                             sobrenome: newRec.sobrenome,
                             telefone: newRec.telefone,
@@ -1705,12 +1539,12 @@ export function enableRealtimeSync() {
                         db.prepare("DELETE FROM scripts WHERE id = ?").run(oldRec.id);
                     } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
                         db.prepare(`
-                            INSERT INTO scripts (id, titulo, mensagem, is_system, link, username, ordem) 
-                            VALUES (@id, @titulo, @mensagem, @is_system, @link, @username, @ordem)
-                            ON CONFLICT(id) DO UPDATE SET 
-                            titulo=excluded.titulo, mensagem=excluded.mensagem, 
-                            is_system=excluded.is_system, link=excluded.link, username=excluded.username, ordem=excluded.ordem
-                         `).run({
+                            INSERT INTO scripts(id, titulo, mensagem, is_system, link, username, ordem)
+        VALUES(@id, @titulo, @mensagem, @is_system, @link, @username, @ordem)
+                            ON CONFLICT(id) DO UPDATE SET
+        titulo = excluded.titulo, mensagem = excluded.mensagem,
+            is_system = excluded.is_system, link = excluded.link, username = excluded.username, ordem = excluded.ordem
+                `).run({
                             ...newRec,
                             is_system: newRec.is_system ? 1 : 0
                         });
@@ -1730,19 +1564,19 @@ export function enableRealtimeSync() {
                 if (eventType === 'INSERT' || eventType === 'UPDATE') {
                     if (newRec) {
                         db.prepare(`
-                            INSERT INTO estoque (nome, foto, fotos, link, km, cambio, ano, valor, ativo) 
-                            VALUES (@nome, @foto, @fotos, @link, @km, @cambio, @ano, @valor, @ativo) 
-                            ON CONFLICT(nome) DO UPDATE SET 
-                            foto=excluded.foto, fotos=excluded.fotos, link=excluded.link, 
-                            km=excluded.km, cambio=excluded.cambio, ano=excluded.ano, valor=excluded.valor, ativo=excluded.ativo
-                         `).run({
+                            INSERT INTO estoque(id, nome, foto, fotos, link, km, cambio, ano, valor, ativo)
+        VALUES(@id, @nome, @foto, @fotos, @link, @km, @cambio, @ano, @valor, @ativo) 
+                            ON CONFLICT(id) DO UPDATE SET
+        nome = excluded.nome, foto = excluded.foto, fotos = excluded.fotos, link = excluded.link,
+            km = excluded.km, cambio = excluded.cambio, ano = excluded.ano, valor = excluded.valor, ativo = excluded.ativo
+                `).run({
                             ...newRec,
                             fotos: typeof newRec.fotos === 'string' ? newRec.fotos : JSON.stringify(newRec.fotos),
                             ativo: newRec.ativo ? 1 : 0
                         });
                     }
                 } else if (eventType === 'DELETE' && oldRec) {
-                    db.prepare("DELETE FROM estoque WHERE nome = ?").run(oldRec.nome);
+                    db.prepare("DELETE FROM estoque WHERE id = ?").run(oldRec.id);
                 }
                 BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'estoque'));
             }
@@ -1760,49 +1594,56 @@ export function enableRealtimeSync() {
                         db.prepare("DELETE FROM visitas WHERE id = ?").run(oldRec.id);
                     } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
                         db.prepare(`
-                            INSERT INTO visitas (
-                                id, datahora, mes, cliente, telefone, portal, 
-                                veiculo_interesse, veiculo_troca, vendedor, vendedor_sdr, negociacao, status,
-                                data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline, valor_proposta, cpf_cliente, historico_log
-                            )
-                            VALUES (
-                                @id, @datahora, @mes, @cliente, @telefone, @portal, 
-                                @veiculo_interesse, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao, @status,
-                                @data_agendamento, @temperatura, @motivo_perda, @forma_pagamento, @status_pipeline, @valor_proposta, @cpf_cliente, @historico_log
-                            )
+                            INSERT INTO visitas(
+                    id, datahora, mes, cliente, telefone, portal,
+                    veiculo_interesse, veiculo_troca, vendedor, vendedor_sdr, negociacao, status,
+                    data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline, valor_proposta, cpf_cliente, historico_log
+                )
+        VALUES(
+            @id, @datahora, @mes, @cliente, @telefone, @portal,
+            @veiculo_interesse, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao, @status,
+            @data_agendamento, @temperatura, @motivo_perda, @forma_pagamento, @status_pipeline, @valor_proposta, @cpf_cliente, @historico_log
+        )
                             ON CONFLICT(id) DO UPDATE SET
-                                datahora=excluded.datahora, mes=excluded.mes, cliente=excluded.cliente, telefone=excluded.telefone,
-                                portal=excluded.portal, veiculo_interesse=excluded.veiculo_interesse, veiculo_troca=excluded.veiculo_troca,
-                                vendedor=excluded.vendedor, vendedor_sdr=excluded.vendedor_sdr, negociacao=excluded.negociacao,
-                                status=excluded.status, data_agendamento=excluded.data_agendamento, temperatura=excluded.temperatura,
-                                motivo_perda=excluded.motivo_perda, forma_pagamento=excluded.forma_pagamento,
-                                status_pipeline=excluded.status_pipeline, valor_proposta=excluded.valor_proposta,
-                                cpf_cliente=excluded.cpf_cliente, historico_log=excluded.historico_log
-                         `).run(newRec);
+        datahora = excluded.datahora, mes = excluded.mes, cliente = excluded.cliente, telefone = excluded.telefone,
+            portal = excluded.portal, veiculo_interesse = excluded.veiculo_interesse, veiculo_troca = excluded.veiculo_troca,
+            vendedor = excluded.vendedor, vendedor_sdr = excluded.vendedor_sdr, negociacao = excluded.negociacao,
+            status = excluded.status, data_agendamento = excluded.data_agendamento, temperatura = excluded.temperatura,
+            motivo_perda = excluded.motivo_perda, forma_pagamento = excluded.forma_pagamento,
+            status_pipeline = excluded.status_pipeline, valor_proposta = excluded.valor_proposta,
+            cpf_cliente = excluded.cpf_cliente, historico_log = excluded.historico_log
+                `).run(newRec);
                     }
                     BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'visitas'));
                 } catch (e) { console.error("Erro Realtime Visitas:", e); }
             }
         )
+        // 🔥 NOVO LISTENER: Configurações (Prompts de IA)
         .on(
             'postgres_changes',
-            { event: '*', schema: 'public', table: 'portais' },
-            async (payload) => {
+            { event: '*', schema: 'public', table: 'crm_settings' },
+            (payload) => {
                 if (syncLock) return;
-                console.log('⚡ [Realtime] Portal Alterado:', payload.eventType);
+                console.log('🧩 [Realtime] Config Alterada:', payload.eventType);
                 const { new: newRec, old: oldRec, eventType } = payload;
-                try {
-                    if (eventType === 'DELETE' && oldRec) {
-                        db.prepare("DELETE FROM portais WHERE nome = ?").run(oldRec.nome);
-                    } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
-                        db.prepare("INSERT INTO portais (nome, ativo) VALUES (@nome, @ativo) ON CONFLICT(nome) DO UPDATE SET ativo=excluded.ativo")
-                            .run({ nome: newRec.nome, ativo: newRec.ativo ? 1 : 0 });
+
+                if (eventType === 'INSERT' || eventType === 'UPDATE') {
+                    if (newRec) {
+                        db.prepare(`
+                            INSERT INTO crm_settings(key, value, updated_at) VALUES(@key, @value, @updated_at)
+                            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            `).run(newRec);
                     }
-                    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'portais'));
-                } catch (e) { console.error("Erro Realtime Portais:", e); }
+                } else if (eventType === 'DELETE' && oldRec) {
+                    db.prepare("DELETE FROM crm_settings WHERE key = ?").run(oldRec.key);
+                }
+                // Avisa o Frontend que o prompt mudou
+                BrowserWindow.getAllWindows().forEach(w => w.webContents.send('config-updated', newRec?.key));
             }
         )
-        .subscribe();
+        .subscribe((status) => {
+            console.log("📡 [Supabase Status]:", status);
+        });
 }
 
 // --- METAS & PERFORMANCE ---
@@ -1810,7 +1651,7 @@ export function enableRealtimeSync() {
 export function getConfigMeta() {
     try {
         const metaVisitas = db.prepare("SELECT valor FROM config WHERE chave = 'meta_visitas_semanal'").get()?.valor || '0';
-        const metaVendas = db.prepare("SELECT valor FROM config WHERE chave = 'meta_vendas_mensal'").get()?.valor || '0';
+
         return { visita_semanal: parseInt(metaVisitas), venda_mensal: parseInt(metaVendas) };
     } catch (err) {
         console.error("Erro ao ler metas:", err);
@@ -1837,7 +1678,7 @@ export function getConfig(key) {
         const row = db.prepare("SELECT valor FROM config WHERE chave = ?").get(key);
         return row ? row.valor : null;
     } catch (err) {
-        console.error(`Erro ao ler config [${key}]:`, err);
+        console.error(`Erro ao ler config[${key}]: `, err);
         return null;
     }
 }
@@ -1847,7 +1688,7 @@ export function saveConfig(key, value) {
         db.prepare("INSERT INTO config (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor").run(key, value);
         return { success: true };
     } catch (err) {
-        console.error(`Erro ao salvar config [${key}]:`, err);
+        console.error(`Erro ao salvar config[${key}]: `, err);
         throw err;
     }
 }
@@ -1886,17 +1727,17 @@ export function getSdrPerformance() {
             const visitas = db.prepare(`
                 SELECT COUNT(*) as count FROM visitas
                 WHERE vendedor_sdr = ?
-                AND (status_pipeline = 'Agendado' OR status_pipeline = 'Visita Realizada' OR status_pipeline = 'Vendido' OR status_pipeline = 'Proposta')
+            AND(status_pipeline = 'Agendado' OR status_pipeline = 'Visita Realizada' OR status_pipeline = 'Vendido' OR status_pipeline = 'Proposta')
                 AND data_agendamento BETWEEN ? AND ?
-             `).get(u.username, weekIsoStart, weekIsoEnd).count;
+            `).get(u.username, weekIsoStart, weekIsoEnd).count;
 
             // Meta Mensal: VENDAS (status_pipeline = 'Vendido') no mês corrente
             const vendas = db.prepare(`
                 SELECT COUNT(*) as count FROM visitas
                 WHERE vendedor_sdr = ?
-                AND status_pipeline = 'Vendido'
+            AND status_pipeline = 'Vendido'
                 AND data_agendamento BETWEEN ? AND ?
-             `).get(u.username, monthIsoStart, monthIsoEnd).count;
+            `).get(u.username, monthIsoStart, monthIsoEnd).count;
 
             performance.push({
                 username: u.username,
@@ -1914,3 +1755,47 @@ export function getSdrPerformance() {
     }
 }
 
+
+// --- NOVAS FUNCOES DA CONFIG IA ---
+
+export function getAllSettings() {
+    try {
+        const rows = db.prepare('SELECT key, value FROM crm_settings').all();
+        // Converte de array [{key: 'a', value: '1'}] para objeto {a: '1'}
+        return rows.reduce((acc, row) => {
+            acc[row.key] = row.value;
+            return acc;
+        }, {});
+    } catch (e) { return {}; }
+}
+
+export async function saveSettingsBatch(settingsObj) {
+    const updated_at = new Date().toISOString();
+    const stmt = db.prepare('INSERT INTO crm_settings (key, value, updated_at) VALUES (@key, @value, @updated_at) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at');
+
+    const updateMany = db.transaction((items) => {
+        for (const [key, rawValue] of Object.entries(items)) {
+            // Garante que tudo seja string para evitar erro de tipo no SQLite/Postgres
+            const value = rawValue === null || rawValue === undefined ? '' : String(rawValue);
+            stmt.run({ key, value, updated_at });
+        }
+    });
+
+    try {
+        updateMany(settingsObj);
+
+        // Sync Nuvem em Lote (Tentativa segura)
+        try {
+            const cloudData = Object.entries(settingsObj).map(([key, value]) => ({ key, value, updated_at }));
+            const { error } = await supabase.from('crm_settings').upsert(cloudData);
+            if (error) console.warn("⚠️ Aviso: Não foi possível sincronizar configs com a nuvem (Tabela existe?). Erro:", error.message);
+        } catch (cloudErr) {
+            console.warn("⚠️ Erro de rede ao sincronizar configs:", cloudErr);
+        }
+
+        return { success: true };
+    } catch (e) {
+        console.error('Erro Crítico ao Salvar Configs (Local):', e);
+        throw e;
+    }
+}

@@ -202,8 +202,8 @@ Deno.serve(async (req) => {
                 return new Response("EVENT_RECEIVED", { status: 200 });
             }
 
-            // 4. INTELIGÊNCIA DO DIEGO
-            console.log(`🧠 Diego SDR processando...`);
+            // 4. INTELIGÊNCIA DO AGENTE IA
+            console.log(`🧠 Agente IA IRW Motors processando...`);
 
             const origin = detectOrigin(text);
 
@@ -311,8 +311,8 @@ Deno.serve(async (req) => {
 
             // Fallbacks padrão caso o banco falhe ou esteja vazio
             const config = {
-                system_prompt: diegoConfigs.system_prompt || `Você é o Diego, consultor comercial da IRW Motors em Brasília.`,
-                presentation_prompt: diegoConfigs.apresentacao_prompt || `Ao apresentar um veículo: Destaque diferenciais e só fale preço se perguntado.`,
+                system_prompt: diegoConfigs.system_prompt || `Você é o Agente IA da IRW Motors, consultor comercial especializado em atendimento de alta performance em Brasília.`,
+                presentation_prompt: diegoConfigs.apresentacao_prompt || `Ao apresentar um veículo: Destaque diferenciais, valorize o estado de conservação e só fale preço de forma consultiva.`,
                 temperature: parseFloat(diegoConfigs.temperature || '0.7'),
                 response_style: diegoConfigs.response_style || 'amigável',
                 use_emoji: diegoConfigs.use_emoji === 'true',
@@ -393,7 +393,7 @@ IMPORTANTE: Siga rigorosamente o ESTILO definido acima.`;
             }
 
             const replyText = aiData.content?.[0]?.text || "Um momento, estou verificando! 🔍";
-            console.log(`📤 Diego: ${replyText.substring(0, 80)}...`);
+            console.log(`📤 Agente IA: ${replyText.substring(0, 80)}...`);
 
             // SIMULAR DIGITAÇÃO (Respeitando velocidade configurada)
             let typingDelay = 1000;

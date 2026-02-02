@@ -49,16 +49,16 @@ const ResetPassword = ({ user, onComplete }) => {
                         <Key size={32} className="text-white lg:w-10 lg:h-10" />
                     </div>
 
-                    <h1 className="text-xl lg:text-2xl font-black text-white tracking-widest  italic mb-2">
+                    <h1 className="text-xl lg:text-2xl font-black text-white tracking-widest mb-2 uppercase">
                         NOVA <span className="text-purple-400">SENHA</span>
                     </h1>
-                    <p className="text-gray-400 text-[10px] lg:text-xs font-bold  tracking-widest leading-relaxed mb-6 lg:mb-10">
+                    <p className="text-gray-400 text-[11px] lg:text-xs font-bold tracking-widest leading-relaxed mb-6 lg:mb-10 uppercase">
                         {user.username.toUpperCase()}, POR SEGURANÇA,<br />DEFINA UMA SENHA PESSOAL AGORA.
                     </p>
 
                     <form onSubmit={handleSubmit} className="space-y-4 text-left">
                         <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400  ml-4 tracking-widest">Nova Senha</label>
+                            <label className="text-[11px] font-black text-gray-400 ml-4 tracking-widest uppercase">Nova Senha</label>
                             <div className="relative group">
                                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-purple-400 transition-colors" size={18} />
                                 <input
@@ -73,7 +73,7 @@ const ResetPassword = ({ user, onComplete }) => {
                         </div>
 
                         <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400  ml-4 tracking-widest">Confirmar Senha</label>
+                            <label className="text-[11px] font-black text-gray-400 ml-4 tracking-widest uppercase">Confirmar Senha</label>
                             <div className="relative group">
                                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-purple-400 transition-colors" size={18} />
                                 <input
@@ -91,7 +91,7 @@ const ResetPassword = ({ user, onComplete }) => {
                             <motion.div
                                 initial={{ opacity: 0, x: -10 }}
                                 animate={{ opacity: 1, x: 0 }}
-                                className="flex items-center gap-2 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[10px] font-bold  tracking-wider"
+                                className="flex items-center gap-2 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[11px] font-bold tracking-wider uppercase"
                             >
                                 <AlertCircle size={14} />
                                 {error}

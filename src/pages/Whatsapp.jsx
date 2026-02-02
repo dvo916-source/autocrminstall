@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from '
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import NewVisitModal from '../components/NewVisitModal';
+import QuickVisitForm from '../components/QuickVisitForm';
 
 // Error Boundary para capturar crashes do React
 class ErrorBoundary extends React.Component {
@@ -45,7 +46,7 @@ const DirectChatForm = ({ onSend }) => {
 
     return (
         <div className="px-2">
-            <div className="text-[9px] font-black text-gray-400  tracking-widest mb-2 ml-1">Conversa Direta</div>
+            <div className="text-[11px] font-black text-gray-400 tracking-widest mb-2 ml-1 uppercase">Conversa Direta</div>
             <form onSubmit={handleSubmit} className="relative group">
                 <input
                     type="text"
@@ -100,23 +101,23 @@ const CarCard = memo(({ car, onSendPhotos, onSendInfo, onPasteLink, loadingCar }
                     </div>
 
                     <div className="min-w-0 flex-1 flex flex-col justify-between py-0.5">
-                        <h4 className="text-sm font-bold text-white leading-tight font-rajdhani tracking-tight line-clamp-2 group-hover:text-cyan-400 transition-colors">
+                        <h4 className="text-sm font-bold text-white leading-tight tracking-tight line-clamp-2 group-hover:text-cyan-400 transition-colors">
                             {car.nome.split('#')[0]}
                         </h4>
 
                         <div className="flex flex-col items-start gap-1">
-                            <span className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 font-rajdhani tracking-tight drop-shadow-sm">
+                            <span className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-tight drop-shadow-sm">
                                 {car.valor || 'R$ 0,00'}
                             </span>
 
                             <div className="flex flex-wrap gap-1.5 opacity-80">
                                 {car.ano && (
-                                    <span className="px-1.5 py-0.5 bg-white/5 rounded text-[9px] font-semibold text-gray-400 font-rajdhani border border-white/5">
+                                    <span className="px-1.5 py-0.5 bg-white/5 rounded text-[10px] font-semibold text-gray-400 border border-white/5">
                                         {car.ano}
                                     </span>
                                 )}
                                 {car.km && (
-                                    <span className="px-1.5 py-0.5 bg-white/5 rounded text-[9px] font-semibold text-gray-400 font-rajdhani border border-white/5 lowercase">
+                                    <span className="px-1.5 py-0.5 bg-white/5 rounded text-[10px] font-semibold text-gray-400 border border-white/5 lowercase">
                                         {car.km}
                                     </span>
                                 )}
@@ -130,7 +131,7 @@ const CarCard = memo(({ car, onSendPhotos, onSendInfo, onPasteLink, loadingCar }
                     <button
                         onClick={() => onSendPhotos(car)}
                         disabled={loadingCar === car.nome}
-                        className={`btn-cyber-primary w-full flex items-center justify-center gap-2 text-[10px] py-3
+                        className={`btn-cyber-primary w-full flex items-center justify-center gap-2 text-[11px] py-3
                             ${loadingCar === car.nome ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
                     >
                         {loadingCar === car.nome ? (
@@ -144,13 +145,13 @@ const CarCard = memo(({ car, onSendPhotos, onSendInfo, onPasteLink, loadingCar }
                     <div className="grid grid-cols-2 gap-2">
                         <button
                             onClick={(e) => { e.currentTarget.blur(); onSendInfo(car); }}
-                            className="btn-cyber-secondary text-[9px] py-2.5"
+                            className="btn-cyber-secondary text-[11px] py-2.5"
                         >
                             <ListCheck size={12} className="text-gray-400 group-hover:text-cyan-400 transition-colors" /> INFOS
                         </button>
                         <button
                             onClick={(e) => { e.currentTarget.blur(); onPasteLink(car.link); }}
-                            className="btn-cyber-secondary text-[9px] py-2.5"
+                            className="btn-cyber-secondary text-[11px] py-2.5"
                         >
                             <ExternalLink size={12} className="text-gray-400 group-hover:text-cyan-400 transition-colors" /> LINK
                         </button>
@@ -171,6 +172,7 @@ const Whatsapp = () => {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
+    const [isQuickVisitOpen, setIsQuickVisitOpen] = useState(false);
     const [newScript, setNewScript] = useState({ titulo: '', mensagem: '', isSystem: false, link: '' });
 
     const [editingScript, setEditingScript] = useState(null);
@@ -191,7 +193,9 @@ const Whatsapp = () => {
 
     // Observer para notificar o Service sobre mudanças na Sidebar (para redimensionar o Webview)
     useEffect(() => {
-        window.dispatchEvent(new CustomEvent('whatsapp-sidebar-toggle', { detail: isSidebarOpen }));
+        window.dispatchEvent(new CustomEvent('whatsapp-sidebar-toggle', {
+            detail: { isOpen: isSidebarOpen, width: 320 }
+        }));
     }, [isSidebarOpen]);
 
     const handleDirectChat = useCallback((phone) => {
@@ -339,7 +343,11 @@ const Whatsapp = () => {
             }
         };
         ipcRenderer.on('sync-status', handleRefresh);
-        return () => ipcRenderer.removeListener('sync-status', handleRefresh);
+        ipcRenderer.on('refresh-data', handleRefresh);
+        return () => {
+            ipcRenderer.removeListener('sync-status', handleRefresh);
+            ipcRenderer.removeListener('refresh-data', handleRefresh);
+        };
     }, []);
 
 
@@ -475,14 +483,31 @@ const Whatsapp = () => {
     const handleSendInfo = useCallback(async (car) => {
         const enriched = await enrichCarData(car);
         const cleanName = enriched.nome.split('#')[0].trim();
+
+        // Formata KM se for numérico puro (ex: 182000 -> 182.000)
+        let formattedKm = enriched.km;
+        if (typeof formattedKm === 'string') {
+            const onlyDigits = formattedKm.replace(/\D/g, '');
+            if (onlyDigits.length > 0) {
+                formattedKm = Number(onlyDigits).toLocaleString('pt-BR') + ' km';
+            }
+        }
+
         const message = [
             `*${cleanName}*`,
+            "",
             `📅 Ano: ${enriched.ano || 'Consulte'}`,
             `⚙️ Câmbio: ${enriched.cambio}`,
-            `🛣️ KM: ${enriched.km}`,
-            `💰 ${enriched.valor}`
+            `🛣️ KM: ${formattedKm}`,
+            `💰 ${enriched.valor}`,
+            "\n" // Espaço extra para permitir empilhar vários cliques
         ].join('\n');
+
         pasteToWhatsapp(message);
+    }, [pasteToWhatsapp]); // pasteToWhatsapp agora é estável
+
+    const handlePasteLink = useCallback((link) => {
+        pasteToWhatsapp(link);
     }, [pasteToWhatsapp]); // pasteToWhatsapp agora é estável
 
     const parsePrice = useCallback((priceStr) => {
@@ -558,7 +583,7 @@ const Whatsapp = () => {
                             {/* Header */}
                             <div className="shrink-0 space-y-4 mb-4">
                                 <div className="flex items-center justify-between px-2">
-                                    <h2 className="text-xl font-black text-white italic tracking-tighter flex items-center gap-2">
+                                    <h2 className="text-xl font-black text-white tracking-tighter flex items-center gap-2">
                                         <span className="w-1 h-6 bg-gradient-to-b from-blue-500 to-purple-500 rounded-full block"></span>
                                         {activeTab === 'veiculos' ? 'CATÁLOGO' : 'SCRIPTS'}
                                     </h2>
@@ -573,13 +598,13 @@ const Whatsapp = () => {
                                 <div className="bg-black/40 p-1.5 rounded-2xl flex gap-1 border border-white/5">
                                     <button
                                         onClick={() => setActiveTab('templates')}
-                                        className={`flex-1 transition-all rounded-xl py-2 text-[10px] font-bold  tracking-widest ${activeTab === 'templates' ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
+                                        className={`flex-1 transition-all rounded-xl py-2 text-[11px] font-bold tracking-widest uppercase ${activeTab === 'templates' ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
                                     >
                                         Scripts
                                     </button>
                                     <button
                                         onClick={() => setActiveTab('veiculos')}
-                                        className={`flex-1 transition-all rounded-xl py-2 text-[10px] font-bold  tracking-widest ${activeTab === 'veiculos' ? 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg shadow-orange-500/20' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
+                                        className={`flex-1 transition-all rounded-xl py-2 text-[11px] font-bold tracking-widest uppercase ${activeTab === 'veiculos' ? 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg shadow-orange-500/20' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
                                     >
                                         Estoque
                                     </button>
@@ -595,14 +620,28 @@ const Whatsapp = () => {
                                         <div className="px-2 mt-2">
                                             <div className="px-2 mt-2">
                                                 <button
-                                                    onClick={() => setIsVisitModalOpen(true)}
-                                                    className="btn-cyber-primary w-full flex items-center justify-center gap-2 text-xs py-2.5"
+                                                    onClick={() => setIsQuickVisitOpen(!isQuickVisitOpen)}
+                                                    className={`w-full flex items-center justify-center gap-2 text-xs py-2.5 rounded-xl transition-all border font-black tracking-widest
+                                                        ${isQuickVisitOpen
+                                                            ? 'bg-red-500/10 border-red-500/50 text-red-500 hover:bg-red-500 hover:text-white'
+                                                            : 'btn-cyber-primary'}`}
                                                 >
-                                                    <CalendarIcon size={16} strokeWidth={2.5} />
-                                                    Agendar Visita
+                                                    {isQuickVisitOpen ? (
+                                                        <> <X size={16} /> Cancelar Agendamento </>
+                                                    ) : (
+                                                        <> <CalendarIcon size={16} strokeWidth={2.5} /> Agendar Visita </>
+                                                    )}
                                                 </button>
                                             </div>
                                         </div>
+
+                                        <AnimatePresence>
+                                            {isQuickVisitOpen && (
+                                                <div className="px-4 mt-2">
+                                                    <QuickVisitForm onClose={() => setIsQuickVisitOpen(false)} />
+                                                </div>
+                                            )}
+                                        </AnimatePresence>
 
                                         <div className="space-y-2 mt-4 overflow-y-auto flex-1 pr-2 custom-scrollbar">
                                             {/* Scripts Fixos */}
@@ -613,8 +652,8 @@ const Whatsapp = () => {
                                                     onClick={() => pasteToWhatsapp(script.mensagem)}
                                                     className="bg-blue-900/20 p-3 rounded-xl border border-blue-500/20 hover:border-blue-500/50 cursor-pointer group active:scale-95 transition-all mb-2"
                                                 >
-                                                    <h3 className="text-xs font-black text-blue-300  mb-1">{script.titulo}</h3>
-                                                    <p className="text-[10px] text-gray-400 line-clamp-2 leading-relaxed">{script.mensagem}</p>
+                                                    <h3 className="text-xs font-black text-blue-300 mb-1">{script.titulo}</h3>
+                                                    <p className="text-[11px] text-gray-400 line-clamp-2 leading-relaxed">{script.mensagem}</p>
                                                 </div>
                                             ))}
 
@@ -632,7 +671,7 @@ const Whatsapp = () => {
                                                                     <button onClick={(e) => { e.stopPropagation(); handleDeleteScript(e, script.id); }} className="p-1 hover:text-red-400"><Trash2 size={12} /></button>
                                                                 </div>
                                                             </div>
-                                                            <p className="text-[10px] text-gray-500 line-clamp-2">{script.mensagem}</p>
+                                                            <p className="text-[11px] text-gray-500 line-clamp-2">{script.mensagem}</p>
                                                         </div>
                                                     </Reorder.Item>
                                                 ))}
@@ -657,18 +696,18 @@ const Whatsapp = () => {
                                             placeholder="Preço Máximo (ex: 50000)"
                                             value={priceLimit}
                                             onChange={(e) => setPriceLimit(e.target.value)}
-                                            className="w-full bg-black/30 text-[10px] text-white px-3 py-2 rounded-lg border border-white/10 outline-none focus:border-orange-500/50 mb-4"
+                                            className="w-full bg-black/30 text-[11px] text-white px-3 py-2 rounded-lg border border-white/10 outline-none focus:border-orange-500/50 mb-4"
                                         />
 
                                         <div className="space-y-3 overflow-y-auto flex-1 pr-2 custom-scrollbar pb-20">
                                             {filteredEstoque.map(car => (
                                                 <CarCard
-                                                    key={car.id}
+                                                    key={car.id || car.nome}
                                                     car={car}
                                                     loadingCar={loadingCar}
                                                     onSendPhotos={handleSendPhotos}
                                                     onSendInfo={handleSendInfo}
-                                                    onPasteLink={(link) => pasteToWhatsapp(link)}
+                                                    onPasteLink={handlePasteLink}
                                                 />
                                             ))}
                                             {filteredEstoque.length === 0 && <div className="text-center text-gray-500 text-xs py-10">Nenhum veículo encontrado.</div>}
@@ -686,13 +725,13 @@ const Whatsapp = () => {
                         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
                             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsAddModalOpen(false)} className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-sm" />
                             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] p-8 shadow-2xl">
-                                <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black text-white italic tracking-tighter ">Novo Script</h3><button onClick={() => setIsAddModalOpen(false)} className="p-2 text-gray-500 hover:text-white transition-colors"><X /></button></div>
+                                <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black text-white tracking-tighter ">Novo Script</h3><button onClick={() => setIsAddModalOpen(false)} className="p-2 text-gray-500 hover:text-white transition-colors"><X /></button></div>
                                 <form onSubmit={handleAddScript} className="space-y-4">
                                     <input className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 font-bold text-sm" placeholder="TÍTULO DO ATALHO" value={newScript.titulo} onChange={e => setNewScript({ ...newScript, titulo: e.target.value.toUpperCase() })} required />
                                     <textarea className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 font-medium text-sm h-32 resize-none" placeholder="MENSAGEM..." value={newScript.mensagem} onChange={e => setNewScript({ ...newScript, mensagem: e.target.value })} required />
 
                                     <div className="space-y-1.5">
-                                        <label className="text-[10px] font-black text-gray-400  ml-4 tracking-widest">🔗 Link (Opcional)</label>
+                                        <label className="text-[11px] font-black text-gray-400 ml-4 tracking-widest uppercase">🔗 Link (Opcional)</label>
                                         <input type="url" className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 font-medium text-sm" placeholder="https://exemplo.com" value={newScript.link} onChange={e => setNewScript({ ...newScript, link: e.target.value })} />
                                     </div>
 

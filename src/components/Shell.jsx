@@ -147,7 +147,7 @@ const Shell = ({ children, user, onLogout }) => {
                         <div className="relative leading-none select-none">
                             <h1 className="text-5xl font-bold italic tracking-tighter text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)] font-rajdhani"
                                 style={{ transform: 'skewX(-6deg)' }}>
-                                SDR
+                                IRW
                             </h1>
                             {/* O Corte Diagonal */}
                             <div className="absolute top-[45%] -left-2 -right-2 h-[3px] bg-[#0f172a] -rotate-[15deg] transform border-y border-cyan-900/30 pointer-events-none" />

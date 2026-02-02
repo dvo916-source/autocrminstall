@@ -23,6 +23,7 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
     const [portais, setPortais] = useState([]);
     const [vendedores, setVendedores] = useState([]);
     const [estoque, setEstoque] = useState([]);
+    const [usuarios, setUsuarios] = useState([]);
     const [currentUser, setCurrentUser] = useState(null);
 
     const [formData, setFormData] = useState({
@@ -40,6 +41,25 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
         const d = date || new Date();
         const pad = n => n.toString().padStart(2, '0');
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
+    // Formatter helpers
+    const maskPhone = (val) => {
+        let v = val.replace(/\D/g, '');
+        if (v.length > 11) v = v.substring(0, 11);
+        if (v.length > 10) return `(${v.substring(0, 2)}) ${v.substring(2, 3)} ${v.substring(3, 7)}-${v.substring(7)}`;
+        if (v.length > 6) return `(${v.substring(0, 2)}) ${v.substring(2, 6)}-${v.substring(6)}`;
+        if (v.length > 2) return `(${v.substring(0, 2)}) ${v.substring(2)}`;
+        return v;
+    };
+
+    const maskCPF = (val) => {
+        let v = val.replace(/\D/g, '');
+        if (v.length > 11) v = v.substring(0, 11);
+        if (v.length > 9) return `${v.substring(0, 3)}.${v.substring(3, 6)}.${v.substring(6, 9)}-${v.substring(9)}`;
+        if (v.length > 6) return `${v.substring(0, 3)}.${v.substring(3, 6)}.${v.substring(6)}`;
+        if (v.length > 3) return `${v.substring(0, 3)}.${v.substring(3)}`;
+        return v;
     };
 
     useEffect(() => {
@@ -76,15 +96,17 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
             const { ipcRenderer } = window.require('electron');
 
             // Parallel fetch for speed
-            const [localPortais, localVendedores, localEstoque] = await Promise.all([
+            const [localPortais, localVendedores, localEstoque, localUsers] = await Promise.all([
                 ipcRenderer.invoke('get-list', 'portais'),
                 ipcRenderer.invoke('get-list', 'vendedores'),
-                ipcRenderer.invoke('get-list', 'estoque')
+                ipcRenderer.invoke('get-list', 'estoque'),
+                ipcRenderer.invoke('get-list-users')
             ]);
 
             setPortais(localPortais ? localPortais.filter(i => i.ativo) : []);
             setVendedores(localVendedores ? localVendedores.filter(i => i.ativo) : []);
             setEstoque(localEstoque ? localEstoque.filter(i => i.ativo) : []);
+            setUsuarios((localUsers || []).filter(u => u.role === 'sdr' || !u.role));
         } catch (err) {
             console.error('Erro ao carregar dados do modal:', err);
         } finally {
@@ -119,7 +141,7 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
                     <span className="text-[11px] font-bold text-white truncate leading-tight group-hover:text-blue-400 transition-colors">
                         {v.nome}
                     </span>
-                    <div className="flex items-center gap-2 text-[8px] font-black  tracking-wider text-gray-500 mt-0.5">
+                    <div className="flex items-center gap-2 text-[10px] font-black tracking-wider text-gray-400 mt-0.5 uppercase">
                         {v.placa && <span className="text-gray-400">{v.placa}</span>}
                         {v.cor && <span>{v.cor}</span>}
                         {v.ano && <span>{v.ano}</span>}
@@ -235,8 +257,8 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
                         {/* Header Compacto */}
                         <div className="flex items-center justify-between px-8 py-5 border-b border-white/5 bg-white/[0.02]">
                             <div>
-                                <h2 className="text-2xl font-black text-white italic tracking-tighter  leading-none">Novo Agendamento</h2>
-                                <p className="text-blue-400 font-bold text-[10px] mt-1.5  tracking-widest flex items-center gap-2">
+                                <h2 className="text-2xl font-black text-white tracking-tighter leading-none">Novo Agendamento</h2>
+                                <p className="text-blue-400 font-bold text-[11px] mt-1.5 tracking-widest flex items-center gap-2">
                                     <span className="w-6 h-px bg-blue-500/50"></span>
                                     Sincronização em Tempo Real
                                 </p>
@@ -252,15 +274,15 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
 
                                 {/* 1. DADOS DO CLIENTE */}
                                 <div className="bg-white/[0.02] p-5 rounded-2xl border border-white/5 flex flex-col h-full">
-                                    <h3 className="text-[10px] font-black text-blue-400  mb-4 flex items-center gap-2 tracking-widest">
+                                    <h3 className="text-[11px] font-black text-blue-400 mb-4 flex items-center gap-2 tracking-widest uppercase">
                                         <Users size={14} /> Dados do Cliente
                                     </h3>
                                     <div className="grid grid-cols-1 gap-3 flex-1">
                                         <div className="grid grid-cols-3 gap-3">
                                             <div className="col-span-2">
-                                                <label className="text-[10px] text-gray-500 font-black  ml-1 mb-1 block tracking-widest">Nome do Cliente</label>
+                                                <label className="text-[11px] text-gray-500 font-black ml-1 mb-1 block tracking-widest uppercase">Nome do Cliente</label>
                                                 <input
-                                                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-white text-sm font-bold  tracking-wider outline-none focus:border-blue-500/50 transition-all placeholder:text-gray-500"
+                                                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-white text-base font-bold tracking-wider outline-none focus:border-blue-500/50 transition-all placeholder:text-gray-500"
                                                     placeholder="Ex: João Silva"
                                                     value={formData.cliente}
                                                     onChange={e => setFormData({ ...formData, cliente: e.target.value })}
@@ -268,7 +290,7 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
                                                 />
                                             </div>
                                             <div>
-                                                <label className="text-[10px] text-gray-500 font-black  ml-1 mb-1 block tracking-widest">Origem</label>
+                                                <label className="text-[11px] text-gray-500 font-black ml-1 mb-1 block tracking-widest uppercase">Origem</label>
                                                 <PremiumSelect
                                                     options={portais.map(p => ({ value: p.nome, label: p.nome }))}
                                                     value={formData.portal}
@@ -279,21 +301,21 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
                                         </div>
                                         <div className="grid grid-cols-2 gap-3">
                                             <div>
-                                                <label className="text-[10px] text-gray-500 font-black  ml-1 mb-1 block tracking-widest">WhatsApp</label>
+                                                <label className="text-[11px] text-gray-500 font-black ml-1 mb-1 block tracking-widest uppercase">WhatsApp</label>
                                                 <input
-                                                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-white text-sm font-bold font-mono  tracking-wider outline-none focus:border-blue-500/50 placeholder:text-gray-500"
-                                                    placeholder="(00) 0.0000-0000"
+                                                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-white text-base font-bold font-mono tracking-wider outline-none focus:border-blue-500/50 placeholder:text-gray-500 transition-all focus:bg-white/10"
+                                                    placeholder="(00) 0 0000-0000"
                                                     value={formData.telefone}
-                                                    onChange={e => setFormData({ ...formData, telefone: e.target.value })}
+                                                    onChange={e => setFormData({ ...formData, telefone: maskPhone(e.target.value) })}
                                                 />
                                             </div>
                                             <div>
-                                                <label className="text-[10px] text-gray-500 font-black  ml-1 mb-1 block tracking-widest">CPF (Opcional)</label>
+                                                <label className="text-[11px] text-gray-500 font-black ml-1 mb-1 block tracking-widest uppercase">CPF (Opcional)</label>
                                                 <input
-                                                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-white text-sm font-bold  tracking-wider outline-none focus:border-blue-500/50 placeholder:text-gray-500"
+                                                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-white text-base font-bold tracking-wider outline-none focus:border-blue-500/50 placeholder:text-gray-500 transition-all focus:bg-white/10"
                                                     placeholder="000.000.000-00"
                                                     value={formData.cpf_cliente}
-                                                    onChange={e => setFormData({ ...formData, cpf_cliente: e.target.value })}
+                                                    onChange={e => setFormData({ ...formData, cpf_cliente: maskCPF(e.target.value) })}
                                                 />
                                             </div>
                                         </div>
@@ -302,13 +324,13 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
 
                                 {/* 2. ATENDIMENTO (TOP RIGHT) */}
                                 <div className="bg-white/[0.02] p-5 rounded-2xl border border-white/5 flex flex-col h-full">
-                                    <h3 className="text-[10px] font-black text-orange-400  mb-4 flex items-center gap-2 tracking-widest">
+                                    <h3 className="text-[11px] font-black text-orange-400 mb-4 flex items-center gap-2 tracking-widest uppercase">
                                         <Clock size={14} /> Atendimento
                                     </h3>
                                     <div className="space-y-3 flex-1 flex flex-col justify-between">
                                         <div className="grid grid-cols-2 gap-3">
                                             <div>
-                                                <label className="text-[10px] text-gray-500 font-black  ml-1 mb-1 block tracking-widest">Consultor</label>
+                                                <label className="text-[11px] text-gray-500 font-black ml-1 mb-1 block tracking-widest uppercase">Consultor</label>
                                                 <PremiumSelect
                                                     options={vendedores.map(v => ({ value: v.nome, label: v.nome }))}
                                                     value={formData.vendedor}
@@ -317,15 +339,16 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
                                                 />
                                             </div>
                                             <div>
-                                                <label className="text-[10px] text-gray-500 font-black  ml-1 mb-1 block tracking-widest">Data & Hora</label>
+                                                <label className="text-[11px] text-gray-500 font-black ml-1 mb-1 block tracking-widest uppercase">Data & Hora</label>
                                                 <PremiumDatePicker
                                                     value={formData.data_agendamento}
                                                     onChange={val => setFormData({ ...formData, data_agendamento: val })}
+                                                    allowPastDates={['admin', 'gerente', 'master', 'developer'].includes(currentUser?.role)}
                                                 />
                                             </div>
                                         </div>
                                         <div>
-                                            <label className="text-[10px] text-gray-500 font-black  ml-1 mb-1 block tracking-widest">Temperatura</label>
+                                            <label className="text-[11px] text-gray-500 font-black ml-1 mb-1 block tracking-widest uppercase">Temperatura</label>
                                             <div className="flex gap-2">
                                                 {TEMPERATURAS.map(t => (
                                                     <button
@@ -337,8 +360,8 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
                                                             : 'bg-white/5 border-white/5 text-gray-600 grayscale hover:grayscale-0'
                                                             }`}
                                                     >
-                                                        <span className="text-sm">{t.label.split(' ')[0]}</span>
-                                                        <span className="text-[8px] font-black ">{t.label.split(' ')[1]}</span>
+                                                        <span className="text-base">{t.label.split(' ')[0]}</span>
+                                                        <span className="text-[9px] font-black uppercase">{t.label.split(' ')[1]}</span>
                                                     </button>
                                                 ))}
                                             </div>
@@ -348,12 +371,12 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
 
                                 {/* 3. INTERESSE & NEGÓCIO (BOTTOM LEFT) */}
                                 <div className="bg-white/[0.02] p-5 rounded-2xl border border-white/5 flex flex-col h-full">
-                                    <h3 className="text-[10px] font-black text-purple-400  mb-4 flex items-center gap-2 tracking-widest">
+                                    <h3 className="text-[11px] font-black text-purple-400 mb-4 flex items-center gap-2 tracking-widest uppercase">
                                         <Car size={14} /> Interesse & Negócio
                                     </h3>
                                     <div className="space-y-3 flex-1">
                                         <div>
-                                            <label className="text-[10px] text-gray-500 font-black  ml-1 mb-1 block tracking-widest">Carro Desejado</label>
+                                            <label className="text-[11px] text-gray-500 font-black ml-1 mb-1 block tracking-widest uppercase">Carro Desejado</label>
                                             <PremiumSelect
                                                 options={estoque.map(c => ({
                                                     value: c.nome,
@@ -369,16 +392,16 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
                                         </div>
                                         <div className="grid grid-cols-2 gap-3">
                                             <div>
-                                                <label className="text-[10px] text-gray-500 font-black  ml-1 mb-1 block tracking-widest">Veículo na Troca</label>
+                                                <label className="text-[11px] text-gray-500 font-black ml-1 mb-1 block tracking-widest uppercase">Veículo na Troca</label>
                                                 <input
-                                                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-white text-sm font-bold  tracking-wider outline-none focus:border-purple-500/50 placeholder:text-gray-500"
+                                                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-white text-base font-bold tracking-wider outline-none focus:border-purple-500/50 placeholder:text-gray-500"
                                                     placeholder="Algum carro?"
                                                     value={formData.veiculo_troca}
                                                     onChange={e => setFormData({ ...formData, veiculo_troca: e.target.value })}
                                                 />
                                             </div>
                                             <div>
-                                                <label className="text-[10px] text-gray-500 font-black  ml-1 mb-1 block tracking-widest">Forma Pagto</label>
+                                                <label className="text-[11px] text-gray-500 font-black ml-1 mb-1 block tracking-widest uppercase">Forma Pagto</label>
                                                 <PremiumSelect
                                                     options={FORMAS_PAGAMENTO}
                                                     value={formData.forma_pagamento}
@@ -392,11 +415,11 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
 
                                 {/* 4. NOTAS DA NEGOCIAÇÃO (BOTTOM RIGHT) */}
                                 <div className="bg-white/[0.02] p-5 rounded-2xl border border-white/5 flex flex-col h-full">
-                                    <h3 className="text-[10px] font-black text-emerald-400  mb-4 flex items-center gap-2 tracking-widest">
+                                    <h3 className="text-[11px] font-black text-emerald-400 mb-4 flex items-center gap-2 tracking-widest uppercase">
                                         <Edit2 size={14} /> Notas da Negociação
                                     </h3>
                                     <textarea
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-white text-sm font-medium outline-none focus:border-emerald-500/50 flex-1 resize-none transition-all placeholder:text-gray-500"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-white text-base font-medium outline-none focus:border-emerald-500/50 flex-1 resize-none transition-all placeholder:text-gray-500"
                                         placeholder="Detalhes rápidos da conversa..."
                                         value={formData.negociacao}
                                         onChange={e => setFormData({ ...formData, negociacao: e.target.value })}
@@ -404,10 +427,26 @@ const NewVisitModal = ({ isOpen, onClose, initialPhone = '' }) => {
                                 </div>
 
                                 {/* Botão Final */}
-                                <div className="md:col-span-2 pt-2">
+                                <div className="md:col-span-2 pt-2 flex flex-col gap-4">
+                                    {['admin', 'master', 'developer', 'gerente'].includes(currentUser?.role) && (
+                                        <div className="bg-blue-600/5 border border-blue-500/20 p-4 rounded-xl">
+                                            <div className="flex items-center gap-3 mb-2">
+                                                <Users size={14} className="text-blue-400" />
+                                                <span className="text-[10px] font-black text-blue-400 tracking-[0.2em] uppercase">Agendado Por (SDR)</span>
+                                            </div>
+                                            <PremiumSelect
+                                                options={usuarios.map(u => ({ value: u.username, label: u.nome_completo || u.username }))}
+                                                value={formData.vendedor_sdr}
+                                                onChange={val => setFormData({ ...formData, vendedor_sdr: val })}
+                                                placeholder="Selecione o SDR responsável..."
+                                                className="h-10"
+                                            />
+                                        </div>
+                                    )}
+
                                     <button
                                         type="submit"
-                                        className="w-full h-12 bg-gradient-to-r from-blue-700 to-blue-600 hover:from-blue-600 hover:to-blue-500 text-white font-black  tracking-[0.2em] text-[11px] rounded-xl transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.99] border-t border-white/20"
+                                        className="w-full h-12 bg-gradient-to-r from-blue-700 to-blue-600 hover:from-blue-600 hover:to-blue-500 text-white font-black tracking-[0.2em] text-[11px] rounded-xl transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.99] border-t border-white/20 uppercase"
                                     >
                                         <CheckCircle size={18} /> Gravar Agendamento
                                     </button>
