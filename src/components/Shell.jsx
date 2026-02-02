@@ -147,7 +147,7 @@ const Shell = ({ children, user, onLogout }) => {
                         <div className="relative leading-none select-none">
                             <h1 className="text-5xl font-bold italic tracking-tighter text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)] font-rajdhani"
                                 style={{ transform: 'skewX(-6deg)' }}>
-                                IRW
+                                SDR
                             </h1>
                             {/* O Corte Diagonal */}
                             <div className="absolute top-[45%] -left-2 -right-2 h-[3px] bg-[#0f172a] -rotate-[15deg] transform border-y border-cyan-900/30 pointer-events-none" />
@@ -232,6 +232,10 @@ const Shell = ({ children, user, onLogout }) => {
                             <div className="w-10 flex justify-center shrink-0"><LogOut size={20} className="group-hover:scale-110 transition-transform" /></div>
                             <span className={`text-[10px] font-bold tracking-widest transition-all duration-300 ${isSidebarHovered ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>SAIR</span>
                         </button>
+
+                        <div className={`mt-2 text-center transition-all duration-300 ${isSidebarHovered ? 'opacity-30 translate-y-0' : 'opacity-0 translate-y-2'}`}>
+                            <p className="text-[9px] font-black text-cyan-200 tracking-[0.2em]">VERSION 1.0.4</p>
+                        </div>
                     </div>
                 </div>
             </motion.aside>
