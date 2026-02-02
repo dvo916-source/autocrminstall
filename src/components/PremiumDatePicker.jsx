@@ -15,7 +15,7 @@ const TIME_SLOTS = [
     '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00'
 ];
 
-const PremiumDatePicker = ({ value, onChange }) => {
+const PremiumDatePicker = ({ value, onChange, allowPastDates = false }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [view, setView] = useState('date'); // 'date' | 'time'
     const [currentDate, setCurrentDate] = useState(new Date());
@@ -58,37 +58,38 @@ const PremiumDatePicker = ({ value, onChange }) => {
         }
     }, []);
 
-    // Calculate position
-    const [dropdownStyle, setDropdownStyle] = useState({});
-
-    useEffect(() => {
-        if (isOpen && containerRef.current) {
+    const updatePosition = () => {
+        if (containerRef.current) {
             const rect = containerRef.current.getBoundingClientRect();
             const spaceBelow = window.innerHeight - rect.bottom;
             const openUpwards = spaceBelow < 320;
 
+            const dropdownWidth = Math.max(rect.width, 280);
+            let leftPos = rect.left;
+
+            if (leftPos + dropdownWidth > window.innerWidth) {
+                leftPos = window.innerWidth - dropdownWidth - 10;
+            }
+
             setDropdownStyle({
                 position: 'fixed',
-                top: openUpwards ? (rect.top - 310) : (rect.bottom + 8),
-                left: rect.left,
-                width: rect.width, // Match input width
+                top: openUpwards ? (rect.top - 330) : (rect.bottom + 8),
+                left: leftPos,
+                width: dropdownWidth,
                 zIndex: 99999
             });
+        }
+    };
+
+    useEffect(() => {
+        if (isOpen) {
+            updatePosition();
         }
     }, [isOpen]);
 
     // Click Outside logic handles closing
     useEffect(() => {
         const handleClickOutside = (event) => {
-            // Check if click is inside input trigger OR inside dropdown content
-            // Since dropdown is in portal, containerRef checks input, we need check portal separately if needed
-            // Actually, safest is to check if target is NOT containerRef.
-            // But checking portal content is tricky. 
-            // EASIER: Use a transparent overlay? No, disrupts UX.
-            // BETTER: Check if click is within the Dropdown element using a ref, BUT dropdown is conditional.
-
-            // Common strategy: Assume click outside closes, UNLESS it hits the dropdown.
-            // We can attach a dataset attribute to dropdown and check event path.
             const isInsideInput = containerRef.current && containerRef.current.contains(event.target);
             const isInsideDropdown = event.target.closest('[data-datepicker-content="true"]');
 
@@ -97,10 +98,23 @@ const PremiumDatePicker = ({ value, onChange }) => {
             }
         };
 
+        const handleScroll = (e) => {
+            if (isOpen) {
+                const isInsideDropdown = e.target.closest && e.target.closest('[data-datepicker-content="true"]');
+                if (!isInsideDropdown) {
+                    updatePosition();
+                }
+            }
+        };
+
         if (isOpen) {
             document.addEventListener('mousedown', handleClickOutside);
+            window.addEventListener('scroll', handleScroll, true);
         }
-        return () => document.removeEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            window.removeEventListener('scroll', handleScroll, true);
+        };
     }, [isOpen]);
 
 
@@ -147,18 +161,18 @@ const PremiumDatePicker = ({ value, onChange }) => {
             <div
                 onClick={() => setIsOpen(!isOpen)}
                 className={`
-                    w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white 
+                    w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white 
                     cursor-pointer flex items-center justify-between transition-all hover:bg-white/10
                     ${isOpen ? 'border-cyan-500 ring-1 ring-cyan-500/50' : ''}
                 `}
             >
-                <div className="flex items-center gap-2">
-                    <CalendarIcon size={18} className="text-gray-500" />
-                    <span className={`text-sm font-bold  tracking-wider ${selectedDate ? 'text-white' : 'text-gray-500'}`}>
+                <div className="flex items-center gap-2 overflow-hidden">
+                    <CalendarIcon size={14} className="text-gray-600 shrink-0" />
+                    <span className={`text-[10px] font-bold tracking-wider truncate ${selectedDate ? 'text-white' : 'text-gray-500'}`}>
                         {formatDisplay()}
                     </span>
                 </div>
-                <ChevronDown size={16} className={`text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown size={14} className={`text-gray-600 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
             </div>
 
             {/* PORTAL CONTENT */}
@@ -230,8 +244,11 @@ const PremiumDatePicker = ({ value, onChange }) => {
                                                     const day = i + 1;
                                                     const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
                                                     const isToday = date.getTime() === today.getTime();
-                                                    const isSelected = selectedDate && date.getTime() === new Date(selectedDate.setHours(0, 0, 0, 0)).getTime();
-                                                    const isPast = date < today;
+
+                                                    // Normalize for comparison
+                                                    const compareSelected = selectedDate ? new Date(selectedDate.getTime()).setHours(0, 0, 0, 0) : null;
+                                                    const isSelected = selectedDate && date.getTime() === compareSelected;
+                                                    const isPast = !allowPastDates && date < today;
 
                                                     return (
                                                         <button
@@ -240,14 +257,14 @@ const PremiumDatePicker = ({ value, onChange }) => {
                                                             onClick={(e) => { e.stopPropagation(); !isPast && handleDateClick(day); }}
                                                             disabled={isPast}
                                                             className={`
-                                                                h-8 rounded-lg text-xs font-medium transition-all relative
+                                                                h-8 rounded-lg text-[10px] font-bold transition-all relative
                                                                 ${isSelected
-                                                                    ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/30'
+                                                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
                                                                     : isPast
-                                                                        ? 'text-gray-700 cursor-not-allowed'
+                                                                        ? 'text-gray-800 cursor-not-allowed'
                                                                         : 'text-gray-300 hover:bg-white/10 hover:text-white'
                                                                 }
-                                                                ${isToday && !isSelected ? 'border border-cyan-500/50 text-cyan-400' : ''}
+                                                                ${isToday && !isSelected ? 'border border-blue-500/50 text-blue-400' : ''}
                                                             `}
                                                         >
                                                             {day}

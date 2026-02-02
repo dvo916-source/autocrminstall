@@ -1,6 +1,7 @@
 @echo off
 title INSTALADOR UNIVERSAL SDR IRW MOTORS (V2.1)
 color 0A
+cd ../..
 
 echo ========================================================
 echo   INSTALADOR UNIVERSAL - SDR IRW MOTORS

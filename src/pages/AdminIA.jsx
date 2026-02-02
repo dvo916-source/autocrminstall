@@ -128,7 +128,7 @@ const AdminIA = () => {
                 <div className="flex gap-4 mb-10 p-2 bg-white/5 backdrop-blur-3xl rounded-[2rem] border border-white/5">
                     {[
                         { id: 'meta', label: 'Meta API Interface', icon: Link, color: 'cyan' },
-                        { id: 'diego', label: 'Neural Behavior', icon: Brain, color: 'purple' },
+                        { id: 'diego', label: 'IA Identity', icon: Brain, color: 'purple' },
                         { id: 'faqs', label: 'Knowledge Base', icon: Database, color: 'emerald' }
                     ].map(tab => (
                         <button

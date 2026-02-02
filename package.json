@@ -13,7 +13,7 @@
     "electron:dev": "vite",
     "electron:build": "vite build && electron-builder",
     "build:portable": "vite build && electron-builder --win portable",
-    "build:installer": "vite build && electron-builder --win nsis dir"
+    "build:installer": "vite build && electron-builder --win nsis"
   },
   "build": {
     "appId": "com.irwmotors.app",
@@ -29,9 +29,17 @@
       }
     ],
     "win": {
-      "target": "portable",
+      "target": "nsis",
       "verifyUpdateCodeSignature": false,
       "forceCodeSigning": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "SDR IRW Motors",
+      "artifactName": "SDR_IRW_Motors_Setup_${version}.exe"
     },
     "portable": {
       "artifactName": "SDR_Crystal_Portable.exe"

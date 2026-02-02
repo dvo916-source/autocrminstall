@@ -4,6 +4,7 @@ const { autoUpdater } = pkg;
 import path from 'path';
 import { fileURLToPath } from 'url';
 import * as db from './db.js';
+import * as aiservice from './aiservice.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,6 +17,7 @@ let whatsappViewReady = false;
 // Inicializa Banco e Sincronização em Tempo Real
 db.initDb();
 db.enableRealtimeSync();
+aiservice.initAi(); // Inicia o Neural Engine
 
 // Fix Notification Title on Windows
 if (process.platform === 'win32') {
@@ -111,11 +113,14 @@ function createWindow() {
             try {
                 console.log('[AutoSync] Iniciando sincronização essencial (Usuários/Config)...');
                 await db.syncConfig();
-                console.log('[AutoSync] Iniciando atualização de estoque na Nuvem...');
+                console.log('[AutoSync] Sincronizando estoque da NUVEM para este PC...');
                 if (!win.isDestroyed()) win.webContents.send('sync-status', { loading: true });
                 const result = await db.syncXml();
                 console.log('[AutoSync] Concluído:', result.message);
-                if (!win.isDestroyed()) win.webContents.send('sync-status', { loading: false, success: true });
+                if (!win.isDestroyed()) {
+                    win.webContents.send('sync-status', { loading: false, success: true });
+                    win.webContents.send('refresh-data', 'estoque');
+                }
             } catch (err) {
                 console.error('[AutoSync] Erro:', err);
                 if (!win.isDestroyed()) win.webContents.send('sync-status', { loading: false, success: false });
@@ -258,6 +263,7 @@ ipcMain.handle('add-user', async (e, user) => await db.addUser(user));
 ipcMain.handle('update-user', async (e, user) => await db.updateUser(user));
 ipcMain.handle('delete-user', (e, user) => db.deleteUser(user));
 ipcMain.handle('login', (e, { username, password }) => db.checkLogin(username, password));
+ipcMain.handle('get-user', (e, username) => db.getUserByUsername(username));
 ipcMain.handle('change-password', (e, { username, newPassword }) => db.changePassword(username, newPassword));
 ipcMain.handle('migrate-all', async () => await db.migrateAllToCloud());
 ipcMain.handle('install-update', () => autoUpdater.quitAndInstall());
@@ -293,6 +299,10 @@ ipcMain.handle('save-config', (e, { key, value }) => db.saveConfig(key, value));
 ipcMain.handle('get-config-meta', () => db.getConfigMeta());
 ipcMain.handle('set-config-meta', (e, { visita, venda }) => db.setConfigMeta(visita, venda));
 ipcMain.handle('get-sdr-performance', () => db.getSdrPerformance());
+
+// --- AI CONFIG ---
+ipcMain.handle('get-all-settings', () => db.getAllSettings());
+ipcMain.handle('save-settings-batch', (e, settings) => db.saveSettingsBatch(settings));
 
 app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

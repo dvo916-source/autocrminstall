@@ -105,15 +105,15 @@ const MainContent = ({ user, handleLogout }) => {
   }, [navigate]);
 
   const hasPermission = (path) => {
-      // Admins always have access
-      if (isAdmin) return true;
-      if (!user?.permissions) return true; // Fallback for legacy
-      
-      let perms = [];
-      try { perms = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions; } catch { perms = []; }
-      
-      if (!Array.isArray(perms)) return false;
-      return perms.includes(path);
+    // Admins always have access
+    if (isAdmin) return true;
+    if (!user?.permissions) return true; // Fallback for legacy
+
+    let perms = [];
+    try { perms = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions; } catch { perms = []; }
+
+    if (!Array.isArray(perms)) return false;
+    return perms.includes(path);
   };
 
   return (
@@ -124,12 +124,12 @@ const MainContent = ({ user, handleLogout }) => {
           {/* Public / Common Routes */}
           <Route path="/whatsapp" element={<Whatsapp />} />
           <Route path="/" element={<Dashboard user={user} />} />
-          
+
           {/* Conditional Routes based on Permissions */}
           {hasPermission('/visitas') && <Route path="/visitas" element={<Visitas user={user} />} />}
           {hasPermission('/estoque') && <Route path="/estoque" element={<Estoque user={user} />} />}
           {hasPermission('/metas') && <Route path="/metas" element={<Metas />} />}
-          
+
           {/* Admin or Permission-based Routes */}
           {hasPermission('/agendamentos') && <Route path="/agendamentos" element={<Agendamentos />} />}
           {hasPermission('/portais') && <Route path="/portais" element={<Portais />} />}
@@ -141,7 +141,7 @@ const MainContent = ({ user, handleLogout }) => {
             <>
               <Route path="/ia-prompts" element={<PromptConfig />} />
               <Route path="/admin-ia" element={<AdminIA />} />
-              <Route path="/crm-diego" element={<ChatCRM />} />
+              <Route path="/crm-ia" element={<ChatCRM />} />
             </>
           )}
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -159,23 +159,102 @@ const NavigationResetter = () => {
   return null;
 };
 
+// === AUTO-SCALING HOOK ===
+const useAutoScaling = () => {
+  useEffect(() => {
+    const handleResize = () => {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+
+      // Resolução base ideal (Full HD)
+      const baseWidth = 1920;
+      const baseHeight = 1080;
+
+      // Calcula o fator de escala baseando-se na menor proporção para não cortar nada
+      const scaleWidth = width / baseWidth;
+      const scaleHeight = height / baseHeight;
+      const scale = Math.min(scaleWidth, scaleHeight, 1); // Nunca escala para cima de 1 (100%)
+
+      // Aplica o zoom no corpo do documento (Chrome/Electron suportam zoom)
+      // Usamos zoom para não quebrar posicionamento fixed de alguns componentes
+      if (scale < 1) {
+        document.body.style.zoom = scale;
+      } else {
+        document.body.style.zoom = 1;
+      }
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'F8') {
+        document.body.style.zoom = 1;
+        console.log("📏 [Scaling] Reset manual (F8)");
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('keydown', handleKeyDown);
+    handleResize(); // Executa ao montar
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+};
+
 function App() {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
 
+  // Ativa o auto-scaling dinâmico
+  useAutoScaling();
+
   useEffect(() => {
     const stored = localStorage.getItem('sdr_user');
     if (stored) {
-      try { setUser(JSON.parse(stored)); } catch (e) { }
+      try {
+        const parsed = JSON.parse(stored);
+        setUser(parsed);
+      } catch (e) { }
     }
     setInitializing(false);
+
+    // 🔄 REALTIME PERMISSION UPDATE
+    const { ipcRenderer } = window.require('electron');
+    const handleUserDataUpdate = async (event, updatedUsername) => {
+      // Usamos uma técnica de proteção para não pegar 'user' obsoleto do closure
+      const currentStored = JSON.parse(localStorage.getItem('sdr_user') || '{}');
+      if (updatedUsername.toLowerCase() === currentStored.username?.toLowerCase()) {
+        console.log(`📡 [App] Atualizando dados para usuário logado: ${updatedUsername}`);
+        try {
+          const freshData = await ipcRenderer.invoke('get-user', updatedUsername);
+          if (freshData) {
+            const formatted = {
+              ...freshData,
+              permissions: typeof freshData.permissions === 'string' ? JSON.parse(freshData.permissions) : freshData.permissions
+            };
+            localStorage.setItem('sdr_user', JSON.stringify(formatted));
+            setUser(formatted);
+          }
+        } catch (err) {
+          console.error("Erro ao atualizar dados do usuário logado:", err);
+        }
+      }
+    };
+
+    ipcRenderer.on('user-data-updated', handleUserDataUpdate);
+    return () => ipcRenderer.removeListener('user-data-updated', handleUserDataUpdate);
   }, []);
 
   const handleLogin = (userData) => {
-    localStorage.setItem('sdr_user', JSON.stringify(userData));
-    localStorage.setItem('username', userData.username);
-    localStorage.setItem('userRole', userData.role);
-    setUser(userData);
+    const formattedUser = {
+      ...userData,
+      permissions: typeof userData.permissions === 'string' ? JSON.parse(userData.permissions) : userData.permissions
+    };
+    localStorage.setItem('sdr_user', JSON.stringify(formattedUser));
+    localStorage.setItem('username', formattedUser.username);
+    localStorage.setItem('userRole', formattedUser.role);
+    setUser(formattedUser);
   };
 
   const handleLogout = () => {

@@ -1,0 +1,100 @@
+{
+    "name": "Manual Knowledge Injector",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "train-pattern",
+                "options": {}
+            },
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+                0,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "model": "text-embedding-3-small",
+                "text": "={{ $json.body.trigger_context }}"
+            },
+            "name": "Generate Vector",
+            "type": "n8n-nodes-base.openAi",
+            "typeVersion": 1,
+            "position": [
+                220,
+                0
+            ],
+            "credentials": {
+                "openAiApi": {
+                    "id": "YOUR_OPENAI_CREDENTIAL_ID",
+                    "name": "OpenAI account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "tableId": "neural_patterns",
+                "fieldsUi": {
+                    "fieldValues": [
+                        {
+                            "fieldId": "category",
+                            "fieldValue": "={{ $('Webhook').item.json.body.category }}"
+                        },
+                        {
+                            "fieldId": "trigger_context",
+                            "fieldValue": "={{ $('Webhook').item.json.body.trigger_context }}"
+                        },
+                        {
+                            "fieldId": "winning_response",
+                            "fieldValue": "={{ $('Webhook').item.json.body.winning_response }}"
+                        },
+                        {
+                            "fieldId": "embedding",
+                            "fieldValue": "={{ $json.embedding }}"
+                        }
+                    ]
+                }
+            },
+            "name": "Save to Brain",
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                440,
+                0
+            ],
+            "credentials": {
+                "supabaseApi": {
+                    "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+                    "name": "Supabase account"
+                }
+            }
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Generate Vector",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Generate Vector": {
+            "main": [
+                [
+                    {
+                        "node": "Save to Brain",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

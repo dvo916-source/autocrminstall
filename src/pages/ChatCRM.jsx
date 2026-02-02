@@ -4,8 +4,10 @@ import { MessageSquare, Send, User, Bot, PauseCircle, PlayCircle, Check, Clock, 
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 
 const ChatCRM = () => {
+    const navigate = useNavigate();
     const [conversations, setConversations] = useState([]);
     const [activeChat, setActiveChat] = useState(null);
     const [messages, setMessages] = useState([]);
@@ -15,6 +17,11 @@ const ChatCRM = () => {
 
     // Sidebar States
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    useEffect(() => {
+        window.dispatchEvent(new CustomEvent('whatsapp-sidebar-toggle', {
+            detail: { isOpen: isSidebarOpen, width: 400 }
+        }));
+    }, [isSidebarOpen]);
     const [activeTab, setActiveTab] = useState('templates'); // 'templates' | 'veiculos'
     const [scripts, setScripts] = useState([]);
     const [estoque, setEstoque] = useState([]);
@@ -133,7 +140,9 @@ const ChatCRM = () => {
                 cleanPhone = '55' + cleanPhone;
             }
 
+            // CRITICAL: Quando enviamos uma mensagem humana, pausamos a IA imediatamente
             if (activeChat.ai_status !== 'paused') {
+                console.log("⏸️ [Neural Hub] Intervenção Humana detectada. Pausando IA...");
                 await supabase
                     .from('crm_conversations')
                     .update({ ai_status: 'paused' })
@@ -192,11 +201,14 @@ const ChatCRM = () => {
             <aside className="w-96 flex flex-col bg-[#0a0f1e]/80 backdrop-blur-2xl border-r border-white/5 shrink-0 z-30">
                 <div className="p-8">
                     <div className="flex items-center gap-4 mb-8">
+                        <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-gray-500 hover:text-white hover:bg-white/10 transition-colors">
+                            <ChevronLeft size={20} />
+                        </button>
                         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.3)]">
                             <Bot size={24} className="text-white" />
                         </div>
                         <div>
-                            <h1 className="text-2xl font-black tracking-tighter  font-rajdhani italic">DIEGO<span className="text-cyan-400">CORE</span></h1>
+                            <h1 className="text-2xl font-black tracking-tighter  font-rajdhani italic">IRW<span className="text-cyan-400">CORE</span></h1>
                             <div className="flex items-center gap-2">
                                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                                 <span className="text-[10px] font-black text-gray-500  tracking-widest font-rajdhani">Neural Active</span>
@@ -217,7 +229,7 @@ const ChatCRM = () => {
                 <div className="flex-1 overflow-y-auto custom-scrollbar px-4 space-y-2">
                     {loading && <div className="text-center py-10"><Activity className="animate-spin mx-auto text-cyan-500" /></div>}
                     {conversations.map(conv => {
-                        const initial = (conv.name || conv.phone)[0].to();
+                        const initial = (conv.name || conv.phone || '?')?.charAt(0)?.toUpperCase() || '?';
                         const isActive = activeChat?.id === conv.id;
                         return (
                             <motion.div
@@ -274,7 +286,7 @@ const ChatCRM = () => {
                             <header className="p-6 bg-[#0a0f1e]/40 backdrop-blur-xl border-b border-white/5 flex items-center justify-between">
                                 <div className="flex items-center gap-5">
                                     <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center font-black text-2xl text-cyan-400 font-rajdhani italic">
-                                        {(activeChat.name || activeChat.phone)[0].to()}
+                                        {(activeChat.name || activeChat.phone || '?').charAt(0).toUpperCase()}
                                     </div>
                                     <div>
                                         <h3 className="text-xl font-black text-white italic tracking-tighter font-rajdhani ">{activeChat.name || activeChat.phone}</h3>
@@ -290,6 +302,7 @@ const ChatCRM = () => {
                                 </div>
 
                                 <div className="flex items-center gap-3">
+
                                     <motion.button
                                         whileTap={{ scale: 0.95 }}
                                         onClick={toggleAI}
@@ -409,12 +422,26 @@ const ChatCRM = () => {
                             <div className="mt-12 flex items-center gap-8">
                                 <div className="flex flex-col items-center gap-2">
                                     <span className="text-[10px] font-black text-gray-700  tracking-widest">Global Status</span>
-                                    <div className="px-4 py-1.5 bg-emerald-500/5 border border-emerald-500/20 rounded-xl text-emerald-500 text-[10px] font-black tracking-widest ">Optimal</div>
+                                    {(() => {
+                                        const activeNodes = conversations.filter(c => c.ai_status === 'active').length;
+                                        const status = activeNodes > 0 ? 'OPERATIONAL' : (conversations.length > 0 ? 'IDLE' : 'OFFLINE');
+                                        const colorClass = activeNodes > 0
+                                            ? 'text-emerald-500 border-emerald-500/20 bg-emerald-500/5'
+                                            : (conversations.length > 0 ? 'text-orange-500 border-orange-500/20 bg-orange-500/5' : 'text-gray-500 border-gray-500/20 bg-gray-500/5');
+
+                                        return (
+                                            <div className={`px-4 py-1.5 border rounded-xl text-[10px] font-black tracking-widest ${colorClass}`}>
+                                                {status}
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                                 <div className="h-10 w-px bg-white/5" />
                                 <div className="flex flex-col items-center gap-2">
                                     <span className="text-[10px] font-black text-gray-700  tracking-widest">Active Nodes</span>
-                                    <span className="text-2xl font-black text-white font-rajdhani italic">{conversations.length}</span>
+                                    <span className="text-2xl font-black text-white font-rajdhani italic">
+                                        {conversations.filter(c => c.ai_status === 'active').length} <span className="text-gray-600 text-sm not-italic">/ {conversations.length}</span>
+                                    </span>
                                 </div>
                             </div>
                         </motion.div>

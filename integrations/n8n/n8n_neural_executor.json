@@ -1,0 +1,230 @@
+{
+  "name": "Neural Agent Executor (RAG)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-incoming",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "crm_conversations",
+        "filters": {
+          "conditions": [
+            {
+              "key": "phone",
+              "value": "={{ $json.body.from.replace('whatsapp:', '') }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "name": "Check Status",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        220,
+        0
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.ai_status }}",
+              "value2": "active"
+            }
+          ]
+        }
+      },
+      "name": "Is AI Active?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "text": "={{ $('Webhook').item.json.body.text }}"
+      },
+      "name": "Embed User Msg",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        680,
+        -120
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM match_neural_patterns('{{ $json.embedding }}', 0.7, 3);"
+      },
+      "name": "Recall Patterns",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        900,
+        -120
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Webhook').item.json.body.text }}",
+        "systemMessage": "=Você é o Diego, SDR da IRW Motors.\n\nCASOS DE SUCESSO PASSADOS (USE COMO REFERÊNCIA):\n{{ $json.winning_response || 'Nenhum padrão encontrado' }}\n\nCONTEXTO:\n- Responda de forma curta e persuasiva.\n- Use emojis moderadamente.\n- Objetivo: Agendar visita."
+      },
+      "name": "Neural AI Agent",
+      "type": "n8n-nodes-base.aiAgent",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        -120
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://graph.facebook.com/v17.0/YOUR_PHONE_ID/messages",
+        "options": {},
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "to",
+              "value": "={{ $('Webhook').item.json.body.from }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ JSON.stringify({ body: $json.output }) }}"
+            }
+          ]
+        },
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_META_TOKEN"
+            }
+          ]
+        }
+      },
+      "name": "Send WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1340,
+        -120
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Status": {
+      "main": [
+        [
+          {
+            "node": "Is AI Active?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is AI Active?": {
+      "main": [
+        [
+          {
+            "node": "Embed User Msg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed User Msg": {
+      "main": [
+        [
+          {
+            "node": "Recall Patterns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recall Patterns": {
+      "main": [
+        [
+          {
+            "node": "Neural AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Neural AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

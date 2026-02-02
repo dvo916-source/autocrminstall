@@ -96,7 +96,11 @@ const Estoque = ({ user }) => {
             }
         };
         ipcRenderer.on('sync-status', handleRefresh);
-        return () => ipcRenderer.removeListener('sync-status', handleRefresh);
+        ipcRenderer.on('refresh-data', handleRefresh);
+        return () => {
+            ipcRenderer.removeListener('sync-status', handleRefresh);
+            ipcRenderer.removeListener('refresh-data', handleRefresh);
+        };
     }, []);
 
     const loadItems = async () => {
@@ -532,7 +536,6 @@ const Estoque = ({ user }) => {
                         title="Forçar Atualização"
                         className={`px-4 rounded-xl border border-white/5 flex items-center justify-center transition-all ${syncing ? 'bg-cyan-500/20 text-cyan-400' : 'bg-black/20 text-gray-500 hover:text-white hover:bg-white/5'}`}
                         disabled={syncing}
-                        title="Forçar Atualização"
                     >
                         <RefreshCw size={20} className={syncing ? 'animate-spin' : ''} />
                     </button>

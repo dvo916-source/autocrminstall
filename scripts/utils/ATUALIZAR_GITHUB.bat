@@ -4,6 +4,7 @@ echo      SALVANDO ALTERACOES NO GITHUB
 echo ==========================================
 echo.
 cd /d "%~dp0"
+cd ../..
 
 echo 1. Adicionando arquivos...
 "C:\Program Files\Git\cmd\git.exe" add .

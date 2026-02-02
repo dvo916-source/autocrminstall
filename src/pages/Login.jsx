@@ -114,6 +114,7 @@ const Login = ({ onLogin }) => {
                                     </div>
                                     <input
                                         type="text"
+                                        autoFocus
                                         value={username}
                                         onChange={(e) => setUsername(e.target.value)}
                                         placeholder="SEU USUÁRIO"

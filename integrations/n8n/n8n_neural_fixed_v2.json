@@ -1,0 +1,330 @@
+{
+    "name": "Neural Agent Executor (FIXED)",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "chat",
+                "options": {}
+            },
+            "name": "Webhook2",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+                -544,
+                -304
+            ],
+            "id": "36faf1cd-5035-427e-a754-de4fe01ff5c9",
+            "webhookId": "98884dc1-fcd4-4268-9986-4a43c1cc2db1"
+        },
+        {
+            "parameters": {
+                "operation": "getAll",
+                "tableId": "crm_conversations",
+                "limit": 1,
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyName": "phone",
+                            "condition": "eq",
+                            "keyValue": "={{ $('Webhook2').item.json.body.entry[0].changes[0].value.messages[0].from }}"
+                        }
+                    ]
+                }
+            },
+            "name": "SUPABASE",
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                -320,
+                -304
+            ],
+            "id": "0454f7ea-9b17-4ef7-a881-3d1e1714ae02",
+            "credentials": {
+                "supabaseApi": {
+                    "id": "JnfMH9wmasq5Xdqj",
+                    "name": "Supabase account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "string": [
+                        {
+                            "value1": "={{ $json.ai_status }}",
+                            "value2": "active"
+                        }
+                    ]
+                }
+            },
+            "name": "Is AI Active?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 1,
+            "position": [
+                -112,
+                -304
+            ],
+            "id": "4814eb69-f1e1-4a24-9e6f-093b2826c4dc"
+        },
+        {
+            "parameters": {
+                "model": "text-embedding-3-small",
+                "text": "={{ $('Webhook2').item.json.body.entry[0].changes[0].value.messages[0].text.body }}",
+                "options": {},
+                "requestOptions": {}
+            },
+            "name": "Embed User Msg",
+            "type": "n8n-nodes-base.openAi",
+            "typeVersion": 1,
+            "position": [
+                16,
+                -576
+            ],
+            "id": "dbecf64b-7372-4143-bb30-8c09bbc4b7f1",
+            "credentials": {
+                "openAiApi": {
+                    "id": "mamSC68HRViEJhZd",
+                    "name": "OpenAi account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "SELECT * FROM match_neural_patterns('{{ $json.embedding }}', 0.7, 3);"
+            },
+            "name": "Recall Patterns",
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                240,
+                -576
+            ],
+            "id": "8050163d-451b-4a17-8cb7-a0f24345ac4a",
+            "credentials": {
+                "supabaseApi": {
+                    "id": "JnfMH9wmasq5Xdqj",
+                    "name": "Supabase account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "0a9b25d1-490b-4fb7-ac40-26500260a967",
+                            "name": "mensagem",
+                            "value": "={{ $('Webhook2').item.json.body.entry[0].changes[0].value.messages[0].text.body }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "bef75f9d-bd0e-4cba-83fc-c4e12832fd94",
+                            "name": "cliente_telefone",
+                            "value": "={{ $('Webhook2').item.json.body.entry[0].changes[0].value.messages[0].from }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "memoria_neural",
+                            "name": "neural_patterns",
+                            "value": "={{ $json.id ? $json : 'Nenhum padrão similar encontrado.' }}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                528,
+                -592
+            ],
+            "id": "e0301f4f-1a70-4f88-8b11-9a93dee20974",
+            "name": "Edit Fields"
+        },
+        {
+            "parameters": {
+                "promptType": "define",
+                "text": "={{ $('Edit Fields').item.json.mensagem }}",
+                "options": {
+                    "systemMessage": "=Você é Diego, um SDR sênior. \n\nCONTEXTO DE INTELIGÊNCIA (O que funcionou no passado):\n{{ $('Edit Fields').item.json.neural_patterns }}"
+                }
+            },
+            "type": "@n8n/n8n-nodes-langchain.agent",
+            "typeVersion": 3.1,
+            "position": [
+                752,
+                -592
+            ],
+            "id": "f65f27f2-3924-46a1-a577-8bd53082fbe5",
+            "name": "AI Agent"
+        },
+        {
+            "parameters": {
+                "model": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "claude-sonnet-4-5-20250929",
+                    "cachedResultName": "Claude Sonnet 4.5"
+                },
+                "options": {}
+            },
+            "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+            "typeVersion": 1.3,
+            "position": [
+                544,
+                -368
+            ],
+            "id": "575d5b2e-0dbc-4e4e-b9a8-677cbb316a8b",
+            "name": "Anthropic Chat Model",
+            "credentials": {
+                "anthropicApi": {
+                    "id": "M5NjxZklUkywhCci",
+                    "name": "Anthropic account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "sessionIdType": "customKey",
+                "sessionKey": "={{ $('Edit Fields').item.json.cliente_telefone }}",
+                "contextWindowLength": 10
+            },
+            "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+            "typeVersion": 1.3,
+            "position": [
+                736,
+                -368
+            ],
+            "id": "952f9764-a9e3-4e12-9205-2fc46c6e8e05",
+            "name": "Simple Memory"
+        },
+        {
+            "parameters": {
+                "operation": "send",
+                "phoneNumberId": "1006928449163765",
+                "recipientPhoneNumber": "={{ $('Webhook2').item.json.body.entry[0].changes[0].value.messages[0].from }}",
+                "textBody": "={{ $json.output }}",
+                "additionalFields": {}
+            },
+            "type": "n8n-nodes-base.whatsApp",
+            "typeVersion": 1.1,
+            "position": [
+                1072,
+                -592
+            ],
+            "id": "63181522-71d0-436b-bdf3-dcd429fa392f",
+            "name": "Send message",
+            "webhookId": "8d5e9898-325b-446a-880a-0e626a3ebafc",
+            "credentials": {
+                "whatsAppApi": {
+                    "id": "2flwCjR7c6jhf2BI",
+                    "name": "WhatsApp account"
+                }
+            }
+        }
+    ],
+    "connections": {
+        "Webhook2": {
+            "main": [
+                [
+                    {
+                        "node": "SUPABASE",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "SUPABASE": {
+            "main": [
+                [
+                    {
+                        "node": "Is AI Active?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Is AI Active?": {
+            "main": [
+                [
+                    {
+                        "node": "Embed User Msg",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Embed User Msg": {
+            "main": [
+                [
+                    {
+                        "node": "Recall Patterns",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Recall Patterns": {
+            "main": [
+                [
+                    {
+                        "node": "Edit Fields",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Edit Fields": {
+            "main": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Anthropic Chat Model": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Simple Memory": {
+            "ai_memory": [
+                [
+                    {
+                        "node": "AI Agent",
+                        "type": "ai_memory",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "AI Agent": {
+            "main": [
+                [
+                    {
+                        "node": "Send message",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

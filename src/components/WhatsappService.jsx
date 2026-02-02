@@ -7,14 +7,14 @@ const WhatsappService = ({ isVisible, isActive }) => {
     const [username, setUsername] = useState(null);
     const [isReady, setIsReady] = useState(false);
 
-    // 1. Inicialização Tardia (3 Segundos) e Carregamento de Usuário
+    // 1. Inicialização Tardia (Agora 500ms para ser quase instantâneo)
     useEffect(() => {
         const timer = setTimeout(() => {
             const user = localStorage.getItem('username');
             setUsername(user);
             setIsReady(true);
-            console.log("🟢 [WhatsappService] Iniciando Webview em Background (3s delay)...");
-        }, 3000);
+            console.log("🟢 [WhatsappService] Iniciando Webview em Background (Instant Start)...");
+        }, 500);
 
         return () => clearTimeout(timer);
     }, []);
@@ -24,8 +24,13 @@ const WhatsappService = ({ isVisible, isActive }) => {
     // Listener para redimensionamento baseado na Sidebar de Scripts
     useEffect(() => {
         const handleResize = (e) => {
-            const isOpen = e.detail;
-            setRightSidebarOffset(isOpen ? 320 : 0);
+            // Se vier um objeto com { isOpen, width }, usa o width, senão usa o padrão 320
+            const data = e.detail;
+            if (typeof data === 'object') {
+                setRightSidebarOffset(data.isOpen ? data.width : 0);
+            } else {
+                setRightSidebarOffset(data ? 320 : 0);
+            }
         };
         window.addEventListener('whatsapp-sidebar-toggle', handleResize);
         return () => window.removeEventListener('whatsapp-sidebar-toggle', handleResize);
@@ -86,7 +91,7 @@ const WhatsappService = ({ isVisible, isActive }) => {
                     const payload = JSON.parse(raw);
                     const { ipcRenderer } = window.require('electron');
                     ipcRenderer.send('show-native-notification', {
-                        title: "WhatsApp SDR",
+                        title: "Agente IA IRW Motors",
                         body: `${payload.title}: ${payload.options.body || ''}`,
                         id: payload.id
                     });
@@ -101,15 +106,24 @@ const WhatsappService = ({ isVisible, isActive }) => {
             window.dispatchEvent(new CustomEvent('whatsapp-badge-update', { detail: count }));
         };
 
+        const handleCrashed = () => {
+            console.error('🔴 [WhatsappService] Webview CRASHED! Tentando recarregar...');
+            if (webview && !webview.isDestroyed?.()) webview.reload();
+        };
+
         webview.addEventListener('dom-ready', handleDomReady);
         webview.addEventListener('console-message', handleConsoleMessage);
         webview.addEventListener('page-title-updated', handleTitleUpdate);
+        webview.addEventListener('crashed', handleCrashed);
+        webview.addEventListener('render-process-gone', handleCrashed);
 
         return () => {
             if (webview) {
                 webview.removeEventListener('dom-ready', handleDomReady);
                 webview.removeEventListener('console-message', handleConsoleMessage);
                 webview.removeEventListener('page-title-updated', handleTitleUpdate);
+                webview.removeEventListener('crashed', handleCrashed);
+                webview.removeEventListener('render-process-gone', handleCrashed);
             }
         };
     }, [isReady]);
@@ -157,12 +171,51 @@ const WhatsappService = ({ isVisible, isActive }) => {
             }
         };
 
+        const handleRequestChatInfo = async () => {
+            if (!webviewRef.current) return;
+
+            console.log("🔍 [Service] Solicitando informações do chat...");
+            const script = `
+                (() => {
+                    try {
+                        const header = document.querySelector('header');
+                        if (!header) return null;
+                        
+                        // Busca o elemento de título (Nome ou Número)
+                        const titleEl = header.querySelector('span[title]') || 
+                                       header.querySelector('div[role="button"] span[title]');
+                        
+                        const name = titleEl ? titleEl.getAttribute('title') : '';
+                        
+                        // Se for um número de telefone direto
+                        let phone = '';
+                        if (name && name.replace(/\\D/g, '').length >= 8) {
+                            phone = name.replace(/\\D/g, '');
+                        }
+                        
+                        return { name, phone };
+                    } catch(e) { return null; }
+                })();
+            `;
+
+            try {
+                const info = await webviewRef.current.executeJavaScript(script);
+                if (info) {
+                    window.dispatchEvent(new CustomEvent('whatsapp-chat-info-captured', { detail: info }));
+                }
+            } catch (err) {
+                console.error("Erro ao capturar info do chat:", err);
+            }
+        };
+
         window.addEventListener('whatsapp-send-text', handleSendText);
         window.addEventListener('whatsapp-direct-chat', handleDirectChat);
+        window.addEventListener('whatsapp-request-chat-info', handleRequestChatInfo);
 
         return () => {
             window.removeEventListener('whatsapp-send-text', handleSendText);
             window.removeEventListener('whatsapp-direct-chat', handleDirectChat);
+            window.removeEventListener('whatsapp-request-chat-info', handleRequestChatInfo);
         };
     }, [isReady]);
 

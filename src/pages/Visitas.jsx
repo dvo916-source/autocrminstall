@@ -160,7 +160,7 @@ const Visitas = ({ user }) => {
                     <span className="text-sm font-bold text-white truncate group-hover:text-amber-500 transition-colors">
                         {v.nome}
                     </span>
-                    <div className="flex items-center gap-2 text-[9px] font-black  tracking-wider text-gray-500">
+                    <div className="flex items-center gap-2 text-[11px] font-black tracking-wider text-gray-400 uppercase">
                         {v.ano && <span>{v.ano}</span>}
                         {v.km && v.km !== 'Consulte' && (
                             <>
@@ -229,17 +229,17 @@ const Visitas = ({ user }) => {
 
                     <div className="w-[120px] px-6">
                         <div className="flex flex-col">
-                            <span className="text-white font-bold tracking-tight text-xl font-rajdhani leading-none">
+                            <span className="text-white font-bold tracking-tight text-xl leading-none">
                                 {new Date(v.data_agendamento || v.datahora).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
                             </span>
-                            <span className="text-xs text-cyan-500/60  font-bold tracking-wider font-rajdhani mt-1">
+                            <span className="text-xs text-cyan-500/60 font-bold tracking-wider mt-1 uppercase">
                                 {new Date(v.data_agendamento || v.datahora).toLocaleTimeString().slice(0, 5)} HS
                             </span>
                         </div>
                     </div>
                     <div className="flex-1 px-4 min-w-0">
                         <div className="flex flex-col gap-0.5">
-                            <span className="text-white font-bold text-lg leading-tight group-hover:text-cyan-400 transition-colors  tracking-tight truncate font-rajdhani">
+                            <span className="text-white font-bold text-lg leading-tight group-hover:text-cyan-400 transition-colors tracking-tight truncate">
                                 {v.cliente}
                             </span>
                             {v.telefone && (
@@ -249,7 +249,7 @@ const Visitas = ({ user }) => {
                                         const cleanNum = v.telefone.replace(/\D/g, '');
                                         window.open(`https://wa.me/55${cleanNum}`, '_blank');
                                     }}
-                                    className="flex items-center gap-1.5 text-gray-500 hover:text-green-400 text-xs font-bold transition-all  font-rajdhani"
+                                    className="flex items-center gap-1.5 text-gray-500 hover:text-green-400 text-xs font-bold transition-all"
                                 >
                                     <Phone size={12} strokeWidth={2.5} />
                                     {v.telefone}
@@ -261,10 +261,10 @@ const Visitas = ({ user }) => {
                         <div className="flex items-center gap-3">
                             <div className="w-1.5 h-8 bg-gradient-to-b from-cyan-500 to-blue-600 rounded-full opacity-30 group-hover:opacity-100 transition-opacity shadow-[0_0_10px_rgba(34,211,238,0.3)]"></div>
                             <div className="flex flex-col min-w-0">
-                                <span className="text-cyan-300 font-bold text-sm  tracking-wider truncate font-rajdhani drop-shadow-sm">
+                                <span className="text-cyan-300 font-bold text-sm tracking-wider truncate drop-shadow-sm">
                                     {v.veiculo_interesse || 'S/ Veículo'}
                                 </span>
-                                <span className="text-[10px] text-gray-500 font-bold  truncate font-rajdhani">SDR: <span className="text-white">{v.vendedor_sdr}</span></span>
+                                <span className="text-[11px] text-gray-500 font-bold truncate uppercase tracking-wider">SDR: <span className="text-white">{v.vendedor_sdr}</span></span>
                             </div>
                         </div>
                     </div>
@@ -274,7 +274,7 @@ const Visitas = ({ user }) => {
                         </div>
                     </div>
                     <div className="w-[140px] px-4 text-center">
-                        <span className={`px-3 py-1.5 rounded-lg text-xs font-bold  tracking-widest border shadow-lg font-rajdhani ${v.status_pipeline === 'Vendido' ? 'bg-green-500/10 text-green-400 border-green-500/20 shadow-green-500/5' :
+                        <span className={`px-3 py-1.5 rounded-lg text-xs font-bold tracking-widest border shadow-lg ${v.status_pipeline === 'Vendido' ? 'bg-green-500/10 text-green-400 border-green-500/20 shadow-green-500/5' :
                             v.status_pipeline === 'Perdido' ? 'bg-red-500/10 text-red-400 border-red-500/20 shadow-red-500/5' :
                                 v.status_pipeline === 'Negociação' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20 shadow-purple-500/5' :
                                     'bg-blue-500/10 text-blue-400 border-blue-500/20 shadow-blue-500/5'
@@ -284,7 +284,7 @@ const Visitas = ({ user }) => {
                     </div>
                     <div className="w-[100px] px-4 text-center">
                         <div className="px-2 py-1 rounded bg-white/5 border border-white/5 inline-block">
-                            <span className="text-[10px] font-bold text-gray-400 font-rajdhani  tracking-wider">
+                            <span className="text-[11px] font-bold text-gray-400 tracking-wider uppercase">
                                 {v.portal ? v.portal.slice(0, 10).toUpperCase() : 'LOJA'}
                             </span>
                         </div>
@@ -320,11 +320,11 @@ const Visitas = ({ user }) => {
                             {/* Table Actions Header */}
                             <div className="px-8 py-6 flex items-center justify-between border-b border-white/5 bg-white/[0.01] backdrop-blur-sm z-10">
                                 <div>
-                                    <h1 className="text-4xl font-black italic tracking-tight text-white  font-rajdhani drop-shadow-[0_0_10px_rgba(255,255,255,0.2)] flex items-center gap-3">
+                                    <h1 className="text-4xl font-black tracking-tight text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.2)] flex items-center gap-3">
                                         <CalendarIcon className="text-cyan-400" size={32} />
                                         Controle de Visitas
                                     </h1>
-                                    <p className="text-sm text-cyan-500/50 font-bold  tracking-widest font-rajdhani mt-1 ml-11">Gestão de Agenda & Pipeline</p>
+                                    <p className="text-sm text-cyan-500/50 font-bold tracking-widest mt-1 ml-11 uppercase">Gestão de Agenda & Pipeline</p>
                                 </div>
 
                                 <motion.button
@@ -340,12 +340,12 @@ const Visitas = ({ user }) => {
                                     className="btn-cyber-primary text-sm flex items-center gap-2"
                                 >
                                     <Plus size={18} strokeWidth={3} />
-                                    <span className="font-rajdhani">Novo Agendamento</span>
+                                    <span>Novo Agendamento</span>
                                 </motion.button>
                             </div>
 
                             {/* Table Header Wrapper */}
-                            <div className="flex-none bg-black/20 border-b border-white/5 text-cyan-500/60 text-xs font-bold  tracking-[0.2em] flex items-center py-4 px-2 font-rajdhani z-10">
+                            <div className="flex-none bg-black/20 border-b border-white/5 text-cyan-500/60 text-[11px] font-black tracking-[0.2em] flex items-center py-4 px-2 z-10 uppercase">
                                 <div className="w-[120px] px-6">Data/Hora</div>
                                 <div className="flex-1 px-4">Cliente / Contato</div>
                                 <div className="w-[200px] px-4">Veículo de Interesse</div>
@@ -379,8 +379,8 @@ const Visitas = ({ user }) => {
                                             <CalendarIcon size={40} className="text-cyan-400" />
                                         </div>
                                         <div className="text-center space-y-2">
-                                            <h3 className="text-2xl font-bold text-white font-rajdhani tracking-wide">AGENDA LIMPA</h3>
-                                            <p className="text-xs font-medium text-cyan-200  tracking-widest font-rajdhani">Nenhuma visita registrada no sistema</p>
+                                            <h3 className="text-2xl font-bold text-white tracking-wide">AGENDA LIMPA</h3>
+                                            <p className="text-[11px] font-medium text-cyan-200 tracking-widest uppercase">Nenhuma visita registrada no sistema</p>
                                         </div>
                                     </div>
                                 )}
