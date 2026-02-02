@@ -87,7 +87,7 @@ const Login = ({ onLogin }) => {
                         {/* Container da Logo (Imagem Original Pura) */}
                         <div className="relative w-32 h-32 mb-6 hover:scale-105 transition-transform duration-500 ease-out">
                             <img
-                                src="/icon.png"
+                                src="./icon.png"
                                 alt="SDR App Icon"
                                 className="w-full h-full object-contain"
                             />
@@ -98,7 +98,7 @@ const Login = ({ onLogin }) => {
                             <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight " style={{ fontFamily: "'Rajdhani', sans-serif" }}>
                                 SDR <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">IRW MOTORS</span>
                             </h1>
-                            <p className="text-cyan-200/40 text-[10px]  font-semibold tracking-[0.6em] mt-2 border-b border-cyan-500/10 pb-3" style={{ fontFamily: "'Rajdhani', sans-serif" }}>
+                            <p className="text-cyan-200/60 text-xs font-semibold tracking-[0.4em] mt-3 border-b border-cyan-500/20 pb-4 uppercase" style={{ fontFamily: "'Rajdhani', sans-serif" }}>
                                 Intelligence Experience
                             </p>
                         </div>
@@ -117,8 +117,8 @@ const Login = ({ onLogin }) => {
                                         autoFocus
                                         value={username}
                                         onChange={(e) => setUsername(e.target.value)}
-                                        placeholder="SEU USUÁRIO"
-                                        className="w-full bg-transparent text-white font-medium placeholder:text-gray-600 px-4 focus:outline-none tracking-wide text-sm font-['Rajdhani']"
+                                        placeholder="USUÁRIO / EMAIL"
+                                        className="w-full bg-transparent text-white font-bold placeholder:text-gray-500 px-4 focus:outline-none tracking-wider text-base font-['Rajdhani']"
                                     />
                                 </div>
                             </div>
@@ -134,7 +134,7 @@ const Login = ({ onLogin }) => {
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
                                         placeholder="SUA SENHA"
-                                        className="w-full bg-transparent text-white font-medium placeholder:text-gray-600 px-4 focus:outline-none tracking-wide text-sm font-['Rajdhani']"
+                                        className="w-full bg-transparent text-white font-bold placeholder:text-gray-500 px-4 focus:outline-none tracking-wider text-base font-['Rajdhani']"
                                     />
                                 </div>
                             </div>
@@ -144,7 +144,7 @@ const Login = ({ onLogin }) => {
                                 <button
                                     type="button"
                                     onClick={() => setShowForgot(true)}
-                                    className="text-[10px] font-bold text-gray-500 hover:text-cyan-400 transition-colors  tracking-wider font-['Rajdhani']"
+                                    className="text-xs font-bold text-gray-400 hover:text-cyan-400 transition-colors tracking-wider font-['Rajdhani'] uppercase"
                                 >
                                     ESQUECI A SENHA
                                 </button>
@@ -176,8 +176,8 @@ const Login = ({ onLogin }) => {
                                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                     ) : (
                                         <>
-                                            <span className="text-sm font-black text-white tracking-widest  group-hover:tracking-[0.15em] transition-all">Acessar Sistema</span>
-                                            <ChevronRight size={18} className="text-cyan-400 group-hover:text-white group-hover:translate-x-1 transition-all" />
+                                            <span className="text-base font-black text-white tracking-[0.2em] group-hover:tracking-[0.25em] transition-all uppercase">Acessar Sistema</span>
+                                            <ChevronRight size={20} className="text-cyan-400 group-hover:text-white group-hover:translate-x-1 transition-all" />
                                         </>
                                     )}
                                 </div>
@@ -260,8 +260,10 @@ const Login = ({ onLogin }) => {
                     )}
 
                     {/* Footer Clean */}
-                    <div className="mt-8 text-center relative z-10 opacity-40 hover:opacity-100 transition-opacity duration-300">
-                        <p className="text-[9px] text-cyan-100 font-medium  tracking-[0.2em]">IRW Motors &copy; 2026</p>
+                    <div className="mt-8 text-center relative z-10 opacity-60 hover:opacity-100 transition-opacity duration-300">
+                        <p className="text-[11px] text-cyan-100 font-bold tracking-[0.2em] uppercase">
+                            IRW Motors &copy; 2026 <span className="mx-2 opacity-30">|</span> v1.0.4
+                        </p>
                     </div>
                 </div>
             </motion.div>
