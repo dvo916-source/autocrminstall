@@ -144,13 +144,30 @@ function createWindow() {
         console.log('[Main] Renderer Totalmente Carregado');
     });
 
-    // Auto Updater
-    autoUpdater.checkForUpdatesAndNotify();
+    // Auto Updater - Aguarda carregar totalmente para evitar perder eventos IPC
+    win.webContents.on('did-finish-load', () => {
+        setTimeout(() => {
+            console.log('[Updater] Iniciando verificação programada...');
+            autoUpdater.checkForUpdatesAndNotify().catch(err => console.error('[Updater] Erro Check:', err));
+        }, 3000); // 3 segundos de folga para o React montar
+    });
+
     autoUpdater.on('checking-for-updates', () => console.log('[Updater] Verificando...'));
-    autoUpdater.on('update-available', (info) => win.webContents.send('update-available', info));
-    autoUpdater.on('download-progress', (progress) => win.webContents.send('update-progress', progress.percent));
-    autoUpdater.on('update-downloaded', () => win.webContents.send('update-downloaded'));
-    autoUpdater.on('error', (err) => console.error('[Updater] Erro:', err));
+    autoUpdater.on('update-available', (info) => {
+        console.log('[Updater] Atualização disponível:', info.version);
+        win.webContents.send('update-available', info);
+    });
+    autoUpdater.on('download-progress', (progress) => {
+        win.webContents.send('update-progress', progress.percent);
+    });
+    autoUpdater.on('update-downloaded', () => {
+        console.log('[Updater] Download concluído');
+        win.webContents.send('update-downloaded');
+    });
+    autoUpdater.on('error', (err) => {
+        console.error('[Updater] Erro Crítico:', err);
+        win.webContents.send('show-notification', { message: 'Erro ao buscar atualização', type: 'error' });
+    });
 }
 
 // Handler para focar a janela
