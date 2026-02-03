@@ -22,17 +22,6 @@ const Shell = ({ children, user, onLogout }) => {
 
     // --- Lógica Auto-Scale ---
     useEffect(() => {
-        const adjustScale = () => {
-            const width = window.innerWidth;
-            if (width > 2500) {
-                document.body.style.zoom = Math.min(width / 1920, 1.5);
-            } else {
-                document.body.style.zoom = '1';
-            }
-        };
-        adjustScale();
-        window.addEventListener('resize', adjustScale);
-
         // Listener para Atualização de Badge do Whatsapp
         const handleBadgeUpdate = (e) => {
             const count = e.detail || 0;
@@ -42,7 +31,6 @@ const Shell = ({ children, user, onLogout }) => {
         window.addEventListener('whatsapp-badge-update', handleBadgeUpdate);
 
         return () => {
-            window.removeEventListener('resize', adjustScale);
             window.removeEventListener('whatsapp-badge-update', handleBadgeUpdate);
         };
     }, []);
@@ -249,15 +237,18 @@ const Shell = ({ children, user, onLogout }) => {
             </motion.aside>
 
             {/* CONTEÚDO PRINCIPAL (Flex 1) */}
-            <main className="flex-1 min-w-0 h-full relative z-0 flex flex-col bg-[#0f172a] overflow-hidden">
+            <main className="flex-grow min-w-0 h-full relative z-0 flex flex-col bg-[#0f172a] overflow-hidden">
 
-                {/* SERVIÇO WHATSAPP "ALWAYS ON" - Inicia com delay e fica vivo em background */}
+                {/* SERVIÇO WHATSAPP "ALWAYS ON" */}
                 <WhatsappService
                     isVisible={location.pathname === '/whatsapp'}
                     isActive={location.pathname === '/whatsapp'}
                 />
 
-                <div className={`flex-1 flex flex-col relative w-full h-full ${location.pathname === '/whatsapp' ? 'p-0 text-white' : 'p-6 lg:p-8 overflow-y-auto custom-scrollbar'}`}>
+                <div
+                    className={`flex-grow flex flex-col relative w-full h-full ${location.pathname === '/whatsapp' ? 'p-0' : 'p-4 lg:p-8 overflow-y-auto custom-scrollbar'}`}
+                    style={{ display: location.pathname === '/whatsapp' ? 'none' : 'flex' }}
+                >
                     {children}
                 </div>
 

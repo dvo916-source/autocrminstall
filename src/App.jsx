@@ -163,24 +163,13 @@ const NavigationResetter = () => {
 const useAutoScaling = () => {
   useEffect(() => {
     const handleResize = () => {
+      document.body.style.zoom = 1;
       const width = window.innerWidth;
-      const height = window.innerHeight;
 
-      // Resolução base ideal (Full HD)
-      const baseWidth = 1920;
-      const baseHeight = 1080;
-
-      // Calcula o fator de escala baseando-se na menor proporção para não cortar nada
-      const scaleWidth = width / baseWidth;
-      const scaleHeight = height / baseHeight;
-      const scaleCalc = Math.min(scaleWidth, scaleHeight, 1);
-      // 🔥 Ajuste de Legibilidade: Nunca escala abaixo de 0.85 para não ficar ilegível em notebooks pequenos
-      const scale = Math.max(scaleCalc, 0.85);
-
-      if (scale < 1) {
-        document.body.style.zoom = scale;
+      if (width < 1400) {
+        document.documentElement.style.fontSize = '14px';
       } else {
-        document.body.style.zoom = 1;
+        document.documentElement.style.fontSize = '16px';
       }
     };
 

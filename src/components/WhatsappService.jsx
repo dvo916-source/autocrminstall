@@ -240,20 +240,15 @@ const WhatsappService = ({ isVisible, isActive }) => {
     return (
         <div
             style={{
-                // Leva em conta a sidebar esquerda (80px) E a sidebar direita (rightSidebarOffset)
-                position: 'absolute', // Absolute relativo ao <main> (que já é flex-1)
-                top: 0,
-                left: isVisible ? 0 : '-10000px', // 0 inicia onde o main começa (logo após a sidebar nav)
-                right: isVisible && isActive ? `${rightSidebarOffset}px` : 0,
-                bottom: 0,
-                // width: auto implícito pelo left/right
-                zIndex: isVisible ? 10 : -1,
-                visibility: isVisible ? 'visible' : 'hidden',
-                opacity: isVisible ? 1 : 0,
-                pointerEvents: isVisible ? 'auto' : 'none',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)' // Animação suave combinando com o Framer Motion
+                flex: isVisible ? '1' : '0',
+                display: isVisible ? 'flex' : 'none',
+                height: '100%',
+                position: 'relative',
+                overflow: 'hidden',
+                zIndex: 10,
+                paddingRight: `${rightSidebarOffset}px`,
+                transition: 'padding-right 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
             }}
-        // Removemos classes que conflitam com style
         >
             <webview
                 ref={webviewRef}

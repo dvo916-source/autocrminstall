@@ -1,7 +1,7 @@
 {
   "name": "sdr-irw-motors",
   "private": true,
-  "version": "1.0.6",
+  "version": "1.1.0",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -25,7 +25,8 @@
       {
         "provider": "github",
         "owner": "dvo916-source",
-        "repo": "AUTOCRMINSTAL"
+        "repo": "autocrminstall",
+        "releaseType": "release"
       }
     ],
     "win": {
@@ -53,8 +54,7 @@
       "electron/**/*",
       "package.json",
       "icon.png",
-      ".env",
-      "node_modules/**/*"
+      ".env"
     ]
   },
   "dependencies": {

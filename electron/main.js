@@ -171,8 +171,12 @@ function createWindow() {
         win.webContents.send('update-downloaded');
     });
     autoUpdater.on('error', (err) => {
-        console.error('[Updater] Erro Crítico:', err);
-        win.webContents.send('show-notification', { message: 'Erro ao buscar atualização', type: 'error' });
+        console.error('[Updater] Erro Detalhado:', err);
+        const errorMsg = err.message || 'Erro desconhecido';
+        win.webContents.send('show-notification', {
+            message: `Erro na Atualização: ${errorMsg}`,
+            type: 'error'
+        });
     });
 }
 
