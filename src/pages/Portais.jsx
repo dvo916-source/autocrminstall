@@ -14,6 +14,19 @@ const Portais = () => {
 
     useEffect(() => {
         loadItems();
+
+        // IPC Listener for Realtime Refreshes
+        try {
+            const { ipcRenderer } = window.require('electron');
+            const handleRefresh = (event, table) => {
+                if (table === 'portais') {
+                    console.log(`[Portais] Refreshing due to ${table} change...`);
+                    loadItems();
+                }
+            };
+            ipcRenderer.on('refresh-data', handleRefresh);
+            return () => ipcRenderer.removeListener('refresh-data', handleRefresh);
+        } catch (e) { }
     }, []);
 
     const loadItems = async () => {
@@ -47,7 +60,7 @@ const Portais = () => {
             // Salvamento Local (Cache) + Nuvem Automático (Main Process)
             await ipcRenderer.invoke('add-item', {
                 table: 'portais',
-                nome: newItem.nome.trim().to(),
+                nome: newItem.nome.trim().toUpperCase(),
                 link: newItem.link.trim()
             });
             setNewItem({ nome: '', link: '' });

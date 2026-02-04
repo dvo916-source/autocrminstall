@@ -6,6 +6,7 @@ const WhatsappService = ({ isVisible, isActive }) => {
     const webviewRef = useRef(null);
     const [username, setUsername] = useState(null);
     const [isReady, setIsReady] = useState(false);
+    const [rightSidebarOffset, setRightSidebarOffset] = useState(0);
 
     // 1. Inicialização Tardia (Agora 500ms para ser quase instantâneo)
     useEffect(() => {
@@ -19,12 +20,15 @@ const WhatsappService = ({ isVisible, isActive }) => {
         return () => clearTimeout(timer);
     }, []);
 
-    const [rightSidebarOffset, setRightSidebarOffset] = useState(320); // Começa aberto (320px)
-
-    // Listener para redimensionamento baseado na Sidebar de Scripts
+    // 2. Listener para o estado do sidebar (vindo do Whatsapp.jsx)
     useEffect(() => {
-        const handleResize = (e) => {
-            // Se vier um objeto com { isOpen, width }, usa o width, senão usa o padrão 320
+        const handleSidebarState = (e) => {
+            const { isOpen, width } = e.detail;
+            setRightSidebarOffset(isOpen ? width : 0);
+        };
+        window.addEventListener('whatsapp-sidebar-state', handleSidebarState);
+
+        const handleSidebarToggle = (e) => {
             const data = e.detail;
             if (typeof data === 'object') {
                 setRightSidebarOffset(data.isOpen ? data.width : 0);
@@ -32,8 +36,12 @@ const WhatsappService = ({ isVisible, isActive }) => {
                 setRightSidebarOffset(data ? 320 : 0);
             }
         };
-        window.addEventListener('whatsapp-sidebar-toggle', handleResize);
-        return () => window.removeEventListener('whatsapp-sidebar-toggle', handleResize);
+        window.addEventListener('whatsapp-sidebar-toggle', handleSidebarToggle);
+
+        return () => {
+            window.removeEventListener('whatsapp-sidebar-state', handleSidebarState);
+            window.removeEventListener('whatsapp-sidebar-toggle', handleSidebarToggle);
+        };
     }, []);
 
     // 2. Lógica de Scripts e Notificações
@@ -164,13 +172,6 @@ const WhatsappService = ({ isVisible, isActive }) => {
             webviewRef.current.executeJavaScript(script);
         };
 
-        const handleDirectChat = (e) => {
-            const phone = e.detail;
-            if (webviewRef.current) {
-                webviewRef.current.loadURL(`https://web.whatsapp.com/send?phone=55${phone}`);
-            }
-        };
-
         const handleRequestChatInfo = async () => {
             if (!webviewRef.current) return;
 
@@ -208,14 +209,27 @@ const WhatsappService = ({ isVisible, isActive }) => {
             }
         };
 
+        const handleDirectChat = (e) => {
+            const phone = e.detail;
+            if (!webviewRef.current || !phone) return;
+
+            console.log("🚀 [Service] Abrindo chat direto para:", phone);
+            // Formata para o link direto do WhatsApp (55 + DDD + Numero)
+            const cleanPhone = phone.replace(/\D/g, '');
+            const finalPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
+
+            // Navega o webview sem recarregar o app
+            webviewRef.current.loadURL(`https://web.whatsapp.com/send?phone=${finalPhone}`);
+        };
+
         window.addEventListener('whatsapp-send-text', handleSendText);
-        window.addEventListener('whatsapp-direct-chat', handleDirectChat);
         window.addEventListener('whatsapp-request-chat-info', handleRequestChatInfo);
+        window.addEventListener('whatsapp-direct-chat', handleDirectChat);
 
         return () => {
             window.removeEventListener('whatsapp-send-text', handleSendText);
-            window.removeEventListener('whatsapp-direct-chat', handleDirectChat);
             window.removeEventListener('whatsapp-request-chat-info', handleRequestChatInfo);
+            window.removeEventListener('whatsapp-direct-chat', handleDirectChat);
         };
     }, [isReady]);
 
@@ -240,12 +254,13 @@ const WhatsappService = ({ isVisible, isActive }) => {
     return (
         <div
             style={{
-                flex: isVisible ? '1' : '0',
                 display: isVisible ? 'flex' : 'none',
-                height: '100%',
-                position: 'relative',
-                overflow: 'hidden',
-                zIndex: 10,
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 1,
                 paddingRight: `${rightSidebarOffset}px`,
                 transition: 'padding-right 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
             }}

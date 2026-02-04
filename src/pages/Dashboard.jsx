@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-    Users, TrendingUp, Calendar, Clock, Award, ArrowRight, Zap, Target,
-    Filter, PieChart, BarChart2, MousePointer, MessageCircle
-} from 'lucide-react';
+import { TrendingUp, Users, Calendar, Clock, Target, AlertTriangle, RefreshCw, Car, CheckCircle, ChevronRight, User, MapPin, MessageCircle, Award, MousePointer, ArrowRight, Zap, PieChart, BarChart2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 // import { supabase } from '../lib/supabase'; // Not needed anymore
 import {
@@ -196,9 +193,7 @@ const Dashboard = () => {
                         <option value="instagram">Instagram</option>
                     </select>
 
-                    <button className="bg-[#1e293b]/80 p-2.5 rounded-xl border border-white/10 text-gray-400 hover:text-white hover:bg-white/5 transition-all">
-                        <Filter size={18} />
-                    </button>
+
                 </div>
             </header>
 
@@ -358,7 +353,7 @@ const Dashboard = () => {
                                 <h3 className="text-lg font-bold text-white  tracking-widest flex items-center gap-2 font-rajdhani drop-shadow-md">
                                     <MousePointer size={18} className="text-blue-400" /> Origem dos Leads
                                 </h3>
-                                <button className="text-[10px] font-bold text-blue-400 hover:text-white transition-colors">VER DETALHES</button>
+
                             </div>
 
                             <div className="flex-1 grid grid-cols-2 gap-4">

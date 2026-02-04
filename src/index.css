@@ -7,8 +7,13 @@
   --color-glass-dark: rgba(0, 0, 0, 0.5);
   --background-image-main-gradient: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
   --font-rajdhani: "Rajdhani", sans-serif;
-}
 
+  /* Layout Variables (Scalable via REM) */
+  --sidebar-width: 5rem;
+  --sidebar-expanded-width: 15rem;
+  --main-padding: 2rem;
+  --header-height: 5rem;
+}
 
 
 @layer base {
@@ -25,6 +30,7 @@
     user-select: none;
     -webkit-user-select: none;
     /* Compatibilidade Electron */
+    transition: background-color 0.3s ease;
   }
 
   /* Impedir que imagens sejam arrastadas */
@@ -80,9 +86,9 @@
   scrollbar-width: none;
 }
 
-/* Remover setinhas de input number */
-.no-spinner input::-webkit-outer-spin-button,
-.no-spinner input::-webkit-inner-spin-button {
+/* Remover setinhas de input number (Global) */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
@@ -152,8 +158,8 @@ input[type=number] {
   background: rgba(34, 211, 238, 0.05);
   color: #ffffff;
   border-color: #22d3ee;
-  box-shadow: 0 0 20px rgba(34, 211, 238, 0.3);
-  text-shadow: 0 0 10px rgba(34, 211, 238, 0.8);
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.2);
+  text-shadow: 0 0 5px rgba(34, 211, 238, 0.4);
   transform: translateY(-1px);
 }
 
@@ -285,4 +291,14 @@ input[type=number] {
 .btn-cyber-tab.inactive:hover {
   color: #d1d5db;
   background: rgba(255, 255, 255, 0.05);
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%) skewX(-12deg);
+  }
+
+  100% {
+    transform: translateX(200%) skewX(-12deg);
+  }
 }

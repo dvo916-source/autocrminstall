@@ -1,0 +1,77 @@
+{
+    "name": "Tool - Search Cars v2 (Postgres)",
+    "nodes": [
+        {
+            "parameters": {},
+            "name": "Execute Workflow Trigger",
+            "type": "n8n-nodes-base.executeWorkflowTrigger",
+            "typeVersion": 1,
+            "position": [
+                460,
+                360
+            ],
+            "id": "713e2b1f-0a06-4b95-a4b5-93717257321e"
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "SELECT nome, ano, km, valor, link, foto\nFROM estoque\nWHERE ativo = true\nAND ($1 = '' OR nome ILIKE '%' || $1 || '%')\nAND (CAST(REGEXP_REPLACE(valor, '[^0-9]', '', 'g') AS NUMERIC) <= COALESCE($2, 999999999))\nORDER BY CAST(REGEXP_REPLACE(valor, '[^0-9]', '', 'g') AS NUMERIC) ASC\nLIMIT 4;",
+                "options": {
+                    "queryParameters": "={{ $json.name || '' }},{{ $json.max_price || 999999999 }}"
+                }
+            },
+            "name": "Postgres Search",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 1,
+            "position": [
+                680,
+                360
+            ],
+            "id": "postgres_search_executor",
+            "credentials": {
+                "postgres": {
+                    "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+                    "name": "Postgres account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={{ $json }}"
+            },
+            "name": "Respond to Workflow",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1,
+            "position": [
+                900,
+                360
+            ],
+            "id": "respond_to_workflow"
+        }
+    ],
+    "connections": {
+        "Execute Workflow Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Postgres Search",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Postgres Search": {
+            "main": [
+                [
+                    {
+                        "node": "Respond to Workflow",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

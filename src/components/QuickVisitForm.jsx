@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, CheckCircle, Car, Clock, Users, Calendar as CalendarIcon, Edit2, Zap, DollarSign, Repeat, Target, Wallet, Shield } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toLocalISOString } from '../lib/utils';
 import PremiumSelect from './PremiumSelect';
 import PremiumDatePicker from './PremiumDatePicker';
 
@@ -37,12 +38,7 @@ const QuickVisitForm = ({ onClose }) => {
         negociacao: '', motivo_perda: '', status_pipeline: 'Agendado'
     });
 
-    // Helper: Local ISO String
-    const toLocalISOString = (date) => {
-        const d = date || new Date();
-        const pad = n => n.toString().padStart(2, '0');
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    };
+
 
     const maskPhone = (val) => {
         let v = val.replace(/\D/g, '');

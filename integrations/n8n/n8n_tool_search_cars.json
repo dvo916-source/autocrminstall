@@ -1,0 +1,77 @@
+{
+    "name": "Tool - Search Cars (Diego)",
+    "nodes": [
+        {
+            "parameters": {},
+            "name": "Execute Workflow Trigger",
+            "type": "n8n-nodes-base.executeWorkflowTrigger",
+            "typeVersion": 1,
+            "position": [
+                460,
+                360
+            ],
+            "id": "713e2b1f-0a06-4b95-a4b5-93717257321e"
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "SELECT nome, ano, km, valor, link, foto\nFROM estoque\nWHERE ativo = true\nAND ($1 = '' OR nome ILIKE '%' || $1 || '%')\nAND (CAST(REGEXP_REPLACE(valor, '[^0-9]', '', 'g') AS NUMERIC) <= COALESCE($2, 999999999))\nORDER BY CAST(REGEXP_REPLACE(valor, '[^0-9]', '', 'g') AS NUMERIC) ASC\nLIMIT 4;",
+                "options": {
+                    "queryParameters": "={{ $json.name || '' }},{{ $json.max_price || 999999999 }}"
+                }
+            },
+            "name": "EXECUTE_SEARCH_SQL",
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                680,
+                360
+            ],
+            "id": "supabase_search_executor",
+            "credentials": {
+                "supabaseApi": {
+                    "id": "JnfMH9wmasq5Xdqj",
+                    "name": "Supabase account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={{ $json }}"
+            },
+            "name": "Respond to Workflow",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1,
+            "position": [
+                900,
+                360
+            ],
+            "id": "respond_to_workflow"
+        }
+    ],
+    "connections": {
+        "Execute Workflow Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "EXECUTE_SEARCH_SQL",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "EXECUTE_SEARCH_SQL": {
+            "main": [
+                [
+                    {
+                        "node": "Respond to Workflow",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

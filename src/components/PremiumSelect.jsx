@@ -45,25 +45,43 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
     const updatePosition = () => {
         if (containerRef.current) {
             const rect = containerRef.current.getBoundingClientRect();
+            const dropdownWidth = rect.width;
             const spaceBelow = window.innerHeight - rect.bottom;
             const openUpwards = spaceBelow < 250;
+
+            // Clamping left position to avoid going off-screen
+            let leftPos = rect.left;
+            if (leftPos + dropdownWidth > window.innerWidth) {
+                leftPos = window.innerWidth - dropdownWidth - 10;
+            }
+            if (leftPos < 10) leftPos = 10;
 
             setDropdownStyle({
                 position: 'fixed',
                 top: openUpwards ? 'auto' : (rect.bottom + 8),
                 bottom: openUpwards ? (window.innerHeight - rect.top + 8) : 'auto',
-                left: rect.left,
-                width: rect.width,
+                left: leftPos,
+                width: dropdownWidth,
                 zIndex: 99999
             });
         }
     };
 
-    // Calculate position
+    // Robust positioning logic
     useEffect(() => {
         if (isOpen) {
             updatePosition();
-            // Optional: Request animation frame or high frequency update if scroll is too jumpy
+
+            // Re-calculate after a short delay to account for modal animations
+            const timer = setTimeout(updatePosition, 100);
+            const timer2 = setTimeout(updatePosition, 300);
+
+            window.addEventListener('resize', updatePosition);
+            return () => {
+                clearTimeout(timer);
+                clearTimeout(timer2);
+                window.removeEventListener('resize', updatePosition);
+            };
         }
     }, [isOpen]);
 
@@ -91,7 +109,6 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
 
         const handleScroll = (e) => {
             if (isOpen) {
-                // Se o scroll vier de dentro do dropdown, ignoramos o fechamento (ou reposicionamos)
                 const isInsideDropdown = e.target.closest && e.target.closest('[data-select-content="true"]');
                 if (!isInsideDropdown) {
                     updatePosition();
@@ -99,8 +116,10 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
             }
         };
 
-        document.addEventListener('mousedown', handleClickOutside);
-        window.addEventListener('scroll', handleScroll, true); // Use capture for better detection
+        if (isOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+            window.addEventListener('scroll', handleScroll, true);
+        }
 
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
@@ -123,29 +142,25 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
     };
 
     return (
-        <div className={`relative ${className}`} ref={containerRef}>
+        <div className={`relative w-full`} ref={containerRef}>
             {/* Trigger Container */}
             <div
                 onClick={handleToggle}
-                className={`w-full bg-white/5 border ${isOpen ? 'border-cyan-500/50 bg-white/10 ring-1 ring-cyan-500/30' : 'border-white/10'} rounded-xl px-3 py-2 flex items-center justify-between cursor-pointer transition-all hover:bg-white/10 group shadow-lg`}
+                className={`w-full h-14 bg-white/5 border ${isOpen ? 'border-cyan-500/50 bg-white/10 ring-1 ring-cyan-500/30' : 'border-white/10'} rounded-2xl px-5 flex items-center justify-between cursor-pointer transition-all hover:bg-white/10 group shadow-lg`}
             >
                 {searchable ? (
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                         <input
                             ref={inputRef}
                             type="text"
-                            className="bg-transparent border-none outline-none text-white text-[10px] font-bold tracking-wider w-full placeholder-gray-500 cursor-text"
+                            className="bg-transparent border-none outline-none text-white text-base font-bold tracking-tight w-full placeholder-gray-500 cursor-text"
                             placeholder={placeholder}
                             value={isOpen ? searchTerm : (selectedOption ? selectedOption.label : '')}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                if (!isOpen) setIsOpen(true);
-                            }}
                         />
                     </div>
                 ) : (
-                    <span className={`text-[10px] font-bold tracking-wider truncate flex-1 pr-2 ${!selectedOption ? 'text-gray-500' : 'text-white'}`}>
+                    <span className={`text-base font-bold tracking-tight truncate flex-1 pr-2 ${!selectedOption ? 'text-gray-500' : 'text-white'}`}>
                         {selectedOption ? selectedOption.label : placeholder}
                     </span>
                 )}
@@ -153,7 +168,7 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
                 <motion.div
                     animate={{ rotate: isOpen ? 180 : 0 }}
                     transition={{ type: 'spring', damping: 20 }}
-                    className="text-gray-600 group-hover:text-blue-400 transition-colors shrink-0"
+                    className="text-gray-600 group-hover:text-blue-400 transition-colors shrink-0 ml-2"
                 >
                     <ChevronDown size={14} />
                 </motion.div>
@@ -192,7 +207,7 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
                                                 {itemRenderer ? (
                                                     itemRenderer(option)
                                                 ) : (
-                                                    <span className="text-[10px] font-bold tracking-wide uppercase">{option.label}</span>
+                                                    <span className="text-sm font-bold tracking-wide uppercase">{option.label}</span>
                                                 )}
                                             </div>
                                             {value === option.value && <Check size={14} strokeWidth={3} className="shrink-0 ml-2" />}

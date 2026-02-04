@@ -14,6 +14,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import AlertModal from '../components/AlertModal';
 import NewVisitModal from '../components/NewVisitModal';
 import { supabase } from '../lib/supabase';
+import { toLocalISOString, getCleanPhone } from '../lib/utils';
 
 const PIPELINE_STATUSES = [
     { id: 'Agendado', label: 'Agendado', color: 'blue' },
@@ -52,6 +53,7 @@ const Visitas = ({ user }) => {
     const [portais, setPortais] = useState([]);
     const [vendedores, setVendedores] = useState([]);
     const [estoque, setEstoque] = useState([]);
+    const [sdrs, setSdrs] = useState([]); // List of system users (SDRs)
 
     useEffect(() => {
         loadData();
@@ -73,61 +75,38 @@ const Visitas = ({ user }) => {
 
     const loadData = async () => {
         try {
-            // ☁️ BUSCA NO SUPABASE (NUVEM)
-            let query = supabase.from('visitas').select('*');
+            setLoading(true);
+            const { ipcRenderer } = window.require('electron');
 
-            const userRole = currentUser.role || 'vendedor';
+            // 🏠 BUSCA LOCAL (PRIORIDADE - INSTANTÂNEO & LOCAL-FIRST)
+            // Isso garante que o dado inserido localmente apareça na hora, sem depender do delay da nuvem
+            const localVisitas = await ipcRenderer.invoke('get-visitas-secure', {
+                role: currentUser.role,
+                username: currentUser.username
+            });
+            setVisitas(localVisitas || []);
 
-            if (userRole !== 'admin' && userRole !== 'master' && userRole !== 'developer') {
-                query = query.eq('vendedor_sdr', currentUser.username);
-            }
-
-            const [{ data: v, error: errV }, { data: p, error: errP }, { data: vend, error: errVend }, { data: est, error: errEst }] = await Promise.all([
-                query.order('datahora', { ascending: false }),
-                supabase.from('portais').select('*'),
-                supabase.from('vendedores').select('*'),
-                supabase.from('estoque').select('*')
+            // Listas Auxiliares (Carregamento Paralelo)
+            const [localPortais, localVendedores, localEstoque, localSdrs] = await Promise.all([
+                ipcRenderer.invoke('get-list', 'portais'),
+                ipcRenderer.invoke('get-list', 'vendedores'),
+                ipcRenderer.invoke('get-list', 'estoque'),
+                ipcRenderer.invoke('get-list-users')
             ]);
 
-            if (errV) throw errV;
-            if (errP) throw errP;
-            if (errVend) throw errVend;
-            if (errEst) throw errEst;
-
-            setVisitas(v || []);
-            setPortais((p || []).filter(item => item.ativo));
-            setVendedores((vend || []).filter(item => item.ativo));
-            setEstoque((est || []).filter(item => item.ativo));
+            setPortais((localPortais || []).filter(i => i.ativo));
+            setVendedores((localVendedores || []).filter(i => i.ativo));
+            setEstoque((localEstoque || []).filter(i => i.ativo));
+            setSdrs(localSdrs || []);
 
         } catch (err) {
-            console.warn('Erro Supabase (Nuvem Off?), buscando Local...', err);
-            try {
-                const { ipcRenderer } = window.require('electron');
-                const localVisitas = await ipcRenderer.invoke('get-visitas-secure', { role: currentUser.role, username: currentUser.username });
-                setVisitas(localVisitas || []);
-
-                const localPortais = await ipcRenderer.invoke('get-list', 'portais');
-                setPortais(localPortais.filter(i => i.ativo));
-
-                const localVendedores = await ipcRenderer.invoke('get-list', 'vendedores');
-                setVendedores(localVendedores.filter(i => i.ativo));
-
-                const localEstoque = await ipcRenderer.invoke('get-list', 'estoque');
-                setEstoque(localEstoque.filter(i => i.ativo));
-            } catch (localErr) {
-                console.error('Falha Total (Nuvem + Local):', localErr);
-            }
+            console.error('Falha ao carregar dados locais:', err);
         } finally {
             setLoading(false);
         }
     };
 
-    // Helper to get Local ISO String (YYYY-MM-DDTHH:mm) correctly
-    const toLocalISOString = (date) => {
-        const d = date || new Date();
-        const pad = n => n.toString().padStart(2, '0');
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    };
+
 
     // Custom renderer for vehicle options (Rich Cards)
     const renderVehicleOption = (option) => {
@@ -221,7 +200,11 @@ const Visitas = ({ user }) => {
         return (
             <div style={style} className="px-2">
                 <div
-                    className="flex items-center group transition-all duration-300 border-b border-white/5 hover:bg-cyan-500/[0.03] py-2 h-[88px] relative hover:border-cyan-500/20"
+                    className="flex items-center group transition-all duration-300 border-b border-white/5 hover:bg-cyan-500/[0.03] py-2 h-[88px] relative hover:border-cyan-500/20 cursor-pointer"
+                    onClick={() => {
+                        setSelectedVisit(v);
+                        setIsVisitModalOpen(true);
+                    }}
                     style={{ willChange: 'transform', transform: 'translateZ(0)' }}
                 >
                     {/* Hover Glow Edge */}
@@ -246,7 +229,7 @@ const Visitas = ({ user }) => {
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        const cleanNum = v.telefone.replace(/\D/g, '');
+                                        const cleanNum = getCleanPhone(v.telefone);
                                         window.open(`https://wa.me/55${cleanNum}`, '_blank');
                                     }}
                                     className="flex items-center gap-1.5 text-gray-500 hover:text-green-400 text-xs font-bold transition-all"
@@ -264,7 +247,21 @@ const Visitas = ({ user }) => {
                                 <span className="text-cyan-300 font-bold text-sm tracking-wider truncate drop-shadow-sm">
                                     {v.veiculo_interesse || 'S/ Veículo'}
                                 </span>
-                                <span className="text-[11px] text-gray-500 font-bold truncate uppercase tracking-wider">SDR: <span className="text-white">{v.vendedor_sdr}</span></span>
+                                <span className="text-[11px] text-gray-500 font-bold truncate uppercase tracking-wider">
+                                    <span className="text-white">
+                                        {(() => {
+                                            // 1. Try to find user by username (Case Insensitive)
+                                            const sdr = sdrs.find(u => u.username?.toLowerCase() === v.vendedor_sdr?.toLowerCase());
+
+                                            // 2. If found and has a name, use it
+                                            if (sdr && sdr.nome_completo) return sdr.nome_completo.split(' ')[0].toUpperCase();
+
+                                            // 3. Fallback: Extract name from email (e.g. "raianny" from "raianny@gmail.com")
+                                            const emailName = v.vendedor_sdr?.split('@')[0];
+                                            return emailName ? emailName.toUpperCase() : 'SDR';
+                                        })()}
+                                    </span>
+                                </span>
                             </div>
                         </div>
                     </div>

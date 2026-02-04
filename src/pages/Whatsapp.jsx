@@ -1,4 +1,4 @@
-import { MessageSquare, ListCheck, Plus, Trash2, Send, Star, X, Car, Search, ExternalLink, Image as ImageIcon, Edit2, GripVertical, ChevronRight, ChevronLeft, Calendar as CalendarIcon } from 'lucide-react';
+import { MessageSquare, ListCheck, Plus, Trash2, Send, Star, X, Car, Search, ExternalLink, Image as ImageIcon, Edit2, GripVertical, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Calendar, Gauge, CircleDollarSign, Filter } from 'lucide-react';
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
@@ -33,43 +33,6 @@ class ErrorBoundary extends React.Component {
 
 // --- Sub-componentes Optimizados ---
 
-const DirectChatForm = ({ onSend }) => {
-    const [phone, setPhone] = useState('');
-
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        const trimmed = phone.trim();
-        if (!trimmed) return;
-        onSend(trimmed);
-        setPhone('');
-    };
-
-    return (
-        <div className="px-2">
-            <div className="text-[11px] font-black text-gray-400 tracking-widest mb-2 ml-1 uppercase">Conversa Direta</div>
-            <form onSubmit={handleSubmit} className="relative group">
-                <input
-                    type="text"
-                    placeholder="Digite o Celular com DDD"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-4 pr-10 outline-none focus:border-blue-500 transition-all text-xs font-bold text-white placeholder-gray-600"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            e.stopPropagation();
-                        }
-                    }}
-                />
-                <button
-                    type="submit"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white rounded-lg transition-all"
-                >
-                    <Send size={14} />
-                </button>
-            </form>
-        </div>
-    );
-};
 
 const CarCard = memo(({ car, onSendPhotos, onSendInfo, onPasteLink, loadingCar }) => {
     let fotosCount = 0;
@@ -110,28 +73,34 @@ const CarCard = memo(({ car, onSendPhotos, onSendInfo, onPasteLink, loadingCar }
                                 {car.valor || 'R$ 0,00'}
                             </span>
 
-                            <div className="flex flex-wrap gap-1.5 opacity-80">
+                            <div className="flex flex-wrap gap-1.5">
                                 {car.ano && (
-                                    <span className="px-1.5 py-0.5 bg-white/5 rounded text-[10px] font-semibold text-gray-400 border border-white/5">
-                                        {car.ano}
-                                    </span>
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-white/10 shadow-sm transition-colors group-hover:border-amber-500/30">
+                                        <Calendar size={12} className="text-amber-500" />
+                                        <span className="text-[11px] font-bold text-gray-300 font-rajdhani tracking-wider">
+                                            {car.ano}
+                                        </span>
+                                    </div>
                                 )}
                                 {car.km && (
-                                    <span className="px-1.5 py-0.5 bg-white/5 rounded text-[10px] font-semibold text-gray-400 border border-white/5 lowercase">
-                                        {car.km}
-                                    </span>
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-white/10 shadow-sm transition-colors group-hover:border-cyan-500/30">
+                                        <Gauge size={12} className="text-cyan-400" />
+                                        <span className="text-[11px] font-bold text-gray-300 font-rajdhani tracking-wider lowercase">
+                                            {car.km}
+                                        </span>
+                                    </div>
                                 )}
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Actions Grid - Cyber Buttons */}
+                {/* Actions Grid - Cyber Buttons Padronizados */}
                 <div className="grid grid-cols-1 gap-2 pt-2 border-t border-white/5">
                     <button
                         onClick={() => onSendPhotos(car)}
                         disabled={loadingCar === car.nome}
-                        className={`btn-cyber-primary w-full flex items-center justify-center gap-2 text-[11px] py-3
+                        className={`btn-cyber-primary w-full flex items-center justify-center gap-2 text-[11px] py-3.5 rounded-2xl
                             ${loadingCar === car.nome ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
                     >
                         {loadingCar === car.nome ? (
@@ -139,23 +108,16 @@ const CarCard = memo(({ car, onSendPhotos, onSendInfo, onPasteLink, loadingCar }
                         ) : (
                             <ImageIcon size={14} className="group-hover:scale-110 transition-transform" />
                         )}
-                        {loadingCar === car.nome ? 'BUSCANDO...' : `ENVIAR FOTOS (${fotosCount})`}
+                        <span className="font-black tracking-widest">{loadingCar === car.nome ? 'BUSCANDO...' : `ENVIAR FOTOS (${fotosCount})`}</span>
                     </button>
 
-                    <div className="grid grid-cols-2 gap-2">
-                        <button
-                            onClick={(e) => { e.currentTarget.blur(); onSendInfo(car); }}
-                            className="btn-cyber-secondary text-[11px] py-2.5"
-                        >
-                            <ListCheck size={12} className="text-gray-400 group-hover:text-cyan-400 transition-colors" /> INFOS
-                        </button>
-                        <button
-                            onClick={(e) => { e.currentTarget.blur(); onPasteLink(car.link); }}
-                            className="btn-cyber-secondary text-[11px] py-2.5"
-                        >
-                            <ExternalLink size={12} className="text-gray-400 group-hover:text-cyan-400 transition-colors" /> LINK
-                        </button>
-                    </div>
+                    <button
+                        onClick={(e) => { e.currentTarget.blur(); onSendInfo(car); }}
+                        className="btn-cyber-primary w-full text-[11px] py-3.5 flex items-center justify-center gap-2 rounded-2xl bg-white/5 border-white/10 text-white hover:bg-cyan-500/10 hover:border-cyan-500/50 transition-all"
+                    >
+                        <ListCheck size={14} className="group-hover:text-cyan-400 transition-colors" />
+                        <span className="font-black tracking-widest">ENVIAR INFORMAÇÕES</span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -179,6 +141,7 @@ const Whatsapp = () => {
     const [searchEstoque, setSearchEstoque] = useState('');
     const [priceLimit, setPriceLimit] = useState('');
     const [loadingCar, setLoadingCar] = useState(null);
+    const [directPhone, setDirectPhone] = useState('');
     const [userRole, setUserRole] = useState(null);
     const [username, setUsername] = useState(null); // Username para partition isolado
     // --- Lógica Refatorada para Controle Remoto ---
@@ -198,16 +161,6 @@ const Whatsapp = () => {
         }));
     }, [isSidebarOpen]);
 
-    const handleDirectChat = useCallback((phone) => {
-        const cleanNumber = phone.replace(/\D/g, '');
-        if (cleanNumber.length < 10) {
-            window.dispatchEvent(new CustomEvent('show-notification', {
-                detail: { message: 'Número incompleto! Digite o DDD.', type: 'error' }
-            }));
-            return;
-        }
-        window.dispatchEvent(new CustomEvent('whatsapp-direct-chat', { detail: cleanNumber }));
-    }, []);
 
     const pasteToWhatsapp = useCallback((text) => {
         // Dispara evento para o Service colar texto
@@ -351,6 +304,12 @@ const Whatsapp = () => {
     }, []);
 
 
+
+    useEffect(() => {
+        window.dispatchEvent(new CustomEvent('whatsapp-sidebar-state', {
+            detail: { isOpen: isSidebarOpen, width: 420 }
+        }));
+    }, [isSidebarOpen]);
 
     const loadData = async () => {
         try {
@@ -550,7 +509,7 @@ const Whatsapp = () => {
             <motion.div
                 className="h-full w-full flex relative overflow-hidden bg-transparent"
                 initial={false}
-                animate={{ paddingRight: isSidebarOpen ? 320 : 0 }}
+                animate={{ paddingRight: isSidebarOpen ? 420 : 0 }}
                 transition={{ type: "spring", stiffness: 400, damping: 35 }}
             >
                 {/* ÁREA DE CONTROLE (Botão Toggle) */}
@@ -560,12 +519,12 @@ const Whatsapp = () => {
                     onClick={(e) => { e.stopPropagation(); setIsSidebarOpen(!isSidebarOpen); }}
                     initial={false}
                     animate={{
-                        x: isSidebarOpen ? -320 : 0,
+                        x: isSidebarOpen ? -420 : 0,
                     }}
                     style={{ right: 0 }}
                     whileHover={{ width: 40, backgroundColor: "rgb(37 99 235 / 0.9)" }} // Aumenta largura no hover
                     transition={{ type: "spring", stiffness: 400, damping: 35 }}
-                    className="fixed top-1/2 -translate-y-1/2 z-[60] w-6 h-24 bg-slate-900/90 backdrop-blur-md flex items-center justify-center rounded-l-xl border-y border-l border-blue-500/30 text-blue-400 cursor-pointer shadow-[0_0_20px_rgba(0,0,0,0.5)] hover:text-white hover:border-blue-400/50 hover:shadow-blue-500/20 transition-colors"
+                    className="fixed top-1/2 -translate-y-1/2 z-[60] w-6 h-24 bg-slate-900/90 backdrop-blur-md flex items-center justify-center rounded-l-xl border-y border-l border-blue-500/30 text-blue-400 cursor-pointer shadow-[0_0_20px_rgba(0,0,0,0.5)] hover:text-white hover:border-blue-400/50 hover:shadow-blue-500/20 transition-colors pointer-events-auto"
                 >
                     {isSidebarOpen ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
                 </motion.button>
@@ -578,7 +537,7 @@ const Whatsapp = () => {
                             animate={{ x: 0 }}
                             exit={{ x: "100%" }}
                             transition={{ type: "spring", stiffness: 400, damping: 35 }}
-                            className="absolute right-0 top-0 bottom-0 w-[320px] h-full overflow-y-auto custom-scrollbar flex flex-col pr-2 pl-4 py-8 bg-[#0f172a] border-l border-white/10 z-50 shadow-2xl"
+                            className="absolute right-0 top-0 bottom-0 w-[420px] h-full overflow-y-auto custom-scrollbar flex flex-col pr-2 pl-4 py-8 bg-[#0f172a] border-l border-white/10 z-50 shadow-2xl pointer-events-auto"
                         >
                             {/* Header */}
                             <div className="shrink-0 space-y-4 mb-4">
@@ -615,10 +574,9 @@ const Whatsapp = () => {
                             <div className="flex-1 min-h-0 space-y-3 flex flex-col">
                                 {activeTab === 'templates' ? (
                                     <>
-                                        <DirectChatForm onSend={handleDirectChat} />
 
-                                        <div className="px-2 mt-2">
-                                            <div className="px-2 mt-2">
+                                        <div className="px-2 mt-2 space-y-2">
+                                            <div className="px-2">
                                                 <button
                                                     onClick={() => setIsQuickVisitOpen(!isQuickVisitOpen)}
                                                     className={`w-full flex items-center justify-center gap-2 text-xs py-2.5 rounded-xl transition-all border font-black tracking-widest
@@ -632,6 +590,41 @@ const Whatsapp = () => {
                                                         <> <CalendarIcon size={16} strokeWidth={2.5} /> Agendar Visita </>
                                                     )}
                                                 </button>
+                                            </div>
+
+                                            {/* Chat Direto por Número - UI Compacta */}
+                                            <div className="px-2 pt-2 border-t border-white/5 mt-2">
+                                                <div className="relative group/phone">
+                                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within/phone:text-cyan-400 transition-colors" />
+                                                    <input
+                                                        type="text"
+                                                        placeholder="DDD + Telefone (Direto)"
+                                                        value={directPhone}
+                                                        onChange={(e) => setDirectPhone(e.target.value.replace(/\D/g, '').slice(0, 13))}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' && directPhone.length >= 8) {
+                                                                window.dispatchEvent(new CustomEvent('whatsapp-direct-chat', { detail: directPhone }));
+                                                                window.dispatchEvent(new CustomEvent('show-notification', { detail: { message: 'Iniciando conversa...', type: 'info' } }));
+                                                                setDirectPhone('');
+                                                            }
+                                                        }}
+                                                        className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-9 pr-10 text-xs text-white placeholder:text-gray-600 focus:outline-none focus:border-cyan-500/50 focus:bg-white/10 transition-all font-mono"
+                                                    />
+                                                    <button
+                                                        onClick={() => {
+                                                            if (directPhone.length >= 8) {
+                                                                window.dispatchEvent(new CustomEvent('whatsapp-direct-chat', { detail: directPhone }));
+                                                                window.dispatchEvent(new CustomEvent('show-notification', { detail: { message: 'Iniciando conversa...', type: 'info' } }));
+                                                                setDirectPhone('');
+                                                            }
+                                                        }}
+                                                        disabled={directPhone.length < 8}
+                                                        className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500 hover:text-black transition-all disabled:opacity-0 disabled:pointer-events-none"
+                                                        title="Iniciar Conversa"
+                                                    >
+                                                        <ExternalLink size={14} />
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -680,24 +673,39 @@ const Whatsapp = () => {
                                     </>
                                 ) : (
                                     <>
-                                        {/* Tab Veículos */}
-                                        <div className="relative mb-2">
-                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={14} />
-                                            <input
-                                                type="text"
-                                                placeholder="Filtrar por nome..."
-                                                value={searchEstoque}
-                                                onChange={(e) => setSearchEstoque(e.target.value)}
-                                                className="w-full bg-black/30 text-xs text-white pl-9 pr-3 py-2.5 rounded-xl border border-white/10 outline-none focus:border-orange-500/50"
-                                            />
+                                        {/* Tab Veículos - Filtros Premium */}
+                                        <div className="space-y-3 mb-6 p-4 bg-black/40 rounded-3xl border border-white/5 backdrop-blur-sm shadow-xl">
+                                            <div className="flex items-center gap-2 mb-1 px-1">
+                                                <Filter size={12} className="text-orange-500" />
+                                                <span className="text-[10px] font-black text-gray-500 tracking-[0.2em] uppercase">Filtrar Catálogo</span>
+                                            </div>
+
+                                            <div className="space-y-2.5">
+                                                {/* Busca por Nome */}
+                                                <div className="relative group/input">
+                                                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within/input:text-orange-400 transition-colors" size={14} />
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Qual veículo procura?"
+                                                        value={searchEstoque}
+                                                        onChange={(e) => setSearchEstoque(e.target.value)}
+                                                        className="w-full bg-white/5 text-xs text-white pl-10 pr-4 py-3 rounded-2xl border border-white/10 outline-none focus:border-orange-500/50 focus:bg-orange-500/5 transition-all placeholder:text-gray-600 font-bold"
+                                                    />
+                                                </div>
+
+                                                {/* Preço Máximo */}
+                                                <div className="relative group/input">
+                                                    <CircleDollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within/input:text-emerald-400 transition-colors" size={14} />
+                                                    <input
+                                                        type="number"
+                                                        placeholder="Preço Máximo (Opcional)"
+                                                        value={priceLimit}
+                                                        onChange={(e) => setPriceLimit(e.target.value)}
+                                                        className="w-full bg-white/5 text-xs text-white pl-10 pr-4 py-3 rounded-2xl border border-white/10 outline-none focus:border-emerald-500/50 focus:bg-emerald-500/5 transition-all placeholder:text-gray-600 font-bold"
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
-                                        <input
-                                            type="number"
-                                            placeholder="Preço Máximo (ex: 50000)"
-                                            value={priceLimit}
-                                            onChange={(e) => setPriceLimit(e.target.value)}
-                                            className="w-full bg-black/30 text-[11px] text-white px-3 py-2 rounded-lg border border-white/10 outline-none focus:border-orange-500/50 mb-4"
-                                        />
 
                                         <div className="space-y-3 overflow-y-auto flex-1 pr-2 custom-scrollbar pb-20">
                                             {filteredEstoque.map(car => (

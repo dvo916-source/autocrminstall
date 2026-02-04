@@ -3,7 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
     BarChart3, Users, Car, Globe, Target, Bot,
     LogOut, UserCircle, MessageSquare,
-    CheckCircle2, AlertCircle, Info, X
+    CheckCircle2, AlertCircle, Info, X, Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import WhatsappService from './WhatsappService';
@@ -19,6 +19,14 @@ const Shell = ({ children, user, onLogout }) => {
 
     const [updateStatus, setUpdateStatus] = useState({ available: false, progress: 0, ready: false });
     const [unseenCount, setUnseenCount] = useState(0); // Estado para o contador do Zap
+    const [appVersion, setAppVersion] = useState('...');
+
+    useEffect(() => {
+        try {
+            const { ipcRenderer } = window.require('electron');
+            ipcRenderer.invoke('get-app-version').then(v => setAppVersion(v)).catch(() => setAppVersion('1.1.2'));
+        } catch (e) { setAppVersion('1.1.2'); }
+    }, []);
 
     // --- Lógica Auto-Scale ---
     useEffect(() => {
@@ -99,15 +107,14 @@ const Shell = ({ children, user, onLogout }) => {
     };
 
     const navItems = [
-        { to: '/', label: 'DASHBOARD', icon: <BarChart3 size={22} strokeWidth={1.5} />, active: hasPermission('/') },
-        { to: '/whatsapp', label: 'WHATSAPP', icon: <MessageSquare size={22} strokeWidth={1.5} />, active: hasPermission('/whatsapp') },
-        { to: '/estoque', label: 'TABELA', icon: <Car size={22} strokeWidth={1.5} />, active: hasPermission('/estoque') },
-        { to: '/agendamentos', label: 'AGENDA', icon: <Users size={22} strokeWidth={1.5} />, active: hasPermission('/agendamentos') },
-        { to: '/visitas', label: 'VISITAS', icon: <Users size={22} strokeWidth={1.5} />, active: hasPermission('/visitas') },
-        { to: '/metas', label: 'METAS', icon: <Target size={22} strokeWidth={1.5} />, active: hasPermission('/metas') },
-        { to: '/portais', label: 'PORTAIS', icon: <Globe size={22} strokeWidth={1.5} />, active: hasPermission('/portais') },
-        { to: '/ia-chat', label: 'IA CHAT', icon: <Bot size={22} strokeWidth={1.5} />, active: hasPermission('/ia-chat') },
-        { to: '/usuarios', label: 'USUÁRIOS', icon: <Users size={22} strokeWidth={1.5} />, active: hasPermission('/usuarios') },
+        { to: '/', label: 'MEU DIÁRIO', icon: <Calendar className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: true },
+        { to: '/whatsapp', label: 'WHATSAPP', icon: <MessageSquare className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/whatsapp') },
+        { to: '/estoque', label: 'TABELA', icon: <Car className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/estoque') },
+        { to: '/visitas', label: 'VISITAS', icon: <Users className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/visitas') },
+        { to: '/metas', label: 'METAS', icon: <Target className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/metas') },
+        { to: '/portais', label: 'PORTAIS', icon: <Globe className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/portais') },
+        { to: '/ia-chat', label: 'IA CHAT', icon: <Bot className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/ia-chat') },
+        { to: '/usuarios', label: 'USUÁRIOS', icon: <Users className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/usuarios') },
     ];
 
     return (
@@ -123,13 +130,13 @@ const Shell = ({ children, user, onLogout }) => {
             {/* SIDEBAR - Coluna Sólida (Sem 'Fixed') */}
             <motion.aside
                 initial={false}
-                animate={{ width: isSidebarHovered ? 240 : 80 }}
+                animate={{ width: isSidebarHovered ? 'var(--sidebar-expanded-width)' : 'var(--sidebar-width)' }}
                 onMouseEnter={() => setIsSidebarHovered(true)}
                 onMouseLeave={() => setIsSidebarHovered(false)}
                 transition={{ type: 'spring', damping: 25, stiffness: 200 }}
                 // Z-index: 50 para garantir que sombras fiquem sobre o conteúdo
                 // Position: Relative para OCUPAR espaço e empurrar o vizinho
-                className="relative z-50 h-full flex flex-col justify-between bg-[#0f172a] border-r border-[#ffffff10] shadow-2xl shrink-0 overflow-hidden pt-4 lg:pt-8"
+                className="relative z-50 h-full flex flex-col justify-between bg-[#0f172a] border-r border-[#ffffff10] shadow-2xl shrink-0 overflow-hidden pt-4"
             >
                 {/* Header Customizado - Logo CSS */}
                 <div
@@ -165,16 +172,16 @@ const Shell = ({ children, user, onLogout }) => {
                             key={item.to}
                             to={item.to}
                             className={({ isActive }) => `
-                                relative flex items-center h-11 rounded-xl transition-all duration-300 group/item overflow-hidden shrink-0
+                                relative flex items-center h-11 rounded-xl transition-all duration-300 group/item overflow-hidden shrink-0 focus:outline-none
                                 ${isActive
                                     ? 'bg-[#22d3ee15] text-[#22d3ee] border border-[#22d3ee30] shadow-[0_0_15px_-5px_rgba(34,211,238,0.3)]'
                                     : 'text-slate-400 hover:text-white hover:bg-[#ffffff08] border border-transparent'}
                             `}
                         >
-                            <div className="absolute left-0 w-[80px] h-full flex items-center justify-center shrink-0 z-20">
+                            <div className="absolute left-0 w-[var(--sidebar-width)] h-full flex items-center justify-center shrink-0 z-20">
                                 {item.label === 'WHATSAPP' && unseenCount > 0 ? (
                                     <div className="relative flex items-center justify-center animate-[pulse_3s_ease-in-out_infinite]">
-                                        <MessageSquare size={26} className={`${unseenCount >= 10 ? 'text-red-500 fill-red-500/20 drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'text-cyan-400 fill-cyan-400/20 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]'}`} strokeWidth={2} />
+                                        <MessageSquare className={`w-[1.625rem] h-[1.625rem] ${unseenCount >= 10 ? 'text-red-500 fill-red-500/20 drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'text-cyan-400 fill-cyan-400/20 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]'}`} strokeWidth={2} />
                                         <span className={`absolute inset-0 flex items-center justify-center text-[10px] font-black leading-none pb-0.5 ${unseenCount >= 10 ? 'text-white' : 'text-white'}`}>
                                             {unseenCount > 99 ? '99+' : unseenCount}
                                         </span>
@@ -183,7 +190,7 @@ const Shell = ({ children, user, onLogout }) => {
                                     item.icon
                                 )}
                             </div>
-                            <div className={`pl-[70px] flex items-center h-full w-full transition-all duration-300 ${isSidebarHovered ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
+                            <div className={`pl-[var(--sidebar-width)] flex items-center h-full w-full transition-all duration-300 ${isSidebarHovered ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
                                 <span className="text-sm font-bold tracking-wide  whitespace-nowrap">
                                     {item.label}
                                 </span>
@@ -200,44 +207,54 @@ const Shell = ({ children, user, onLogout }) => {
                     ))}
                 </nav>
 
-                {/* Footer */}
-                <div className="p-3 border-t border-[#ffffff10] bg-[#00000066]">
-                    <div className="flex flex-col gap-2">
-                        {/* User Profile Container */}
-                        <div className={`flex items-center p-1.5 rounded-2xl border transition-all duration-500 overflow-hidden relative group/user ${isAdmin ? 'bg-cyan-950/30 border-cyan-500/20 hover:bg-cyan-900/40 hover:border-cyan-500/40' : 'bg-orange-950/20 border-orange-500/20 hover:bg-orange-900/30 hover:border-orange-500/40'}`}>
-
-                            {/* Initials - Glassy Neon Style */}
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border transition-all duration-500 z-20 relative backdrop-blur-sm ${isAdmin ? 'bg-cyan-500/10 border-cyan-400/30 group-hover:border-cyan-400/60 shadow-[0_0_15px_-5px_rgba(34,211,238,0.3)]' : 'bg-orange-500/10 border-orange-400/30 group-hover:border-orange-400/60 shadow-[0_0_15px_-5px_rgba(251,146,60,0.3)]'}`}>
-                                <span className={`text-xl font-black font-rajdhani pt-0.5 drop-shadow-md transition-colors ${isAdmin ? 'text-cyan-400 group-hover:text-cyan-300' : 'text-orange-400 group-hover:text-orange-300'}`}>
-                                    {(user.username || 'User').charAt(0)}
-                                </span>
+                {/* Footer - Sólido e Ultra-Leve */}
+                <div className="mt-auto border-t border-white/5 bg-transparent">
+                    <div className="flex flex-col py-6">
+                        {/* Profile Section */}
+                        <div className="flex items-center h-11 group/user relative">
+                            <div className="absolute left-0 w-[var(--sidebar-width)] h-full flex items-center justify-center shrink-0">
+                                <div className={`w-9 h-9 rounded-lg flex items-center justify-center border
+                                    ${isAdmin ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400' : 'bg-orange-500/10 border-orange-500/30 text-orange-400'}`}>
+                                    <span className="text-lg font-black font-rajdhani">
+                                        {(user.username || 'U').charAt(0).toUpperCase()}
+                                    </span>
+                                </div>
                             </div>
-
-                            {/* Name Reveal - Completando a escrita */}
-                            <div className={`flex flex-col justify-center h-10 transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isSidebarHovered ? 'opacity-100 translate-x-0 pl-3 pr-2 w-auto' : 'opacity-0 -translate-x-10 w-0 overflow-hidden'}`}>
-                                <span className="text-lg font-bold font-rajdhani text-white leading-none tracking-tight whitespace-nowrap pt-1 flex">
-                                    {(user.username || 'User').split('@')[0].slice(1)}
+                            <div className={`pl-[var(--sidebar-width)] flex flex-col justify-center transition-all duration-200
+                                ${isSidebarHovered ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
+                                <span className="text-[13px] font-black text-white leading-none uppercase tracking-wide truncate max-w-[140px]">
+                                    {user.nome_completo || user.nome || user.username || 'SDR'}
                                 </span>
-                                <span className={`text-[9px] font-black  tracking-[0.2em] leading-none mt-0.5 whitespace-nowrap ${isAdmin ? 'text-cyan-400' : 'text-orange-400'}`}>
-                                    {isAdmin ? 'Administrator' : 'Executive SDR'}
+                                <span className={`text-[8px] font-black mt-1 tracking-widest uppercase opacity-40 ${isAdmin ? 'text-cyan-400' : 'text-orange-400'}`}>
+                                    {user.role || 'Acesso SDR'}
                                 </span>
                             </div>
                         </div>
 
-                        <button onClick={onLogout} className="flex items-center gap-3 h-10 px-2 rounded-xl text-slate-500 hover:text-red-400 transition-colors overflow-hidden group">
-                            <div className="w-10 flex justify-center shrink-0"><LogOut size={20} className="group-hover:scale-110 transition-transform" /></div>
-                            <span className={`text-[10px] font-bold tracking-widest transition-all duration-300 ${isSidebarHovered ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>SAIR</span>
+                        {/* Logout Section */}
+                        <button
+                            onClick={onLogout}
+                            className="flex items-center h-11 text-slate-500 hover:text-red-400 transition-colors group/logout relative"
+                        >
+                            <div className="absolute left-0 w-[var(--sidebar-width)] h-full flex items-center justify-center shrink-0">
+                                <LogOut className="w-5 h-5" />
+                            </div>
+                            <span className={`pl-[var(--sidebar-width)] text-[10px] font-black tracking-[0.15em] transition-all duration-200
+                                ${isSidebarHovered ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
+                                SAIR DA CONTA
+                            </span>
                         </button>
 
-                        <div className={`mt-2 text-center transition-all duration-300 ${isSidebarHovered ? 'opacity-30 translate-y-0' : 'opacity-0 translate-y-2'}`}>
-                            <p className="text-[9px] font-black text-cyan-200 tracking-[0.2em]">VERSION 1.0.6</p>
+                        {/* Version Info */}
+                        <div className={`mt-2 px-6 transition-opacity duration-200 ${isSidebarHovered ? 'opacity-20' : 'opacity-0'}`}>
+                            <p className="text-[9px] font-black tracking-widest text-white">V{appVersion}</p>
                         </div>
                     </div>
                 </div>
             </motion.aside>
 
             {/* CONTEÚDO PRINCIPAL (Flex 1) */}
-            <main className="flex-grow min-w-0 h-full relative z-0 flex flex-col bg-[#0f172a] overflow-hidden">
+            <main className={`flex-grow min-w-0 h-full relative z-0 flex overflow-hidden transition-colors duration-500 ${location.pathname === '/whatsapp' ? 'bg-transparent' : 'flex-col bg-[#0f172a]'}`}>
 
                 {/* SERVIÇO WHATSAPP "ALWAYS ON" */}
                 <WhatsappService
@@ -246,8 +263,8 @@ const Shell = ({ children, user, onLogout }) => {
                 />
 
                 <div
-                    className={`flex-grow flex flex-col relative w-full h-full ${location.pathname === '/whatsapp' ? 'p-0' : 'p-4 lg:p-8 overflow-y-auto custom-scrollbar'}`}
-                    style={{ display: location.pathname === '/whatsapp' ? 'none' : 'flex' }}
+                    className={`flex-grow flex flex-col relative w-full h-full ${location.pathname === '/whatsapp' ? 'p-0 pointer-events-none' : 'overflow-y-auto custom-scrollbar'}`}
+                    style={{ padding: location.pathname === '/whatsapp' ? '0' : 'var(--main-padding)' }}
                 >
                     {children}
                 </div>
@@ -261,9 +278,9 @@ const Shell = ({ children, user, onLogout }) => {
                                 initial={{ opacity: 0, x: 50, scale: 0.95 }}
                                 animate={{ opacity: 1, x: 0, scale: 1 }}
                                 exit={{ opacity: 0, scale: 0.95 }}
-                                className={`flex items-center gap-4 px-6 py-4 rounded-xl shadow-2xl border pointer-events-auto min-w-[320px] backdrop-blur-xl ${notif.type === 'success' ? 'bg-[#022c22cc] border-[#10b9814d] text-[#34d399]' :
-                                    notif.type === 'error' ? 'bg-[#450a0acc] border-[#ef44444d] text-[#f87171]' :
-                                        'bg-[#172554cc] border-[#3b82f64d] text-[#60a5fa]'
+                                className={`flex items-center gap-4 px-6 py-4 rounded-xl shadow-2xl border pointer-events-auto min-w-[320px] backdrop-blur-md ${notif.type === 'success' ? 'bg-[#022c22ee] border-[#10b9814d] text-[#34d399]' :
+                                    notif.type === 'error' ? 'bg-[#450a0aee] border-[#ef44444d] text-[#f87171]' :
+                                        'bg-[#172554ee] border-[#3b82f64d] text-[#60a5fa]'
                                     }`}
                             >
                                 {notif.type === 'success' ? <CheckCircle2 size={24} /> : notif.type === 'error' ? <AlertCircle size={24} /> : <Info size={24} />}

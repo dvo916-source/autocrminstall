@@ -2,14 +2,15 @@ import React, { useState, useEffect, memo, Suspense, Component } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Shell from './components/Shell';
 import Dashboard from './pages/Dashboard';
+import HomeSDR from './pages/HomeSDR';
 import Visitas from './pages/Visitas';
 import Estoque from './pages/Estoque';
 import Portais from './pages/Portais';
 import Usuarios from './pages/Usuarios';
-import Login from './pages/Login';
 import ResetPassword from './pages/ResetPassword';
+import Login from './pages/Login';
+
 import Whatsapp from './pages/Whatsapp';
-import Agendamentos from './pages/Agendamentos';
 import Metas from './pages/Metas';
 import AdminIA from './pages/AdminIA';
 import ChatCRM from './pages/ChatCRM';
@@ -45,17 +46,29 @@ class ErrorBoundary extends Component {
               Ocorreu um erro inesperado na interface. Tente recarregar o sistema.
             </p>
             <button
+              onClick={() => {
+                localStorage.clear();
+                window.location.reload();
+              }}
+              className="w-full bg-cyan-500 hover:bg-cyan-400 py-4 rounded-2xl font-black text-black transition-all flex items-center justify-center gap-2 group mb-4"
+            >
+              <RotateCcw size={20} className="group-hover:rotate-180 transition-transform duration-500" />
+              LIMPAR CACHE E REINICIAR
+            </button>
+
+            <button
               onClick={() => window.location.reload()}
               className="w-full bg-white/5 hover:bg-white/10 border border-white/10 py-4 rounded-2xl font-black text-white transition-all flex items-center justify-center gap-2 group"
             >
               <RotateCcw size={20} className="group-hover:rotate-180 transition-transform duration-500" />
-              RECOMEÇAR SISTEMA
+              TENTAR NOVAMENTE
             </button>
-            {(import.meta.env.MODE === 'development') && (
-              <pre className="mt-6 p-4 bg-black/40 rounded-xl text-left text-[10px] text-red-300 overflow-auto max-h-40 font-mono">
-                {this.state.error?.toString()}
-              </pre>
-            )}
+
+            <pre className="mt-6 p-4 bg-black/40 rounded-xl text-left text-[10px] text-red-300 overflow-auto max-h-40 font-mono">
+              {this.state.error?.toString()}
+              {"\n"}
+              {this.state.error?.stack?.split("\n").slice(0, 3).join("\n")}
+            </pre>
           </div>
         </div>
       );
@@ -123,7 +136,11 @@ const MainContent = ({ user, handleLogout }) => {
         <Routes>
           {/* Public / Common Routes */}
           <Route path="/whatsapp" element={<Whatsapp />} />
-          <Route path="/" element={<Dashboard user={user} />} />
+          <Route path="/" element={
+            user?.role === 'SDR' || user?.role === 'sdr'
+              ? <HomeSDR user={user} />
+              : <Dashboard user={user} />
+          } />
 
           {/* Conditional Routes based on Permissions */}
           {hasPermission('/visitas') && <Route path="/visitas" element={<Visitas user={user} />} />}
@@ -131,7 +148,6 @@ const MainContent = ({ user, handleLogout }) => {
           {hasPermission('/metas') && <Route path="/metas" element={<Metas />} />}
 
           {/* Admin or Permission-based Routes */}
-          {hasPermission('/agendamentos') && <Route path="/agendamentos" element={<Agendamentos />} />}
           {hasPermission('/portais') && <Route path="/portais" element={<Portais />} />}
           {hasPermission('/usuarios') && <Route path="/usuarios" element={<Usuarios user={user} />} />}
           {hasPermission('/ia-chat') && <Route path="/ia-chat" element={<IaChat />} />}
@@ -144,6 +160,7 @@ const MainContent = ({ user, handleLogout }) => {
               <Route path="/crm-ia" element={<ChatCRM />} />
             </>
           )}
+          <Route path="/diario" element={<HomeSDR user={user} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Shell>
@@ -159,30 +176,44 @@ const NavigationResetter = () => {
   return null;
 };
 
-// === AUTO-SCALING HOOK ===
+// === AUTO-SCALING HOOK (REM-Based) ===
 const useAutoScaling = () => {
   useEffect(() => {
     const handleResize = () => {
-      document.body.style.zoom = 1;
       const width = window.innerWidth;
 
-      if (width < 1400) {
-        document.documentElement.style.fontSize = '14px';
-      } else {
-        document.documentElement.style.fontSize = '16px';
+      // Base de Design: 1920px
+      const baseWidth = 1920;
+      let scaleFactor = width / baseWidth;
+
+      // Refinamento para notebooks (1366px ~ 1440px)
+      if (width <= 1440 && width >= 1200) {
+        scaleFactor = Math.max(scaleFactor, 0.82); // Um pouco maior para leitura
+      }
+
+      // Limites de segurança
+      if (scaleFactor < 0.75) scaleFactor = 0.75;
+      if (scaleFactor > 1.25) scaleFactor = 1.25;
+
+      // Aplica escala ao root font-size (base 16px)
+      const fontSize = 16 * scaleFactor;
+      document.documentElement.style.fontSize = `${fontSize}px`;
+
+      if (import.meta.env.MODE === 'development') {
+        console.log(`📏 [AutoScaling] Width: ${width} | REM Base: ${fontSize.toFixed(2)}px`);
       }
     };
 
     const handleKeyDown = (e) => {
       if (e.key === 'F8') {
-        document.body.style.zoom = 1;
+        document.documentElement.style.fontSize = '16px';
         console.log("📏 [Scaling] Reset manual (F8)");
       }
     };
 
     window.addEventListener('resize', handleResize);
     window.addEventListener('keydown', handleKeyDown);
-    handleResize(); // Executa ao montar
+    handleResize();
 
     return () => {
       window.removeEventListener('resize', handleResize);
@@ -195,7 +226,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
 
-  // Ativa o auto-scaling dinâmico
+  // Ativa o escalonamento proporcional via REM
   useAutoScaling();
 
   useEffect(() => {
@@ -211,7 +242,6 @@ function App() {
     // 🔄 REALTIME PERMISSION UPDATE
     const { ipcRenderer } = window.require('electron');
     const handleUserDataUpdate = async (event, updatedUsername) => {
-      // Usamos uma técnica de proteção para não pegar 'user' obsoleto do closure
       const currentStored = JSON.parse(localStorage.getItem('sdr_user') || '{}');
       if (updatedUsername.toLowerCase() === currentStored.username?.toLowerCase()) {
         console.log(`📡 [App] Atualizando dados para usuário logado: ${updatedUsername}`);
@@ -264,7 +294,6 @@ function App() {
   return (
     <ErrorBoundary>
       <HashRouter>
-        {/* NavigationResetter removido para manter a tela atual ao recarregar */}
         <Suspense fallback={<div className="min-h-screen bg-[#0f172a]" />}>
           <MainContent user={user} handleLogout={handleLogout} />
         </Suspense>

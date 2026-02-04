@@ -10,7 +10,7 @@ const AVAILABLE_PERMISSIONS = [
     { id: '/estoque', label: 'Tabela de Estoque', icon: 'Car' },
     { id: '/visitas', label: 'Gestão de Visitas', icon: 'Users' },
     { id: '/metas', label: 'Metas & Resultados', icon: 'Target' },
-    { id: '/agendamentos', label: 'Agenda (Admin)', icon: 'Calendar' },
+    { id: '/diario', label: 'Agenda Diária', icon: 'BookOpen' },
     { id: '/usuarios', label: 'Gestão de Usuários', icon: 'Shield' },
     { id: '/portais', label: 'Config. Portais', icon: 'Globe' },
     { id: '/ia-chat', label: 'Config. IA', icon: 'Bot' },
@@ -39,7 +39,7 @@ const Usuarios = ({ user }) => {
         email: '',
         whatsapp: '',
         ativo: 1,
-        permissions: ['/', '/whatsapp', '/estoque', '/visitas', '/metas'] // Default permissions for new users
+        permissions: ['/', '/whatsapp', '/estoque', '/visitas', '/metas', '/diario'] // Default permissions for new users
     });
     const [editModal, setEditModal] = useState({ open: false, user: null });
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -58,7 +58,11 @@ const Usuarios = ({ user }) => {
                 ipcRenderer.invoke('get-list-users')
             ]);
             setVendedores(vends || []);
-            setUsuarios(usersList || []);
+            const parsedUsers = (usersList || []).map(u => ({
+                ...u,
+                permissions: typeof u.permissions === 'string' ? JSON.parse(u.permissions) : (u.permissions || [])
+            }));
+            setUsuarios(parsedUsers);
         } catch (err) {
             console.error("Error loading all data:", err);
         } finally {
@@ -167,7 +171,7 @@ const Usuarios = ({ user }) => {
             setNewUser({
                 username: '', password: '', role: 'sdr',
                 nome_completo: '', email: '', whatsapp: '', ativo: 1,
-                permissions: ['/', '/whatsapp', '/estoque', '/visitas', '/metas']
+                permissions: ['/', '/whatsapp', '/estoque', '/visitas', '/metas', '/diario']
             });
             setConfirmPassword('');
             loadAll();
@@ -256,9 +260,9 @@ const Usuarios = ({ user }) => {
 
     const filteredUsuarios = useMemo(() => {
         return usuarios
-            .filter(u => u.role !== 'developer')
+            .filter(u => isMaster ? true : u.role !== 'developer')
             .filter(u => (u.username || '').toLowerCase().includes(searchUsuario.toLowerCase()));
-    }, [usuarios, searchUsuario]);
+    }, [usuarios, searchUsuario, isMaster]);
 
     return (
         <div className="w-full space-y-12 pb-20 relative px-2 lg:px-4">
@@ -544,7 +548,10 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
 
     useEffect(() => {
         if (isOpen && initialUser) {
-            setUser({ ...initialUser, password: '' });
+            const normalizedPerms = typeof initialUser.permissions === 'string'
+                ? JSON.parse(initialUser.permissions)
+                : initialUser.permissions;
+            setUser({ ...initialUser, permissions: normalizedPerms || [], password: '' });
             setConfirmPwd('');
         }
     }, [isOpen, initialUser]);

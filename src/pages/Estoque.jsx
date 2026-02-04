@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Car, Power, PowerOff, ExternalLink, Image as ImageIcon, CheckCircle, AlertTriangle, X, MessageSquare, Send, Trash2 } from 'lucide-react';
+import { Search, RefreshCw, Car, Power, PowerOff, ExternalLink, Image as ImageIcon, CheckCircle, AlertTriangle, X, MessageSquare, Send, Trash2, Calendar, Gauge } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { List } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { supabase } from '../lib/supabase';
+import { parsePrice } from '../lib/utils';
 
 const Estoque = ({ user }) => {
     const currentUser = user || JSON.parse(localStorage.getItem('sdr_user') || '{"username":"SDR","role":"vendedor"}');
@@ -206,12 +207,7 @@ const Estoque = ({ user }) => {
         } catch (err) { console.error(err); }
     };
 
-    const parsePrice = useCallback((priceStr) => {
-        if (!priceStr) return 0;
-        // Se houver centavos (ex: 35.900,00), remove o que vem depois da vírgula
-        const clean = priceStr.split(',')[0].replace(/\D/g, '');
-        return parseInt(clean) || 0;
-    }, []);
+
 
     const filtered = useMemo(() => {
         const query = (search || "").toLowerCase();
@@ -331,13 +327,8 @@ const Estoque = ({ user }) => {
                                 const vehicle = items.find(i => i.nome === selectedVehicle);
                                 return vehicle?.foto ? (
                                     <>
-                                        {/* Blurred Background for ambiance */}
-                                        <div className="absolute inset-0">
-                                            <img src={vehicle.foto} alt="bg" className="w-full h-full object-cover blur-xl opacity-50" />
-                                        </div>
-                                        <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] via-[#0f172a]/20 to-transparent z-10" />
-
                                         {/* Main Image - Contained to show full car */}
+                                        <div className="absolute inset-0 bg-[#0f172a]" />
                                         <img src={vehicle.foto} alt={selectedVehicle} className="absolute inset-0 w-full h-full object-contain z-10 p-4" />
                                     </>
                                 ) : (
@@ -564,36 +555,36 @@ const Estoque = ({ user }) => {
                                     {grouped[marca].map((item, index) => (
                                         <div
                                             key={item.id || `${marca}-${index}`}
-                                            className={`relative bg-gradient-to-r from-[#0f172a] via-[#1e293b] to-[#0f172a] border border-white/5 rounded-3xl flex items-center gap-6 p-4 transition-all duration-300 h-32 overflow-hidden group hover:border-cyan-500/30 hover:shadow-[0_0_30px_-10px_rgba(34,211,238,0.15)] ${!item.ativo && 'opacity-60 grayscale'}`}
+                                            className={`relative bg-[#1e293b]/50 border border-white/5 rounded-2xl flex items-center gap-6 p-3 transition-all duration-200 h-28 overflow-hidden group hover:border-cyan-500/30 ${!item.ativo && 'opacity-60 grayscale'}`}
                                         >
                                             {/* Glow de Fundo no Hover */}
                                             <div className="absolute inset-0 bg-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
 
                                             {/* IMAGEM COM MÁSCARA GRADIENTE (Sutil integração) */}
-                                            <div className="w-28 sm:w-40 xl:w-48 h-full absolute left-0 top-0 bottom-0 overflow-hidden cursor-pointer" onClick={() => handleOpenReport(item.nome)}>
+                                            <div className="w-24 sm:w-36 xl:w-44 h-full absolute left-0 top-0 bottom-0 overflow-hidden cursor-pointer" onClick={() => handleOpenReport(item.nome)}>
                                                 {item.foto ? (
                                                     <>
-                                                        <img src={item.foto} alt={item.nome} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-[#162032]" />
+                                                        <img src={item.foto} alt={item.nome} className="w-full h-full object-cover" />
+                                                        <div className="absolute inset-0 bg-[#162032] opacity-20" />
                                                     </>
                                                 ) : (
                                                     <div className="w-full h-full bg-white/5 flex items-center justify-center text-gray-700">
-                                                        <ImageIcon size={40} />
+                                                        <ImageIcon size={32} />
                                                     </div>
                                                 )}
                                                 {!item.ativo && (
                                                     <div className="absolute inset-0 bg-red-950/80 flex items-center justify-center">
-                                                        <span className="text-red-200 font-bold  tracking-widest text-xs border border-red-500/50 px-2 py-1 rounded">Vendido / Inativo</span>
+                                                        <span className="text-red-200 font-bold  tracking-widest text-[10px] border border-red-500/50 px-2 py-1 rounded">Vendido</span>
                                                     </div>
                                                 )}
                                             </div>
 
                                             {/* CONTEÚDO (Com margem para não ficar em cima da imagem) */}
-                                            <div className="flex-1 flex flex-col justify-between py-1 min-w-0 pl-32 sm:pl-44 xl:pl-52 relative z-10">
+                                            <div className="flex-1 flex flex-col justify-between py-0.5 min-w-0 pl-28 sm:pl-40 xl:pl-48 relative z-10">
                                                 <div className="min-w-0">
                                                     <div className="flex justify-between items-start">
                                                         <h4
-                                                            className="text-base sm:text-lg xl:text-xl font-bold leading-none truncate cursor-pointer hover:text-cyan-400 transition-colors text-white font-rajdhani tracking-tight drop-shadow-md pr-2"
+                                                            className="text-sm sm:text-base xl:text-lg font-bold leading-none truncate cursor-pointer hover:text-cyan-400 transition-colors text-white font-rajdhani tracking-tight drop-shadow-md pr-2"
                                                             onClick={() => handleOpenReport(item.nome)}
                                                             title={item.nome}
                                                         >
@@ -602,50 +593,52 @@ const Estoque = ({ user }) => {
                                                     </div>
 
                                                     {/* SPECS BADGES - Minimalistas Tech */}
-                                                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                                    <div className="flex flex-wrap items-center gap-1 mt-1.5">
                                                         {item.ano && (
-                                                            <span className="text-[9px] sm:text-[10px] font-bold text-gray-400 bg-black/40 border border-white/5 px-2 py-0.5 sm:py-1 rounded-lg font-rajdhani tracking-wider">
-                                                                {item.ano}
-                                                            </span>
-                                                        )}
-                                                        {item.cambio && (item.cambio !== 'Consulte') && (
-                                                            <span className="hidden 2xl:block text-[10px] font-bold text-gray-400 bg-black/40 border border-white/5 px-2.5 py-1 rounded-lg font-rajdhani  tracking-wider">
-                                                                {item.cambio.slice(0, 3)}
-                                                            </span>
+                                                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 shadow-sm transition-colors group-hover:border-amber-500/30">
+                                                                <Calendar size={12} className="text-amber-500" />
+                                                                <span className="text-[11px] font-bold text-gray-300 font-rajdhani tracking-wider">
+                                                                    {item.ano}
+                                                                </span>
+                                                            </div>
                                                         )}
                                                         {item.km && (item.km !== 'Consulte') && (
-                                                            <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/40 border border-white/5">
-                                                                <div className="w-1 h-1 rounded-full bg-cyan-500 shadow-[0_0_5px_cyan]" />
-                                                                <span className="text-[10px] font-bold text-gray-300 font-rajdhani tracking-wider">{item.km} <span className="hidden lg:inline">KM</span></span>
+                                                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 shadow-sm transition-colors group-hover:border-cyan-500/30">
+                                                                <Gauge size={12} className="text-cyan-400" />
+                                                                <span className="text-[11px] font-bold text-gray-300 font-rajdhani tracking-wider">
+                                                                    {(() => {
+                                                                        const onlyDigits = item.km.toString().replace(/\D/g, '');
+                                                                        return onlyDigits ? Number(onlyDigits).toLocaleString('pt-BR') : item.km;
+                                                                    })()} KM
+                                                                </span>
                                                             </div>
                                                         )}
                                                     </div>
                                                 </div>
 
                                                 {/* BARRA DE AÇÕES INFERIOR */}
-                                                <div className="flex items-center gap-1.5 mt-3">
+                                                <div className="flex items-center gap-1.5 mt-2">
                                                     {item.link && (
-                                                        <button onClick={() => openLink(item.link)} className="btn-cyber-secondary text-[10px] py-1.5 px-2 text-blue-400 border-blue-500/20 hover:border-blue-500/50 hover:bg-blue-500/10 hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]">
-                                                            <ExternalLink size={12} className="group-hover:scale-110 transition-transform" /> <span className="hidden 2xl:inline">WEB</span>
+                                                        <button onClick={() => openLink(item.link)} className="btn-cyber-secondary text-[11px] py-1.5 px-3 text-blue-400 border-blue-500/20 hover:border-blue-500/50 hover:bg-blue-500/10 transition-all">
+                                                            <ExternalLink size={13} /> <span className="hidden 2xl:inline">WEB</span>
                                                         </button>
                                                     )}
-                                                    <button onClick={() => handleOpenReport(item.nome)} className="btn-cyber-secondary text-[10px] py-1.5 px-2 text-purple-400 border-purple-500/20 hover:border-purple-500/50 hover:bg-purple-500/10 hover:shadow-[0_0_10px_rgba(168,85,247,0.2)]">
-                                                        <Car size={12} className="group-hover:scale-110 transition-transform" /> <span className="hidden xl:inline">{(stats[item.nome] || 0)} VIS</span>
+                                                    <button onClick={() => handleOpenReport(item.nome)} className="btn-cyber-secondary text-[11px] py-1.5 px-3 text-purple-400 border-purple-500/20 hover:border-purple-500/50 hover:bg-purple-500/10 transition-all">
+                                                        <Car size={13} /> <span className="hidden xl:inline">{(stats[item.nome] || 0)} VIS</span>
                                                     </button>
-                                                    <button onClick={() => handleShare(item)} className="btn-cyber-secondary text-[10px] py-1.5 px-2 text-emerald-400 border-emerald-500/20 hover:border-emerald-500/50 hover:bg-emerald-500/10 hover:shadow-[0_0_10px_rgba(16,185,129,0.2)]">
-                                                        <MessageSquare size={12} className="group-hover:scale-110 transition-transform" /> <span className="hidden 2xl:inline">WHATSAPP</span>
+                                                    <button onClick={() => handleShare(item)} className="btn-cyber-secondary text-[11px] py-1.5 px-3 text-emerald-400 border-emerald-500/20 hover:border-emerald-500/50 hover:bg-emerald-500/10 transition-all">
+                                                        <MessageSquare size={13} /> <span className="hidden 2xl:inline">WHATSAPP</span>
                                                     </button>
                                                 </div>
                                             </div>
 
                                             {/* PREÇO PREMIUM (Lado Direito - Floating Clean) */}
-                                            <div className="flex flex-col items-end justify-center pl-2 sm:pl-6 min-w-[max-content] h-full pr-2 sm:pr-4">
+                                            <div className="flex flex-col items-end justify-center pl-2 sm:pl-6 min-w-[max-content] h-full pr-1 sm:pr-4">
                                                 <div className="flex flex-col items-end group-hover:scale-105 transition-transform duration-500 origin-right">
-                                                    <span className="hidden 2xl:block text-[10px] text-cyan-500/40 font-bold  tracking-[0.2em] mb-0.5 font-rajdhani">Valor</span>
-                                                    <span className="text-lg sm:text-2xl xl:text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-tight font-rajdhani drop-shadow-[0_0_15px_rgba(34,211,238,0.15)] leading-none">
+                                                    <span className="text-base sm:text-xl xl:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-tight font-rajdhani drop-shadow-[0_0_15px_rgba(34,211,238,0.15)] leading-none">
                                                         {item.valor || 'R$ 0,00'}
                                                     </span>
-                                                    <span className="hidden 2xl:block text-[9px] text-gray-500/40 font-semibold tracking-wider mt-1 font-rajdhani">À VISTA OU FINANC.</span>
+                                                    <span className="hidden sm:block text-[8px] text-gray-500/40 font-semibold tracking-wider mt-0.5 font-rajdhani uppercase">Venda</span>
                                                 </div>
                                             </div>
                                         </div>

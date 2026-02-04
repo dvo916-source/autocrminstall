@@ -13,6 +13,17 @@ const Login = ({ onLogin }) => {
     const [forgotEmail, setForgotEmail] = useState('');
     const [forgotSent, setForgotSent] = useState(false);
 
+    const [appVersion, setAppVersion] = useState('...');
+
+    React.useEffect(() => {
+        try {
+            const { ipcRenderer } = window.require('electron');
+            ipcRenderer.invoke('get-app-version').then(setAppVersion).catch(() => setAppVersion('v1.1.2'));
+        } catch (e) {
+            setAppVersion('v1.1.2');
+        }
+    }, []);
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
@@ -171,13 +182,13 @@ const Login = ({ onLogin }) => {
                                 className="relative w-full group overflow-hidden rounded-2xl p-[1px] shadow-[0_0_20px_rgba(34,211,238,0.3)] transition-all hover:shadow-[0_0_30px_rgba(34,211,238,0.5)] active:scale-[0.98]"
                             >
                                 <div className="absolute inset-0 bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600 animate-[gradient_3s_ease_infinite] bg-[length:200%_200%]" />
-                                <div className="relative bg-[#020617] bg-opacity-80 backdrop-blur-sm rounded-2xl px-6 py-4 flex items-center justify-center gap-2 group-hover:bg-opacity-0 transition-all duration-300">
+                                <div className="relative bg-[#020617] bg-opacity-80 backdrop-blur-sm rounded-2xl px-6 py-3 flex items-center justify-center gap-2 group-hover:bg-opacity-0 transition-all duration-300">
                                     {loading ? (
                                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                     ) : (
                                         <>
-                                            <span className="text-base font-black text-white tracking-[0.2em] group-hover:tracking-[0.25em] transition-all uppercase">Acessar Sistema</span>
-                                            <ChevronRight size={20} className="text-cyan-400 group-hover:text-white group-hover:translate-x-1 transition-all" />
+                                            <span className="text-sm font-black text-white tracking-[0.15em] group-hover:tracking-[0.2em] transition-all uppercase">Acessar Sistema</span>
+                                            <ChevronRight size={18} className="text-cyan-400 group-hover:text-white group-hover:translate-x-1 transition-all" />
                                         </>
                                     )}
                                 </div>
@@ -262,7 +273,7 @@ const Login = ({ onLogin }) => {
                     {/* Footer Clean */}
                     <div className="mt-8 text-center relative z-10 opacity-60 hover:opacity-100 transition-opacity duration-300">
                         <p className="text-[11px] text-cyan-100 font-bold tracking-[0.2em] uppercase">
-                            IRW Motors &copy; 2026 <span className="mx-2 opacity-30">|</span> v1.0.6
+                            IRW Motors &copy; 2026 <span className="mx-2 opacity-30">|</span> v{appVersion}
                         </p>
                     </div>
                 </div>
