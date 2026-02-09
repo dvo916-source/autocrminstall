@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useLoja } from '../context/LojaContext';
 import { ArrowLeft, ChevronDown, ChevronRight, Save, RotateCcw, MessageSquare, Sparkles, Shield, FileText, MessageCircleQuestion, Car, Clock, Image as ImageIcon, Zap, CheckCircle2, Cpu, Brain, Terminal, Activity, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import FAQManager from '../components/FAQManager';
 
 const PromptConfig = () => {
+    const { currentLoja } = useLoja();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -35,12 +37,9 @@ const PromptConfig = () => {
     const loadSettings = async () => {
         try {
             setLoading(true);
-            const { data, error } = await supabase
-                .from('crm_settings')
-                .select('*')
-                .eq('category', 'diego_ai');
-
-            if (error) throw error;
+            const { ipcRenderer } = window.require('electron');
+            const rows = await ipcRenderer.invoke('get-all-settings', currentLoja?.id);
+            const data = rows.filter(item => item.category === 'diego_ai');
 
             if (data && data.length > 0) {
                 const settingsMap = {};
@@ -84,11 +83,8 @@ const PromptConfig = () => {
                 { category: 'diego_ai', key: 'response_speed', value: String(humanSettings.responseSpeed) }
             ];
 
-            const { error } = await supabase
-                .from('crm_settings')
-                .upsert(upsertData, { onConflict: 'category, key' });
-
-            if (error) throw error;
+            const { ipcRenderer } = window.require('electron');
+            await ipcRenderer.invoke('save-settings-batch', { settings: upsertData, lojaId: currentLoja?.id });
             setShowSuccess(true);
             setTimeout(() => setShowSuccess(false), 2000);
         } catch (error) {

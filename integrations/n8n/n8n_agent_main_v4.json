@@ -218,7 +218,7 @@
         {
             "parameters": {
                 "operation": "send",
-                "phoneNumberId": "1006928449163765",
+                "phoneNumberId": "932714823267089",
                 "recipientPhoneNumber": "={{ $('Webhook2').item.json.body.entry[0].changes[0].value.messages[0].from }}",
                 "textBody": "={{ $json.output }}",
                 "additionalFields": {}

@@ -1,36 +1,90 @@
+// --- CONFIGURAÇÃO DE AMBIENTE ---
+import 'dotenv/config';
+
+// --- IMPORTAÇÕES CORE DO ELECTRON ---
 import { app, BrowserWindow, ipcMain, Notification } from 'electron';
+
+// autoUpdater gerencia as atualizações automáticas via GitHub
 import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
+
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs/promises';
+
+// Importa os módulos internos que lidam com Banco de Dados e IA
 import * as db from './db.js';
 import * as aiservice from './aiservice.js';
 
+// Utilitários para converter o caminho do arquivo para o padrão do Node.js ESM
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-let mainWindow;
-const activeNotifications = new Set();
-let pendingWhatsappClickId = null;
-let whatsappViewReady = false;
+let mainWindow; // Instância global da janela principal
+const activeNotifications = new Set(); // Conjunto para evitar que notificações sejam limpas pelo lixeiro (GC)
+let pendingWhatsappClickId = null; // Guarda ID para automação caso o WhatsApp ainda esteja carregando
+let whatsappViewReady = false; // Flag que indica se a view do WhatsApp já deu o "aperto de mão"
 
-// Inicializa Banco e Sincronização em Tempo Real
-db.initDb();
-db.enableRealtimeSync();
-aiservice.initAi(); // Inicia o Neural Engine
+// 🧠 INICIALIZAÇÃO DOS MOTORES
+db.initDb(); // Cria as tabelas se não existirem
+db.enableRealtimeSync(); // Liga a escuta de mudanças em tempo real (Supabase)
+aiservice.initAi(); // Prepara a conexão com a OpenAI
 
-// Fix Notification Title on Windows
+// 🛠️ TRATAMENTO DE ERROS GLOBAIS (DEBUG)
+process.on('uncaughtException', (err) => {
+    console.error('🔥 [CRITICAL] Uncaught Exception:', err);
+});
+
+// 🔍 DIAGNÓSTICO: Executar SQL direto (apenas para debug)
+ipcMain.handle('execute-sql', async (e, { query }) => {
+    try {
+        const Database = require('better-sqlite3');
+        const dbPath = path.join(app.getPath('userData'), 'crystal.db');
+        const dbInstance = new Database(dbPath);
+        const result = dbInstance.prepare(query).all();
+        dbInstance.close();
+        return result;
+    } catch (err) {
+        console.error('Erro ao executar SQL:', err);
+        throw err;
+    }
+});
+
+// 📅 HANDLERS TEMPORÁRIOS - Módulos Futuros (Agendamentos e Notas)
+// Estes handlers evitam errors no console até os módulos serem implementados
+ipcMain.handle('get-agendamentos-detalhes', async (e, lojaId) => {
+    console.log('⚠️  [Agendamentos] Módulo ainda não implementado');
+    return [];
+});
+
+ipcMain.handle('get-agendamentos-resumo', async (e, lojaId) => {
+    console.log('⚠️  [Agendamentos] Módulo ainda não implementado');
+    return []; // Retornar array vazio para evitar erro no .sort()
+});
+
+ipcMain.handle('get-notas', async (e, lojaId) => {
+    console.log('⚠️  [Notas] Módulo ainda não implementado');
+    return [];
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('🔥 [CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Configuração necessária para as notificações aparecerem corretamente no Windows
 if (process.platform === 'win32') {
     app.setAppUserModelId('SDR IRW Motors');
 }
 
-// ===== SINGLE INSTANCE LOCK =====
+// 🛡️ TRAVA DE INSTÂNCIA ÚNICA
+// Garante que o usuário não abra o programa duas vezes ao mesmo tempo
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
-    app.quit();
+    app.quit(); // Se já tiver um aberto, fecha este novo
 } else {
     app.on('second-instance', (event, commandLine, workingDirectory) => {
+        // Se tentarem abrir outro, traz o original para frente (foco)
         if (mainWindow) {
             if (mainWindow.isMinimized()) mainWindow.restore();
             mainWindow.focus();
@@ -39,84 +93,110 @@ if (!gotTheLock) {
     });
 }
 
+// 🖥️ CRIAÇÃO DA JANELA PRINCIPAL
 function createWindow() {
-    // Define o ícone baseado no sistema operacional
     const iconPath = path.join(__dirname, '../icon.png');
 
     mainWindow = new BrowserWindow({
         title: 'SDR IRW Motors',
         width: 1200,
         height: 800,
-        autoHideMenuBar: true,
+        autoHideMenuBar: true, // Esconde a barra de menu (Arquivo, Editar...)
         resizable: true,
-        maximizable: true,
-        fullscreenable: true,
-        fullscreen: false,
-        frame: true,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-            webviewTag: true,
+            nodeIntegration: true, // Permite usar funções do Node no React (CUIDADO: Use apenas em apps confiáveis)
+            contextIsolation: false, // Necessário para o nodeIntegration funcionar direto
+            webviewTag: true, // Habilita a tag <webview> usada no WhatsApp
         },
         backgroundColor: '#0f172a',
-        show: false,
+        show: false, // Criar escondida e mostrar só quando estiver pronta (ready-to-show)
         icon: iconPath
     });
 
     const win = mainWindow;
+    win.maximize(); // Abre maximizada
+    win.setMenu(null); // Remove o menu padrão completamente
 
-    win.maximize();
-    win.setMenu(null);
-
+    // Define se carrega do servidor local (Vite) ou do arquivo pronto (Build)
     if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
         win.loadURL('http://localhost:5173/#/');
     } else {
         win.loadFile(path.join(__dirname, '../dist/index.html'), { hash: '/' });
     }
 
-    win.webContents.on('did-fail-load', () => {
-        console.log('Falha ao carregar, tentando novamente em 2s...');
-        setTimeout(() => {
-            if (win && !win.isDestroyed()) {
-                if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
-                    win.loadURL('http://localhost:5173');
-                }
-            }
-        }, 2000);
-    });
-
+    // Atalhos de Teclado Internos do Electron
     win.webContents.on('before-input-event', (event, input) => {
-        // Ctrl+Shift+I ou F12 para DevTools
         if ((input.control && input.shift && input.key.toLowerCase() === 'i') || input.key === 'F12') {
-            win.webContents.toggleDevTools();
+            win.webContents.toggleDevTools(); // Abre o console do desenvolvedor
         }
-        // F11 para alternar Fullscreen
         if (input.key === 'F11') {
-            win.setFullScreen(!win.isFullScreen());
+            win.setFullScreen(!win.isFullScreen()); // Tela cheia
         }
-        // Escape para sair do Fullscreen
         if (input.key === 'Escape' && win.isFullScreen()) {
             win.setFullScreen(false);
         }
-        // F5 ou Ctrl+R para Reload (Hard Refresh)
         if (input.key === 'F5' || (input.control && input.key.toLowerCase() === 'r')) {
             event.preventDefault();
-            win.webContents.reloadIgnoringCache();
+            win.webContents.reloadIgnoringCache(); // Recarrega a página limpando o cache
         }
     });
 
     win.once('ready-to-show', () => {
         win.show();
 
+        // Verifica atualizações ao abrir
+        autoUpdater.checkForUpdatesAndNotify();
+
+        // 🚀 OTIMIZAÇÃO: Controle de Sincronização
+        let syncInProgress = false;
+        let lastSyncTime = 0;
+        const SYNC_DEBOUNCE_MS = 5000; // 5 segundos entre sincronizações
+
         // Timer de Sync
         const runAutoSync = async () => {
             try {
-                console.log('[AutoSync] Iniciando sincronização essencial (Usuários/Config)...');
-                await db.syncConfig();
+                // ⏱️ Verifica se já está sincronizando
+                if (syncInProgress) {
+                    console.log('[AutoSync] ⏭️  Sincronização já em andamento, pulando...');
+                    return;
+                }
+
+                // ⏱️ Verifica se passou tempo suficiente desde a última sync
+                const now = Date.now();
+                const timeSinceLastSync = now - lastSyncTime;
+                if (timeSinceLastSync < SYNC_DEBOUNCE_MS) {
+                    console.log(`[AutoSync] ⏭️  Aguardando debounce (${Math.round((SYNC_DEBOUNCE_MS - timeSinceLastSync) / 1000)}s restantes)`);
+                    return;
+                }
+
+                syncInProgress = true;
+                lastSyncTime = now;
+
+                // 🏪 Detecta qual loja está ativa (localStorage ou padrão)
+                let activeLojaId = 'irw-motors-main'; // Padrão
+
+                try {
+                    // Tenta pegar do localStorage (setado pelo LojaContext)
+                    const stored = await win.webContents.executeJavaScript('localStorage.getItem("active_loja_id")');
+                    if (stored) {
+                        activeLojaId = stored;
+                        console.log(`[AutoSync] Loja ativa detectada: ${activeLojaId}`);
+                    } else {
+                        console.log(`[AutoSync] Nenhuma loja ativa. Usando padrão: ${activeLojaId}`);
+                    }
+                } catch (e) {
+                    console.log(`[AutoSync] Erro ao detectar loja ativa. Usando padrão: ${activeLojaId}`);
+                }
+
+                console.log(`[AutoSync] Iniciando sincronização essencial para loja: ${activeLojaId}...`);
+                await db.syncConfig(activeLojaId);
+
                 console.log('[AutoSync] Sincronizando estoque da NUVEM para este PC...');
                 if (!win.isDestroyed()) win.webContents.send('sync-status', { loading: true });
-                const result = await db.syncXml();
+
+                const result = await db.syncXml(activeLojaId);
                 console.log('[AutoSync] Concluído:', result.message);
+
                 if (!win.isDestroyed()) {
                     win.webContents.send('sync-status', { loading: false, success: true });
                     win.webContents.send('refresh-data', 'estoque');
@@ -124,10 +204,14 @@ function createWindow() {
             } catch (err) {
                 console.error('[AutoSync] Erro:', err);
                 if (!win.isDestroyed()) win.webContents.send('sync-status', { loading: false, success: false });
+            } finally {
+                syncInProgress = false;
             }
         };
 
-        setTimeout(runAutoSync, 1000);
+        // Aguarda 3 segundos para garantir que o React/localStorage estejam prontos
+        setTimeout(runAutoSync, 3000);
+        // Depois sincroniza a cada 5 minutos
         setInterval(runAutoSync, 5 * 60 * 1000);
     });
 
@@ -135,52 +219,40 @@ function createWindow() {
         win.webContents.executeJavaScript('localStorage.clear();').catch(() => { });
     });
 
+    // Evento disparado quando a página começa a carregar
     win.webContents.on('did-start-loading', () => {
-        whatsappViewReady = false;
+        whatsappViewReady = false; // Reseta o estado do WhatsApp
         console.log('[Main] Renderer Iniciando Carga (Handshake Reset)');
     });
 
-    win.webContents.on('did-finish-load', () => {
-        console.log('[Main] Renderer Totalmente Carregado');
-    });
-
-    // Auto Updater - Aguarda carregar totalmente para evitar perder eventos IPC
+    // Eventos do 'autoUpdater' para gerenciar atualizações via GitHub
     autoUpdater.logger = console;
 
+    // Quando o React termina de carregar, esperamos 3 segundos e checamos atualizações
     win.webContents.on('did-finish-load', () => {
+        console.log('[Main] Renderer Totalmente Carregado');
         setTimeout(() => {
             console.log('[Updater] Iniciando verificação programada...');
-            console.log('[Updater] Versão Atual:', app.getVersion());
             autoUpdater.checkForUpdatesAndNotify().catch(err => console.error('[Updater] Erro Check:', err));
-        }, 3000); // 3 segundos de folga para o React montar
+        }, 3000);
     });
 
-    autoUpdater.on('checking-for-updates', () => console.log('[Updater] Verificando novos pacotes no GitHub...'));
-    autoUpdater.on('update-not-available', (info) => {
-        console.log('[Updater] Nenhuma atualização encontrada (Já está na última versão?).', info.version);
-    });
+    // Escuta eventos do processo de atualização para avisar o usuário no React
     autoUpdater.on('update-available', (info) => {
-        console.log('[Updater] Atualização disponível:', info.version);
-        win.webContents.send('update-available', info);
+        win.webContents.send('update-available', info); // Envia mensagem para o Front-end
     });
     autoUpdater.on('download-progress', (progress) => {
-        win.webContents.send('update-progress', progress.percent);
+        win.webContents.send('update-progress', progress.percent); // Mostra progresso do download
     });
     autoUpdater.on('update-downloaded', () => {
-        console.log('[Updater] Download concluído');
-        win.webContents.send('update-downloaded');
-    });
-    autoUpdater.on('error', (err) => {
-        console.error('[Updater] Erro Detalhado:', err);
-        const errorMsg = err.message || 'Erro desconhecido';
-        win.webContents.send('show-notification', {
-            message: `Erro na Atualização: ${errorMsg}`,
-            type: 'error'
-        });
+        win.webContents.send('update-downloaded'); // Avisa que está pronto para instalar
     });
 }
 
-// Handler para focar a janela
+// 📡 COMUNICAÇÃO IPC (INTER-PROCESS COMMUNICATION)
+// Aqui definimos os "canais" de rádio que o React usa para falar com o Electron.
+
+// 'on' -> Escuta uma mensagem (geralmente sem esperar resposta direta)
 ipcMain.on('focus-window', (event) => {
     if (mainWindow) {
         if (mainWindow.isMinimized()) mainWindow.restore();
@@ -188,126 +260,144 @@ ipcMain.on('focus-window', (event) => {
     }
 });
 
-// Handler para navegação solicitada pelo Renderer
-ipcMain.on('request-navigation', (event, route) => {
-    if (mainWindow) mainWindow.webContents.send('navigate-to', route);
-});
-
-// HANDSHAKE: WhatsApp avisando que está carregado e pronto para cliques
+// HANDSHAKE: WhatsApp avisando que a <webview> está carregada e pronta
 ipcMain.on('whatsapp-view-ready', (event) => {
     whatsappViewReady = true;
     console.log('[Handshake] WhatsApp View está PRONTA');
+    // Se tinha algum clique de notificação esperando, dispara ele agora
     if (pendingWhatsappClickId && mainWindow) {
-        console.log(`[Handshake] Disparando click pendente: ${pendingWhatsappClickId}`);
         mainWindow.webContents.send('trigger-whatsapp-click', pendingWhatsappClickId);
         pendingWhatsappClickId = null;
     }
 });
 
 // Handler para Notificações Nativas (COM REF GLOBAL PARA PREVENIR GC)
-ipcMain.on('show-native-notification', (event, { title, body, icon, id }) => {
+ipcMain.on('show-native-notification', (event, { title, body, icon, id, clientName }) => {
     const notif = new Notification({
         title: title || 'SDR IRW Motors',
         body: body || '',
-        icon: icon ? path.join(__dirname, '../public/icon.png') : undefined,
-        silent: false
+        icon: path.join(__dirname, '../public/icon.png'),
+        silent: false,
+        urgency: 'normal',
+        timeoutType: 'default'
     });
 
-    // Mágica para o clique funcionar sempre
-    // Mágica para o clique funcionar sempre
     notif.on('click', () => {
-        console.log(`[Main] Notificação clicada! ID: ${id}`);
+        console.log(`[Main] 🔔 Notificação clicada! Cliente: ${clientName || 'Desconhecido'}`);
         if (mainWindow) {
-            // Foco Ultra-Robusto
-            console.log('[Main] Executando sequ├¬ncia de foco agressivo...');
-            if (mainWindow.isMinimized()) {
-                mainWindow.restore();
-            }
+            // Restaura e foca a janela
+            if (mainWindow.isMinimized()) mainWindow.restore();
             mainWindow.show();
-            mainWindow.setAlwaysOnTop(true);
-            mainWindow.setAlwaysOnTop(false);
             mainWindow.focus();
-            mainWindow.flashFrame(true);
 
-            // Armazena o ID para o aperto de mão
-            pendingWhatsappClickId = id;
-
-            // Envia o pedido de navegação limpa via IPC
-            console.log('[Main] Solicitando navegação para /whatsapp');
+            // Navega para WhatsApp
             mainWindow.webContents.send('navigate-to', '/whatsapp');
 
-            // Se o WhatsApp já avisou que está pronto antes, dispara direto
-            if (whatsappViewReady) {
-                mainWindow.webContents.send('trigger-whatsapp-click', id);
-                pendingWhatsappClickId = null;
-            } else {
-                console.log(`[Notification] Aguardando Handshake da View para ID: ${id}`);
-                // Fallback de segurança 2s caso a view nunca avise
-                setTimeout(() => {
-                    if (pendingWhatsappClickId === id) {
-                        console.log(`[Notification] Fallback disparando click para ID: ${id}`);
-                        mainWindow.webContents.send('trigger-whatsapp-click', id);
-                        pendingWhatsappClickId = null;
-                    }
-                }, 2000);
-            }
+            // Aguarda um pouco e tenta abrir o chat
+            setTimeout(() => {
+                if (whatsappViewReady) {
+                    console.log(`[Main] ✅ Abrindo chat do cliente...`);
+                    mainWindow.webContents.send('trigger-whatsapp-click', id);
+                } else {
+                    console.log(`[Main] ⏳ WhatsApp não está pronto. Guardando para depois...`);
+                    pendingWhatsappClickId = id;
+                }
+            }, 500);
         }
     });
 
-    // Gerenciamento de Memória
-    notif.on('close', () => {
-        activeNotifications.delete(notif);
-    });
-
+    notif.on('close', () => activeNotifications.delete(notif));
     activeNotifications.add(notif);
     notif.show();
 });
 
-app.whenReady().then(createWindow);
+// --- COMUNICAÇÃO IPC (INTER-PROCESS COMMUNICATION) ---
 
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        app.quit();
+// Autenticação e Usuários
+ipcMain.handle('login', async (e, { username, password }) => await db.checkLogin(username, password));
+ipcMain.handle('get-user', async (e, username) => await db.getUserByUsername(username));
+ipcMain.handle('get-app-version', () => app.getVersion());
+ipcMain.handle('change-password', async (e, { username, newPassword }) => await db.changePassword(username, newPassword));
+ipcMain.handle('update-user-password', async (e, { username, newPassword }) => await db.changePassword(username, newPassword)); // Alias
+ipcMain.handle('add-user', async (e, user) => await db.addUser(user));
+ipcMain.handle('update-user', async (e, user) => await db.updateUser(user));
+ipcMain.handle('delete-user', async (e, username) => await db.deleteUser(username));
+ipcMain.handle('get-list-users', async (e, lojaId) => await db.getListUsers(lojaId));
+ipcMain.handle('validate-session', async (e, { username, sessionId }) => {
+    // Validação simples de sessão - pode ser expandida no futuro
+    const user = await db.getUserByUsername(username);
+    return user && user.session_id === sessionId;
+});
+
+// Comandos de Visitas (CRM)
+ipcMain.handle('get-visitas-secure', (e, { role, username, lojaId }) => db.getVisitas(role, username, lojaId));
+ipcMain.handle('add-visita', async (e, v) => await db.addVisita(v));
+ipcMain.handle('update-visita-status', async (e, { id, status, pipeline }) => await db.updateVisitaStatus(id, status, pipeline));
+ipcMain.handle('delete-visita', async (e, { id, lojaId }) => await db.deleteVisita(id, lojaId));
+
+// Comandos de Loja (Multi-tenant)
+ipcMain.handle('get-stores', () => db.getStores());
+ipcMain.handle('validate-cpf', async (e, cpf) => await db.validateCpfUnique(cpf));
+ipcMain.handle('create-store-with-admin', async (e, { loja, admin }) => await db.createStoreWithAdmin(loja, admin));
+ipcMain.handle('update-store', async (e, store) => await db.updateStore(store));
+ipcMain.handle('delete-store', async (e, id) => await db.deleteStore(id));
+
+// CRUD Genérico (Tabelas: estoque, portais, vendedores, etc)
+ipcMain.handle('get-list', async (e, { table, lojaId }) => await db.getList(table, lojaId));
+ipcMain.handle('add-item', async (e, { table, data }) => await db.addItem(table, data));
+ipcMain.handle('toggle-item', async (e, { table, nome, ativo, loja_id }) => await db.toggleItem(table, nome, ativo, loja_id));
+ipcMain.handle('delete-item', async (e, { table, nome, loja_id }) => await db.deleteItem(table, nome, loja_id));
+
+// Scripts e Mensagens
+ipcMain.handle('get-scripts', async (e, { username, lojaId }) => await db.getScripts({ username, lojaId }));
+ipcMain.handle('add-script', async (e, s) => await db.addScript(s));
+ipcMain.handle('update-script', async (e, s) => await db.updateScript(s));
+ipcMain.handle('delete-script', async (e, { id, role, username, lojaId }) => await db.deleteScript(id, role, username, lojaId));
+
+// Dashboard, Metas e Estatísticas
+ipcMain.handle('get-stats', async (e, { days, lojaId }) => await db.getStats(days, lojaId));
+ipcMain.handle('get-competition', async (e, lojaId) => await db.getCompetitionData(lojaId));
+ipcMain.handle('get-config-meta', async (e, lojaId) => await db.getConfigMeta(lojaId));
+ipcMain.handle('get-sdr-performance', async (e, lojaId) => await db.getSdrPerformance(lojaId));
+ipcMain.handle('set-config-meta', async (e, { visita, venda, lojaId }) => await db.setConfigMeta(visita, venda, lojaId));
+
+// Comandos de Sincronização e Atualização
+ipcMain.handle('sync-xml', (e, lojaId) => db.syncXml(lojaId));
+ipcMain.handle('sync-essential', async (e, lojaId) => await db.syncConfig(lojaId));
+ipcMain.handle('install-update', () => autoUpdater.quitAndInstall());
+
+// Utilitário para ler arquivos do sistema (usado na Central de Migração)
+ipcMain.handle('read-file-content', async (e, fileName) => {
+    try {
+        const filePath = path.join(__dirname, '..', fileName);
+        const content = await fs.readFile(filePath, 'utf-8');
+        return content;
+    } catch (err) {
+        console.error(`Erro ao ler arquivo ${fileName}:`, err);
+        throw err;
     }
 });
 
-ipcMain.handle('get-visitas-secure', (e, { role, username }) => db.getVisitas(role, username));
-ipcMain.handle('add-visita', async (e, v) => await db.addVisita(v));
-ipcMain.handle('update-visita-status', async (e, { id, status, pipeline }) => await db.updateVisitaStatus(id, status, pipeline));
-ipcMain.handle('update-visita-full', async (e, v) => await db.updateVisitaFull(v));
-ipcMain.handle('delete-visita', async (e, id) => await db.deleteVisita(id));
-ipcMain.handle('get-agendamentos-resumo', () => db.getAgendamentosPorUsuario());
-ipcMain.handle('get-agendamentos-detalhes', (e, username) => db.getAgendamentosDetalhes(username));
-ipcMain.handle('get-temperature-stats', () => db.getTemperatureStats());
+// 🔄 FORÇA SINCRONIZAÇÃO DO ESTOQUE (SUPABASE -> LOCAL)
+ipcMain.handle('force-sync-estoque', async (e, lojaId) => {
+    try {
+        console.log(`🔄 [Force Sync] Sincronizando estoque para loja: ${lojaId}`);
+        const result = await db.syncXml(lojaId);
 
-// --- Genéricos (Estoque, Portais, Usuários) ---
-ipcMain.handle('get-list', (e, table) => db.getList(table));
-ipcMain.handle('add-item', async (e, data) => await db.addItem(data.table, data));
-ipcMain.handle('toggle-item', async (e, data) => await db.toggleItem(data.table, data.nome, data.ativo));
-ipcMain.handle('delete-item', async (e, data) => await db.deleteItem(data.table, data.nome));
-ipcMain.handle('get-list-users', () => db.getListUsers());
-ipcMain.handle('add-user', async (e, user) => await db.addUser(user));
-ipcMain.handle('update-user', async (e, user) => await db.updateUser(user));
-ipcMain.handle('delete-user', (e, user) => db.deleteUser(user));
-ipcMain.handle('login', (e, { username, password }) => db.checkLogin(username, password));
-ipcMain.handle('get-user', (e, username) => db.getUserByUsername(username));
-ipcMain.handle('change-password', (e, { username, newPassword }) => db.changePassword(username, newPassword));
-ipcMain.handle('migrate-all', async () => await db.migrateAllToCloud());
-ipcMain.handle('install-update', () => autoUpdater.quitAndInstall());
+        // Notifica o frontend para atualizar
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('refresh-data', 'estoque');
+        }
 
-// --- Estatísticas & Sync ---
-ipcMain.handle('get-stats', (e, days) => db.getStats(days));
-ipcMain.handle('get-competition', () => db.getCompetitionData());
-ipcMain.handle('set-competition', (e, data) => db.setCompetitionData(data));
-ipcMain.handle('sync-xml', () => db.syncXml());
-ipcMain.handle('sync-essential', async () => await db.syncConfig());
-ipcMain.handle('get-scripts', (e, username) => db.getScripts(username));
-ipcMain.handle('get-user-role', (e, username) => db.getUserRole(username));
-ipcMain.handle('add-script', (e, args) => db.addScript(args.titulo, args.mensagem, args.isSystem, args.userRole, args.link, args.username));
-ipcMain.handle('update-script', (e, args) => db.updateScript(args.id, args.titulo, args.mensagem, args.isSystem, args.userRole, args.link, args.username));
-ipcMain.handle('update-scripts-order', (e, items) => db.updateScriptsOrder(items));
-ipcMain.handle('delete-script', (e, { id, userRole, username }) => db.deleteScript(id, userRole, username));
+        return { success: true, count: result.syncedCount || 0, message: result.message };
+    } catch (err) {
+        console.error('❌ [Force Sync] Erro:', err);
+        return { success: false, error: err.message };
+    }
+});
 
+
+// Utilitários de Mídia
 ipcMain.handle('get-image-base64', async (e, url) => {
     try {
         const response = await fetch(url);
@@ -316,21 +406,9 @@ ipcMain.handle('get-image-base64', async (e, url) => {
     } catch (err) { throw err; }
 });
 
-ipcMain.handle('scrap-car-details', (e, { nome, url }) => db.scrapCarDetails(nome, url));
-ipcMain.handle('get-vehicles-stats', () => db.getVehiclesStats());
-ipcMain.handle('get-visits-by-vehicle', (e, name) => db.getVisitsByVehicle(name));
+app.whenReady().then(createWindow);
 
-ipcMain.handle('get-config', (e, key) => db.getConfig(key));
-ipcMain.handle('save-config', (e, { key, value }) => db.saveConfig(key, value));
-
-ipcMain.handle('get-config-meta', () => db.getConfigMeta());
-ipcMain.handle('set-config-meta', (e, { visita, venda }) => db.setConfigMeta(visita, venda));
-ipcMain.handle('get-sdr-performance', () => db.getSdrPerformance());
-
-// --- AI CONFIG ---
-ipcMain.handle('get-all-settings', () => db.getAllSettings());
-ipcMain.handle('save-settings-batch', (e, settings) => db.saveSettingsBatch(settings));
-
+// Tratamento de fechamento da janela no macOS (Darwin)
 app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
         createWindow();

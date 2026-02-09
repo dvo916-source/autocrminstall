@@ -3,20 +3,22 @@ import { Users, Shield, Plus, Power, PowerOff, UserPlus, Trash2, Key, CheckCircl
 import { motion, AnimatePresence } from 'framer-motion';
 import ConfirmModal from '../components/ConfirmModal';
 import PremiumSelect from '../components/PremiumSelect';
+import { useLoja } from '../context/LojaContext';
 
 const AVAILABLE_PERMISSIONS = [
-    { id: '/', label: 'Dashboard (Principal)', icon: 'BarChart3' },
+    { id: '/diario', label: 'Agenda Diária (Diário)', icon: 'BookOpen' },
+    { id: '/dashboard', label: 'Dashboard (Painel)', icon: 'BarChart3' },
     { id: '/whatsapp', label: 'WhatsApp', icon: 'MessageSquare' },
     { id: '/estoque', label: 'Tabela de Estoque', icon: 'Car' },
     { id: '/visitas', label: 'Gestão de Visitas', icon: 'Users' },
     { id: '/metas', label: 'Metas & Resultados', icon: 'Target' },
-    { id: '/diario', label: 'Agenda Diária', icon: 'BookOpen' },
-    { id: '/usuarios', label: 'Gestão de Usuários', icon: 'Shield' },
     { id: '/portais', label: 'Config. Portais', icon: 'Globe' },
-    { id: '/ia-chat', label: 'Config. IA', icon: 'Bot' },
+    { id: '/ia-chat', label: 'IA Chat (Configuração)', icon: 'Bot' },
+    { id: '/usuarios', label: 'Gestão de Usuários', icon: 'Shield' },
 ];
 
 const Usuarios = ({ user }) => {
+    const { currentLoja } = useLoja();
     const [vendedores, setVendedores] = useState([]);
     const [usuarios, setUsuarios] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -38,8 +40,9 @@ const Usuarios = ({ user }) => {
         nome_completo: '',
         email: '',
         whatsapp: '',
+        cpf: '',
         ativo: 1,
-        permissions: ['/', '/whatsapp', '/estoque', '/visitas', '/metas', '/diario'] // Default permissions for new users
+        permissions: [] // Default permissions for new users (selected manually)
     });
     const [editModal, setEditModal] = useState({ open: false, user: null });
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -53,9 +56,12 @@ const Usuarios = ({ user }) => {
     const loadAll = useCallback(async () => {
         try {
             const { ipcRenderer } = window.require('electron');
+            // 🚀 FALLBACK: Se currentLoja não estiver definida, usa a loja padrão
+            const lojaId = currentLoja?.id || 'irw-motors-main';
+
             const [vends, usersList] = await Promise.all([
-                ipcRenderer.invoke('get-list', 'vendedores'),
-                ipcRenderer.invoke('get-list-users')
+                ipcRenderer.invoke('get-list', { table: 'vendedores', lojaId }),
+                ipcRenderer.invoke('get-list-users', lojaId)
             ]);
             setVendedores(vends || []);
             const parsedUsers = (usersList || []).map(u => ({
@@ -68,7 +74,7 @@ const Usuarios = ({ user }) => {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [currentLoja]);
 
     useEffect(() => {
         loadAll();
@@ -111,7 +117,8 @@ const Usuarios = ({ user }) => {
                 table: 'vendedores',
                 nome: data.nome.trim().toUpperCase(),
                 sobrenome: (data.sobrenome || '').trim().toUpperCase(),
-                telefone: (data.telefone || '').trim()
+                telefone: (data.telefone || '').trim(),
+                loja_id: currentLoja?.id
             });
             setNewVendedor({ nome: '', sobrenome: '', telefone: '' });
             showMsg('Consultor adicionado com sucesso!');
@@ -122,7 +129,7 @@ const Usuarios = ({ user }) => {
     const toggleVendedor = async (nome, current) => {
         try {
             const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('toggle-item', { table: 'vendedores', nome, ativo: !current });
+            await ipcRenderer.invoke('toggle-item', { table: 'vendedores', nome, ativo: !current, loja_id: currentLoja?.id });
             loadAll();
         } catch (err) { console.error(err); }
     };
@@ -149,6 +156,14 @@ const Usuarios = ({ user }) => {
         return value;
     };
 
+    const formatCPF = (value) => {
+        const numbers = value.replace(/\D/g, '');
+        if (numbers.length <= 11) {
+            return numbers.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+        }
+        return value;
+    };
+
     const handleAddUser = async (e) => {
         e.preventDefault();
 
@@ -164,13 +179,13 @@ const Usuarios = ({ user }) => {
         try {
             const { ipcRenderer } = window.require('electron');
 
-            await ipcRenderer.invoke('add-user', newUser);
+            await ipcRenderer.invoke('add-user', { ...newUser, loja_id: currentLoja?.id });
             showMsg('Novo usuário cadastrado!');
 
             // Reset
             setNewUser({
                 username: '', password: '', role: 'sdr',
-                nome_completo: '', email: '', whatsapp: '', ativo: 1,
+                nome_completo: '', email: '', whatsapp: '', cpf: '', ativo: 1,
                 permissions: ['/', '/whatsapp', '/estoque', '/visitas', '/metas', '/diario']
             });
             setConfirmPassword('');
@@ -217,7 +232,7 @@ const Usuarios = ({ user }) => {
 
         try {
             const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('update-user', u);
+            await ipcRenderer.invoke('update-user', { ...u, loja_id: currentLoja?.id });
             showMsg('Usuário atualizado com sucesso!');
             setEditModal({ open: false, user: null });
             loadAll();
@@ -231,7 +246,8 @@ const Usuarios = ({ user }) => {
             const { ipcRenderer } = window.require('electron');
             await ipcRenderer.invoke('update-user', {
                 ...userObj,
-                ativo: !userObj.ativo
+                ativo: !userObj.ativo,
+                loja_id: currentLoja?.id
             });
             showMsg(userObj.ativo ? 'Usuário pausado' : 'Usuário reativado');
             loadAll();
@@ -245,7 +261,7 @@ const Usuarios = ({ user }) => {
         try {
             const { ipcRenderer } = window.require('electron');
             if (type === 'vendedor') {
-                await ipcRenderer.invoke('delete-item', { table: 'vendedores', nome: data });
+                await ipcRenderer.invoke('delete-item', { table: 'vendedores', nome: data, loja_id: currentLoja?.id });
                 showMsg('Consultor removido da lista!');
             } else if (type === 'usuario') {
                 await ipcRenderer.invoke('delete-user', data);
@@ -293,7 +309,9 @@ const Usuarios = ({ user }) => {
                 onError={(msg) => showMsg(msg, 'error')}
                 isMaster={isMaster}
                 isMasterOrAdmin={isMasterOrAdmin}
+                isMasterOrAdmin={isMasterOrAdmin}
                 formatPhone={formatPhone}
+                currentLoja={currentLoja}
             />
 
             <AnimatePresence>
@@ -366,6 +384,16 @@ const Usuarios = ({ user }) => {
                                             />
                                         </div>
 
+                                        <div className="relative group">
+                                            <input
+                                                className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-4 outline-none focus:border-blue-500 transition-all font-medium text-sm"
+                                                placeholder="CPF (OPCIONAL)"
+                                                value={newUser.cpf}
+                                                onChange={e => setNewUser({ ...newUser, cpf: formatCPF(e.target.value) })}
+                                                maxLength={14}
+                                            />
+                                        </div>
+
                                         <div className="grid grid-cols-2 gap-2">
                                             <div className="relative group">
                                                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-blue-400 transition-colors" size={16} />
@@ -435,36 +463,42 @@ const Usuarios = ({ user }) => {
                                                 CADASTRAR
                                             </button>
                                         </div>
-                                        <div className="mt-4 p-4 bg-black/20 rounded-2xl border border-white/5">
-                                            <h4 className="text-[11px] font-bold text-gray-400 tracking-widest mb-3 flex items-center gap-2 uppercase">
-                                                <Shield size={12} className="text-blue-400" /> Permissões de Acesso
-                                            </h4>
-                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                                {AVAILABLE_PERMISSIONS.map((page) => {
-                                                    const isChecked = newUser.permissions?.includes(page.id);
-                                                    return (
-                                                        <button
-                                                            key={page.id}
-                                                            type="button"
-                                                            onClick={() => {
-                                                                const current = newUser.permissions || [];
-                                                                const newPerms = current.includes(page.id)
-                                                                    ? current.filter(p => p !== page.id)
-                                                                    : [...current, page.id];
-                                                                setNewUser({ ...newUser, permissions: newPerms });
-                                                            }}
-                                                            className={`text-[11px] font-bold py-2 px-3 rounded-xl border transition-all text-left flex items-center gap-2 uppercase ${isChecked
-                                                                ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
-                                                                : 'bg-white/5 border-white/5 text-gray-500 hover:bg-white/10'
-                                                                }`}
-                                                        >
-                                                            <div className={`w-2 h-2 rounded-full ${isChecked ? 'bg-blue-400 shadow-[0_0_5px_cyan]' : 'bg-gray-600'}`} />
-                                                            {page.label}
-                                                        </button>
-                                                    );
-                                                })}
+                                        {isMasterOrAdmin && (
+                                            <div className="mt-4 p-4 bg-black/20 rounded-2xl border border-white/5">
+                                                <h4 className="text-[11px] font-bold text-gray-400 tracking-widest mb-3 flex items-center gap-2 uppercase">
+                                                    <Shield size={12} className="text-blue-400" /> Permissões do Usuário
+                                                </h4>
+                                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                                    {AVAILABLE_PERMISSIONS.filter(p => {
+                                                        const storeModules = currentLoja?.modulos ? (typeof currentLoja.modulos === 'string' ? JSON.parse(currentLoja.modulos) : currentLoja.modulos) : [];
+                                                        const moduleKey = p.id.replace('/', '');
+                                                        return storeModules.includes(moduleKey);
+                                                    }).map((page) => {
+                                                        const isChecked = newUser.permissions?.includes(page.id);
+                                                        return (
+                                                            <button
+                                                                key={page.id}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const current = newUser.permissions || [];
+                                                                    const newPerms = current.includes(page.id)
+                                                                        ? current.filter(p => p !== page.id)
+                                                                        : [...current, page.id];
+                                                                    setNewUser({ ...newUser, permissions: newPerms });
+                                                                }}
+                                                                className={`text-[11px] font-bold py-2 px-3 rounded-xl border transition-all text-left flex items-center gap-2 uppercase ${isChecked
+                                                                    ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
+                                                                    : 'bg-white/5 border-white/5 text-gray-500 hover:bg-white/10'
+                                                                    }`}
+                                                            >
+                                                                <div className={`w-2 h-2 rounded-full ${isChecked ? 'bg-blue-400 shadow-[0_0_5px_cyan]' : 'bg-gray-600'}`} />
+                                                                {page.label}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
-                                        </div>
+                                        )}
                                     </form>
                                 </motion.div>
                             )}
@@ -520,7 +554,7 @@ const Usuarios = ({ user }) => {
                                             <Edit size={16} />
                                         </button>
 
-                                        {((isMaster || user?.role === 'admin' || user?.role === 'developer') && u.role !== 'master' && u.role !== 'developer') && (
+                                        {(isMaster || (user?.role === 'admin' && u.username !== user?.username)) && (
                                             <button
                                                 onClick={() => setModal({ open: true, type: 'usuario', data: u.username })}
                                                 className="text-gray-600 hover:text-red-400 p-2 hover:bg-red-500/10 rounded-xl transition-all"
@@ -542,7 +576,7 @@ const Usuarios = ({ user }) => {
 };
 
 // --- COMPONENTE EDIÇÃO ---
-const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onError, isMaster, isMasterOrAdmin, formatPhone }) => {
+const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onError, isMaster, isMasterOrAdmin, formatPhone, currentLoja }) => {
     const [user, setUser] = useState(null);
     const [confirmPwd, setConfirmPwd] = useState('');
 
@@ -578,7 +612,7 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
 
         try {
             const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('update-user', user);
+            await ipcRenderer.invoke('update-user', { ...user, loja_id: currentLoja?.id });
 
             if (user.password && user.password.length > 0) {
                 onSuccess('Usuário atualizado! A senha foi alterada.');
@@ -634,6 +668,17 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
                             </div>
                         </div>
 
+                        <div className="space-y-1">
+                            <label className="text-[11px] font-bold text-gray-500 ml-2 tracking-widest uppercase">CPF (Opcional)</label>
+                            <input
+                                className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 transition-all font-bold text-sm text-white"
+                                value={user.cpf || ''}
+                                onChange={e => setUser({ ...user, cpf: formatCPF(e.target.value) })}
+                                maxLength={14}
+                                placeholder="000.000.000-00"
+                            />
+                        </div>
+
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1">
                                 <label className="text-[11px] font-bold text-gray-500 ml-2 tracking-widest uppercase">E-mail de Login</label>
@@ -680,36 +725,42 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
                                     onChange={e => setConfirmPwd(e.target.value)}
                                 />
                             </div>
-                            <div className="p-6 bg-black/20 rounded-[2rem] border border-white/5 space-y-4 mt-2">
-                                <h4 className="text-[11px] font-black text-gray-400 tracking-widest flex items-center gap-2 uppercase">
-                                    <Shield size={12} className="text-purple-400" /> Permissões do Usuário
-                                </h4>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {AVAILABLE_PERMISSIONS.map((page) => {
-                                        const isChecked = user.permissions?.includes(page.id);
-                                        return (
-                                            <button
-                                                key={page.id}
-                                                type="button"
-                                                onClick={() => {
-                                                    const current = user.permissions || [];
-                                                    const newPerms = current.includes(page.id)
-                                                        ? current.filter(p => p !== page.id)
-                                                        : [...current, page.id];
-                                                    setUser({ ...user, permissions: newPerms });
-                                                }}
-                                                className={`text-[11px] font-bold py-3 px-4 rounded-xl border transition-all text-left flex items-center gap-3 uppercase ${isChecked
-                                                    ? 'bg-purple-500/20 border-purple-500/50 text-purple-300'
-                                                    : 'bg-white/5 border-white/5 text-gray-500 hover:bg-white/10'
-                                                    }`}
-                                            >
-                                                <div className={`w-2.5 h-2.5 rounded-full ${isChecked ? 'bg-purple-400 shadow-[0_0_8px_purple]' : 'bg-gray-600'}`} />
-                                                {page.label}
-                                            </button>
-                                        );
-                                    })}
+                            {isMasterOrAdmin && (
+                                <div className="p-6 bg-black/20 rounded-[2rem] border border-white/5 space-y-4 mt-2">
+                                    <h4 className="text-[11px] font-black text-blue-400 tracking-widest flex items-center gap-2 uppercase">
+                                        <Shield size={12} /> Gerenciar Permissões
+                                    </h4>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {AVAILABLE_PERMISSIONS.filter(p => {
+                                            const storeModules = currentLoja?.modulos ? (typeof currentLoja.modulos === 'string' ? JSON.parse(currentLoja.modulos) : currentLoja.modulos) : [];
+                                            const moduleKey = p.id.replace('/', '');
+                                            return storeModules.includes(moduleKey);
+                                        }).map((page) => {
+                                            const isChecked = user.permissions?.includes(page.id);
+                                            return (
+                                                <button
+                                                    key={page.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const current = user.permissions || [];
+                                                        const newPerms = current.includes(page.id)
+                                                            ? current.filter(p => p !== page.id)
+                                                            : [...current, page.id];
+                                                        setUser({ ...user, permissions: newPerms });
+                                                    }}
+                                                    className={`text-[11px] font-bold py-3 px-4 rounded-xl border transition-all text-left flex items-center gap-3 uppercase ${isChecked
+                                                        ? 'bg-purple-500/20 border-purple-500/50 text-purple-300'
+                                                        : 'bg-white/5 border-white/5 text-gray-500 hover:bg-white/10'
+                                                        }`}
+                                                >
+                                                    <div className={`w-2.5 h-2.5 rounded-full ${isChecked ? 'bg-purple-400 shadow-[0_0_8px_purple]' : 'bg-gray-600'}`} />
+                                                    {page.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
-                            </div>
+                            )}
 
                             <div className="flex gap-3 pt-6">
                                 <button

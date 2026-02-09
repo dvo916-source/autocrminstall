@@ -9,8 +9,8 @@
   --font-rajdhani: "Rajdhani", sans-serif;
 
   /* Layout Variables (Scalable via REM) */
-  --sidebar-width: 5rem;
-  --sidebar-expanded-width: 15rem;
+  --sidebar-width: 6rem;           /* Aumentado de 5rem para 6rem (96px) */
+  --sidebar-expanded-width: 17rem; /* Aumentado de 15rem para 17rem (272px) */
   --main-padding: 2rem;
   --header-height: 5rem;
 }

@@ -47,3 +47,30 @@ export const getFirstName = (input) => {
     if (input.includes('@')) return input.split('@')[0].toUpperCase();
     return input.split(' ')[0].toUpperCase();
 };
+
+/**
+ * Limpa nomes de veículos duplicados (ex: "Chevrolet TRACKER TRACKER")
+ */
+export const cleanVehicleName = (name) => {
+    if (!name) return '';
+
+    // Split por espaços
+    const words = name.split(/\s+/);
+    const uniqueWords = [];
+
+    for (let i = 0; i < words.length; i++) {
+        const current = words[i].trim();
+        if (!current) continue;
+
+        const previous = uniqueWords[uniqueWords.length - 1];
+
+        // Se a palavra atual for igual à anterior (ignorando case), pula
+        if (previous && current.toLowerCase() === previous.toLowerCase()) {
+            continue;
+        }
+
+        uniqueWords.push(current);
+    }
+
+    return uniqueWords.join(' ');
+};

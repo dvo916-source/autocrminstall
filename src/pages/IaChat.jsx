@@ -1,3 +1,5 @@
+// --- PÁGINA IA CHAT (DESIGN SISTÊMICO) ---
+// Esta página é um exemplo de UI Futurista "Premium" usando Vanilla CSS e Framer Motion.
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -7,39 +9,21 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-// --- ELEMENTOS DE DESIGN REUTILIZÁVEIS ---
-
+// 🧊 COMPONENTE DE ESTUDO: Glassmorphism
+// Cria o efeito de "vidro" usando backdrop-blur e transparências.
 const GlassCard = ({ children, className = "" }) => (
     <div className={`backdrop-blur-2xl bg-white/[0.03] border border-white/10 rounded-[2.5rem] shadow-2xl relative overflow-hidden group ${className}`}>
-        {/* Interior Glow Effect */}
+        {/* Efeito de brilho interno que aparece no hover */}
         <div className="absolute -top-24 -right-24 w-48 h-48 bg-cyan-500/10 blur-[80px] rounded-full pointer-events-none group-hover:bg-cyan-500/20 transition-colors duration-700" />
         {children}
     </div>
 );
 
-const StatusIndicator = ({ label, value, status = "active", color = "cyan" }) => {
-    const colors = {
-        cyan: "bg-cyan-500 shadow-[0_0_10px_#06b6d4]",
-        emerald: "bg-emerald-500 shadow-[0_0_10px_#10b981]",
-        purple: "bg-purple-500 shadow-[0_0_10px_#a855f7]"
-    };
-
-    return (
-        <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-black text-white/30 tracking-[0.2em] uppercase">{label}</span>
-            <div className="flex items-center gap-2.5">
-                <div className={`w-1.5 h-1.5 rounded-full ${colors[color]} ${status === "pulse" ? "animate-pulse" : ""}`} />
-                <span className="text-sm font-bold text-white tracking-tight">{value}</span>
-            </div>
-        </div>
-    );
-};
-
-// --- COMPONENTES DA PÁGINA ---
-
+// 🌌 COMPONENTE DE ESTUDO: CyberBackground
+// Cria o fundo dinâmico e animado sem usar vídeos ou imagens pesadas.
 const CyberBackground = () => (
     <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden bg-[#020617]">
-        {/* Dynamic Fog */}
+        {/* Névoa dinâmica usando Framer Motion para animar gradientes */}
         <motion.div
             animate={{
                 x: [-100, 100, -100],
@@ -54,19 +38,13 @@ const CyberBackground = () => (
             }}
         />
 
-        {/* Subtle Scanlines */}
+        {/* Linhas de Scanner (efeito de TV antiga/monitor CRT) */}
         <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.01),rgba(0,255,0,0.005),rgba(0,0,255,0.01))] bg-[length:100%_2px,3px_100%] pointer-events-none" />
-
-        {/* Micro-Grid */}
-        <div className="absolute inset-0 opacity-[0.03]"
-            style={{
-                backgroundImage: 'linear-gradient(to right, #ffffff 1px, transparent 1px), linear-gradient(to bottom, #ffffff 1px, transparent 1px)',
-                backgroundSize: '80px 80px'
-            }}
-        />
     </div>
 );
 
+// 🗂️ COMPONENTE HubCard
+// Exemplo de como usar React Router (Link) junto com Framer Motion (WhileHover)
 const HubCard = ({ to, icon: Icon, title, subtitle, tags, status, delay = 0 }) => (
     <motion.div
         initial={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -80,12 +58,6 @@ const HubCard = ({ to, icon: Icon, title, subtitle, tags, status, delay = 0 }) =
                 <div className="flex justify-between items-start mb-12">
                     <div className="w-16 h-16 rounded-[1.25rem] bg-gradient-to-br from-white/10 to-white/5 border border-white/10 flex items-center justify-center text-cyan-400 group-hover:scale-110 group-hover:text-white transition-all duration-500 shadow-2xl">
                         <Icon size={32} strokeWidth={1.5} />
-                    </div>
-                    <div className="flex flex-col items-end">
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10">
-                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]" />
-                            <span className="text-[9px] font-black text-white/50 tracking-widest uppercase">Live</span>
-                        </div>
                     </div>
                 </div>
 
@@ -104,11 +76,6 @@ const HubCard = ({ to, icon: Icon, title, subtitle, tags, status, delay = 0 }) =
                             {tag}
                         </span>
                     ))}
-                </div>
-
-                {/* Hover Arrow */}
-                <div className="absolute bottom-10 right-10 w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white/20 translate-x-4 opacity-0 group-hover:translate-x-0 group-hover:opacity-100 group-hover:text-cyan-400 group-hover:border-cyan-400/30 transition-all duration-500">
-                    <ChevronRight size={20} />
                 </div>
             </GlassCard>
         </Link>

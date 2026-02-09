@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Save, Bot, MessageSquare, Key, Shield, Zap, CheckCircle2, AlertCircle, Phone, Settings, Brain, Clock, Globe, MessageCircleQuestion, Terminal, Activity, Cpu, ShieldCheck, Database, Link } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useLoja } from '../context/LojaContext';
 import FAQManager from '../components/FAQManager';
 
 const AdminIA = () => {
+    const { currentLoja } = useLoja();
     const [metaConfig, setMetaConfig] = useState({
         phone_number: '',
         phone_id: '',
@@ -36,8 +38,8 @@ const AdminIA = () => {
 
     const loadConfigs = async () => {
         try {
-            const { data, error } = await supabase.from('crm_settings').select('*');
-            if (error) throw error;
+            const { ipcRenderer } = window.require('electron');
+            const data = await ipcRenderer.invoke('get-all-settings', currentLoja?.id);
 
             if (data && data.length > 0) {
                 const metaSettings = {};
@@ -51,7 +53,7 @@ const AdminIA = () => {
             }
         } catch (error) {
             console.error('Error:', error);
-            setStatus({ type: 'error', message: 'Falha na conexão com o banco de dados.' });
+            setStatus({ type: 'error', message: 'Falha ao carregar configurações.' });
         } finally {
             setLoading(false);
         }
@@ -61,18 +63,17 @@ const AdminIA = () => {
         setSaving(true);
         setStatus(null);
         try {
-            const { data: { user } } = await supabase.auth.getUser();
+            const { ipcRenderer } = window.require('electron');
             const upserts = [];
 
             Object.entries(metaConfig).forEach(([key, value]) => {
-                upserts.push({ category: 'meta_api', key, value, updated_by: user?.id, updated_at: new Date().toISOString() });
+                upserts.push({ category: 'meta_api', key, value });
             });
             Object.entries(diegoConfig).forEach(([key, value]) => {
-                upserts.push({ category: 'diego_ai', key, value, updated_by: user?.id, updated_at: new Date().toISOString() });
+                upserts.push({ category: 'diego_ai', key, value });
             });
 
-            const { error } = await supabase.from('crm_settings').upsert(upserts, { onConflict: 'category,key' });
-            if (error) throw error;
+            await ipcRenderer.invoke('save-settings-batch', { settings: upserts, lojaId: currentLoja?.id });
 
             setStatus({ type: 'success', message: 'Protocolos atualizados com sucesso.' });
             setTimeout(() => setStatus(null), 3000);

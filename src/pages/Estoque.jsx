@@ -5,9 +5,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { List } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { supabase } from '../lib/supabase';
-import { parsePrice } from '../lib/utils';
+import { parsePrice, cleanVehicleName } from '../lib/utils';
+import { useLoja } from '../context/LojaContext';
+import { get, set } from 'idb-keyval'; // ⚡ Cache Local
 
 const Estoque = ({ user }) => {
+    const { currentLoja } = useLoja();
     const currentUser = user || JSON.parse(localStorage.getItem('sdr_user') || '{"username":"SDR","role":"vendedor"}');
     const navigate = useNavigate();
     const [items, setItems] = useState([]);
@@ -34,7 +37,7 @@ const Estoque = ({ user }) => {
         try {
             const { ipcRenderer } = window.require('electron');
             // Assuming get-visitas returns all history, we extract unique clients
-            const visitas = await ipcRenderer.invoke('get-visitas-secure', { role: 'admin', username: null });
+            const visitas = await ipcRenderer.invoke('get-visitas-secure', { role: 'admin', username: null, lojaId: currentLoja?.id });
 
             const uniqueMap = new Map();
             visitas.forEach(v => {
@@ -76,7 +79,7 @@ const Estoque = ({ user }) => {
     const loadStats = async () => {
         try {
             const { ipcRenderer } = window.require('electron');
-            const data = await ipcRenderer.invoke('get-vehicles-stats');
+            const data = await ipcRenderer.invoke('get-vehicles-stats', currentLoja?.id);
             setStats(data || {});
         } catch (err) { console.error(err); }
     };
@@ -104,19 +107,33 @@ const Estoque = ({ user }) => {
         };
     }, []);
 
-    const loadItems = async () => {
+    const loadItems = async (force = false) => {
         try {
             setLoading(true);
             const { ipcRenderer } = window.require('electron');
+            const lojaId = currentLoja?.id || 'irw-motors-main';
+
+            // ⚡ CACHE LOCAL (Stale-While-Revalidate)
+            if (!force) {
+                try {
+                    const cached = await get(`estoque-cache-${lojaId}`);
+                    if (cached && Array.isArray(cached) && cached.length > 0) {
+                        console.log(`⚡ [Cache] Mostrando ${cached.length} veículos do cache`);
+                        setItems(cached);
+                        setLoading(false); // Libera a UI imediatamente
+                    }
+                } catch (e) { console.warn('Erro cache:', e); }
+            }
 
             // 🏠 BUSCA NO BANCO LOCAL (Sincronizado a cada 5 min)
-            const localData = await ipcRenderer.invoke('get-list', 'estoque');
+            const localData = await ipcRenderer.invoke('get-list', { table: 'estoque', lojaId });
+
+            let finalItems = [];
 
             if (Array.isArray(localData) && localData.length > 0) {
                 console.log(`[Estoque] Carregados ${localData.length} itens do banco local`);
                 // Garante que o status 'ativo' seja interpretado corretamente
-                const activeItems = localData.filter(i => i && (i.ativo === 1 || i.ativo === true || i.ativo === undefined));
-                setItems(activeItems);
+                finalItems = localData.filter(i => i && (i.ativo === 1 || i.ativo === true || i.ativo === undefined));
             } else {
                 console.log(`[Estoque] Banco local vazio ou erro, tentando Supabase...`);
                 const { data, error } = await supabase
@@ -125,12 +142,18 @@ const Estoque = ({ user }) => {
                     .eq('ativo', true)
                     .order('nome');
 
-                if (error) throw error;
-                setItems(data || []);
+                if (!error && data) finalItems = data;
             }
+
+            if (finalItems.length > 0) {
+                setItems(finalItems);
+                // 💾 Salva no cache para a próxima
+                set(`estoque-cache-${lojaId}`, finalItems).catch(console.error);
+            }
+
         } catch (err) {
             console.error('Erro ao buscar estoque:', err);
-            setItems([]);
+            // Se falhar tudo e não tiver cache, items fica vazio (ou mantém o cache se já setou)
         } finally {
             setLoading(false);
         }
@@ -141,7 +164,7 @@ const Estoque = ({ user }) => {
         setLoadingVisits(true);
         try {
             const { ipcRenderer } = window.require('electron');
-            const data = await ipcRenderer.invoke('get-visits-by-vehicle', vehicleName);
+            const data = await ipcRenderer.invoke('get-visits-by-vehicle', { name: vehicleName, lojaId: currentLoja?.id });
             setVehicleVisits(data || []);
         } catch (err) {
             console.error(err);
@@ -157,7 +180,7 @@ const Estoque = ({ user }) => {
         setSyncing(true);
         try {
             const { ipcRenderer } = window.require('electron');
-            const res = await ipcRenderer.invoke('sync-xml');
+            const res = await ipcRenderer.invoke('sync-xml', currentLoja?.id);
 
             if (res.success) {
                 showToast(res.message, 'success');
@@ -265,7 +288,7 @@ const Estoque = ({ user }) => {
                                 className="font-semibold text-sm leading-none truncate cursor-pointer hover:text-cyan-400 transition-colors text-white"
                                 onClick={() => handleOpenReport(item.nome)}
                             >
-                                {item.nome}
+                                {cleanVehicleName(item.nome)}
                             </h4>
                             <p className="text-[10px] text-gray-500 mt-1  font-bold tracking-widest">{item.ativo ? 'Em Loja' : 'Indisponível'}</p>
                         </div>
@@ -346,7 +369,7 @@ const Estoque = ({ user }) => {
 
                             <div className="absolute bottom-0 left-0 right-0 p-6 z-20">
                                 <h3 className="text-2xl font-bold text-white flex items-end gap-3 shadow-black drop-shadow-lg">
-                                    {selectedVehicle}
+                                    {cleanVehicleName(selectedVehicle)}
                                 </h3>
                                 <div className="flex items-center gap-4 mt-2">
                                     {(() => {
@@ -423,7 +446,7 @@ const Estoque = ({ user }) => {
                                 <MessageSquare className="text-green-500" />
                                 Enviar para WhatsApp
                             </h3>
-                            <p className="text-xs text-gray-400 mt-1">Selecione o cliente para enviar o veiculo: <span className="text-cyan-400 font-bold">{selectedVehicleForShare.nome}</span></p>
+                            <p className="text-xs text-gray-400 mt-1">Selecione o cliente para enviar o veiculo: <span className="text-cyan-400 font-bold">{cleanVehicleName(selectedVehicleForShare.nome)}</span></p>
                         </div>
 
                         <div className="p-6 space-y-4">
@@ -588,7 +611,7 @@ const Estoque = ({ user }) => {
                                                             onClick={() => handleOpenReport(item.nome)}
                                                             title={item.nome}
                                                         >
-                                                            {item.nome.split(' #')[0]}
+                                                            {cleanVehicleName(item.nome).split(' #')[0]}
                                                         </h4>
                                                     </div>
 

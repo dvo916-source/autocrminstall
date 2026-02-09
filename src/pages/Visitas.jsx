@@ -15,6 +15,7 @@ import AlertModal from '../components/AlertModal';
 import NewVisitModal from '../components/NewVisitModal';
 import { supabase } from '../lib/supabase';
 import { toLocalISOString, getCleanPhone } from '../lib/utils';
+import { useLoja } from '../context/LojaContext';
 
 const PIPELINE_STATUSES = [
     { id: 'Agendado', label: 'Agendado', color: 'blue' },
@@ -40,6 +41,7 @@ const FORMAS_PAGAMENTO = [
 ];
 
 const Visitas = ({ user }) => {
+    const { currentLoja } = useLoja();
     const [visitas, setVisitas] = useState([]);
     const [loading, setLoading] = useState(true);
     const [view, setView] = useState('list'); // 'list', 'form', 'detail'
@@ -82,16 +84,17 @@ const Visitas = ({ user }) => {
             // Isso garante que o dado inserido localmente apareça na hora, sem depender do delay da nuvem
             const localVisitas = await ipcRenderer.invoke('get-visitas-secure', {
                 role: currentUser.role,
-                username: currentUser.username
+                username: currentUser.username,
+                lojaId: currentLoja?.id
             });
             setVisitas(localVisitas || []);
 
             // Listas Auxiliares (Carregamento Paralelo)
             const [localPortais, localVendedores, localEstoque, localSdrs] = await Promise.all([
-                ipcRenderer.invoke('get-list', 'portais'),
-                ipcRenderer.invoke('get-list', 'vendedores'),
-                ipcRenderer.invoke('get-list', 'estoque'),
-                ipcRenderer.invoke('get-list-users')
+                ipcRenderer.invoke('get-list', { table: 'portais', lojaId: currentLoja?.id }),
+                ipcRenderer.invoke('get-list', { table: 'vendedores', lojaId: currentLoja?.id }),
+                ipcRenderer.invoke('get-list', { table: 'estoque', lojaId: currentLoja?.id }),
+                ipcRenderer.invoke('get-list-users', currentLoja?.id)
             ]);
 
             setPortais((localPortais || []).filter(i => i.ativo));
@@ -183,7 +186,7 @@ const Visitas = ({ user }) => {
         if (!confirmModal.id) return;
         try {
             const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('delete-visita', confirmModal.id);
+            await ipcRenderer.invoke('delete-visita', { id: confirmModal.id, lojaId: currentLoja?.id });
             setConfirmModal({ isOpen: false, id: null });
             loadData();
         } catch (err) {

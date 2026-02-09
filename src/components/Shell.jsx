@@ -3,15 +3,18 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
     BarChart3, Users, Car, Globe, Target, Bot,
     LogOut, UserCircle, MessageSquare,
-    CheckCircle2, AlertCircle, Info, X, Calendar
+    CheckCircle2, AlertCircle, Info, X, Calendar, Store, ArrowLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useLoja } from '../context/LojaContext';
 import WhatsappService from './WhatsappService';
+import ConnectionStatus from './ConnectionStatus';
 
 const Shell = ({ children, user, onLogout }) => {
     const [isSidebarHovered, setIsSidebarHovered] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
     const [notifications, setNotifications] = useState([]);
+    const { currentLoja } = useLoja();
 
     const location = useLocation();
     const isAdmin = user.role === 'admin' || user.role === 'master' || user.role === 'developer';
@@ -94,7 +97,12 @@ const Shell = ({ children, user, onLogout }) => {
     };
 
     const hasPermission = (path) => {
-        if (isAdmin) return true;
+        // Developer has absolute access
+        if (user.role === 'developer') return true;
+
+        // Master access by default
+        if (user.role === 'master') return true;
+
         if (!user.permissions) return true;
 
         let perms = [];
@@ -103,19 +111,121 @@ const Shell = ({ children, user, onLogout }) => {
         } catch (e) { perms = []; }
 
         if (!Array.isArray(perms)) return false;
+
+        // Restrição de loja para usuários não-developers (Segurança redundante)
+        if (user.role !== 'developer' && user.loja_id && currentLoja?.id !== user.loja_id) {
+            return false;
+        }
+
+        // Root and common paths are always allowed
+        if (path === '/' || path === '/diario') return true;
+
         return perms.includes(path);
     };
 
-    const navItems = [
-        { to: '/', label: 'MEU DIÁRIO', icon: <Calendar className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: true },
-        { to: '/whatsapp', label: 'WHATSAPP', icon: <MessageSquare className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/whatsapp') },
-        { to: '/estoque', label: 'TABELA', icon: <Car className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/estoque') },
-        { to: '/visitas', label: 'VISITAS', icon: <Users className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/visitas') },
-        { to: '/metas', label: 'METAS', icon: <Target className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/metas') },
-        { to: '/portais', label: 'PORTAIS', icon: <Globe className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/portais') },
-        { to: '/ia-chat', label: 'IA CHAT', icon: <Bot className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/ia-chat') },
-        { to: '/usuarios', label: 'USUÁRIOS', icon: <Users className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, active: hasPermission('/usuarios') },
-    ];
+    const navItems = [];
+    const { clearLoja } = useLoja(); // Pegamos a função de limpar loja
+
+    if (user.role === 'developer') {
+        // Se for developer e NÃO tiver loja selecionada, ele vê o link da Central
+        if (!currentLoja) {
+            navItems.push({ to: '/central-lojas', label: 'CENTRAL DE LOJAS', icon: <Store className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'central-lojas' });
+        } else {
+            // Se ele JÁ ESTIVER dentro de uma loja, mostramos o botão de SAIR da loja e voltar à central
+            navItems.push({
+                to: '#',
+                label: 'VOLTAR À CENTRAL',
+                icon: <ArrowLeft className="w-[1.375rem] h-[1.375rem] text-orange-400 animate-pulse" strokeWidth={1.5} />,
+                onClick: () => {
+                    clearLoja();
+                    navigate('/central-lojas');
+                },
+                module: 'back-to-central'
+            });
+        }
+    }
+
+    navItems.push(
+        { to: '/diario', label: 'MEU DIÁRIO', icon: <Calendar className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'diario' },
+        { to: '/dashboard', label: 'DASHBOARD', icon: <BarChart3 className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'dashboard' },
+        { to: '/whatsapp', label: 'WHATSAPP', icon: <MessageSquare className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'whatsapp' },
+        { to: '/estoque', label: 'TABELA', icon: <Car className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'estoque' },
+        { to: '/visitas', label: 'VISITAS', icon: <Users className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'visitas' },
+        { to: '/metas', label: 'METAS', icon: <Target className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'metas' },
+        { to: '/portais', label: 'PORTAIS', icon: <Globe className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'portais' },
+        { to: '/ia-chat', label: 'IA CHAT', icon: <Bot className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'ia-chat' },
+        { to: '/usuarios', label: 'USUÁRIOS', icon: <Users className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'usuarios' }
+    );
+
+    const filteredNavItems = navItems.filter(item => {
+        // --- DEBUG ---
+        if (item.module === 'dashboard') {
+            const raw = currentLoja?.modulos;
+            let parsed = [];
+            try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { }
+            console.log('🐞 SHELL DEBUG:', {
+                username: user.username,
+                role: user.role,
+                perms: user.permissions,
+                modsLoja: parsed,
+                item: item.module,
+                HAS_PERM: hasPermission(item.to)
+            });
+        }
+        // -------------
+
+        // 🔓 ADMIN/MASTER DEVELOPER: No filter for Central Lojas and internal tools
+        const internalModules = ['central-lojas', 'back-to-central'];
+        if (internalModules.includes(item.module)) return true;
+
+        // 🏪 MÓDULOS DA LOJA: Verifica se o módulo está ativo no plano da loja
+        const lojaModulosRaw = currentLoja?.modulos;
+
+        // Se o desenvolvedor NÃO selecionou uma loja, ele não vê módulos operacionais (barra vazia/limpa)
+        if (user.role === 'developer' && !currentLoja) {
+            return false;
+        }
+
+        // Se não houver loja selecionada ou módulos definidos para usuários comuns, mostra (fallback)
+        if (!currentLoja || !lojaModulosRaw) return true;
+
+        try {
+            // Parse dos módulos ativos (pode vir como string JSON ou array)
+            let enabledModules = [];
+            try {
+                let raw = lojaModulosRaw;
+                // Tenta parsear até virar objeto/array (lidando com double stringify)
+                if (typeof raw === 'string') {
+                    try { raw = JSON.parse(raw); } catch (e) { }
+                }
+                if (typeof raw === 'string') {
+                    try { raw = JSON.parse(raw); } catch (e) { }
+                }
+                if (Array.isArray(raw)) enabledModules = raw;
+            } catch (e) { console.error('Erro parse modulos:', e); }
+
+            // Módulos especiais que sempre aparecem para quem está dentro da loja (como ajuda, etc)
+            const alwaysVisible = [];
+            if (alwaysVisible.includes(item.module)) return true;
+
+            // Verifica se o módulo está ativo na loja
+            const moduleEnabled = enabledModules.includes(item.module);
+            if (!moduleEnabled) return false; // Módulo não está no plano da loja
+
+            // 👑 DEVELOPER/MASTER: Sempre vêem tudo
+            if (user.role === 'developer' || user.role === 'master') return true;
+
+            // 👤 USUÁRIO COMUM: Verifica se tem permissão individual
+            return hasPermission(item.to);
+
+        } catch (e) {
+            console.error('Erro ao filtrar módulos:', e);
+            return false; // Em caso de erro, ESCONDE por segurança
+        }
+    });
+
+    // 🔒 Bloqueio de Expansão (Sidebar Fixa) para Developers sem loja ativa
+    const isSidebarLocked = user.role === 'developer' && !currentLoja;
 
     return (
         // MESTRE FLEXBOX
@@ -130,8 +240,8 @@ const Shell = ({ children, user, onLogout }) => {
             {/* SIDEBAR - Coluna Sólida (Sem 'Fixed') */}
             <motion.aside
                 initial={false}
-                animate={{ width: isSidebarHovered ? 'var(--sidebar-expanded-width)' : 'var(--sidebar-width)' }}
-                onMouseEnter={() => setIsSidebarHovered(true)}
+                animate={{ width: (isSidebarHovered && !isSidebarLocked) ? 'var(--sidebar-expanded-width)' : 'var(--sidebar-width)' }}
+                onMouseEnter={() => !isSidebarLocked && setIsSidebarHovered(true)}
                 onMouseLeave={() => setIsSidebarHovered(false)}
                 transition={{ type: 'spring', damping: 25, stiffness: 200 }}
                 // Z-index: 50 para garantir que sombras fiquem sobre o conteúdo
@@ -167,13 +277,19 @@ const Shell = ({ children, user, onLogout }) => {
 
                 {/* Navegação */}
                 <nav className="flex-1 flex flex-col justify-center gap-2 px-3 py-6 overflow-y-auto no-scrollbar">
-                    {navItems.filter(item => item.active).map((item) => (
+                    {filteredNavItems.map((item) => (
                         <NavLink
-                            key={item.to}
+                            key={item.label}
                             to={item.to}
+                            onClick={(e) => {
+                                if (item.onClick) {
+                                    e.preventDefault();
+                                    item.onClick();
+                                }
+                            }}
                             className={({ isActive }) => `
                                 relative flex items-center h-11 rounded-xl transition-all duration-300 group/item overflow-hidden shrink-0 focus:outline-none
-                                ${isActive
+                                ${isActive && item.to !== '#'
                                     ? 'bg-[#22d3ee15] text-[#22d3ee] border border-[#22d3ee30] shadow-[0_0_15px_-5px_rgba(34,211,238,0.3)]'
                                     : 'text-slate-400 hover:text-white hover:bg-[#ffffff08] border border-transparent'}
                             `}
@@ -318,6 +434,8 @@ const Shell = ({ children, user, onLogout }) => {
                         </motion.div>
                     )}
                 </AnimatePresence>
+
+
             </main>
         </div>
     );

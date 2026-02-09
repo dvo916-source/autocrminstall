@@ -1,0 +1,312 @@
+{
+    "name": "IRW Motors - Autonomous Sales Agent v1",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "irwmotors",
+                "options": {}
+            },
+            "id": "webhook_entry",
+            "name": "Webhook: Entry",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+                -20,
+                180
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "upsert",
+                "tableId": "crm_conversations",
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "phone": "={{ $('Webhook: Entry').item.json.body.entry[0].changes[0].value.messages[0].from }}",
+                        "ai_status": "active"
+                    },
+                    "matchingColumns": [
+                        "phone"
+                    ],
+                    "schema": [
+                        {
+                            "id": "phone",
+                            "displayName": "phone",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "ai_status",
+                            "displayName": "ai_status",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": false
+                        }
+                    ]
+                }
+            },
+            "id": "supabase_ensure_lead",
+            "name": "Supabase: Ensure Lead",
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                200,
+                180
+            ],
+            "credentials": {
+                "supabaseApi": {
+                    "id": "JnfMH9wmasq5Xdqj",
+                    "name": "Supabase account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "promptType": "define",
+                "text": "={{ $('Webhook: Entry').item.json.body.entry[0].changes[0].value.messages[0].text.body }}",
+                "options": {
+                    "systemMessage": " Você é Diego, o SDR (Sales Development Representative) elite da IRW Motors. Seu objetivo é atender leads vindos de tráfego pago com excelência e fechar visitas na loja.\n\n DIRETRIZES DE COMPORTAMENTO:\n1. NOME: Se você ainda não souber o nome do cliente (campo {{ $json.name }} vazio), sua prioridade é se apresentar e perguntar educadamente o nome dele. Assim que souber, use a ferramenta 'update_lead_name' para salvar.\n2. CONTEXTO DO ANÚNCIO: O cliente geralmente chega com a mensagem: 'Vi o anúncio da [Carro]'. Identifique o carro imediatamente e use a ferramenta 'search_cars' para buscar preço, fotos e detalhes.\n3. VENDA: Passe as informações do carro de forma premium. Se o cliente gostar, pergunte sobre a forma de pagamento e se tem troca.\n4. AGENDAMENTO: O objetivo final é marcar uma visita: 'Que tal vir ver essa Mercedes pessoalmente amanhã?'.\n\n REGRAS:\n- Nunca invente carros. Use sempre 'search_cars'.\n- Seja direto, use emojis moderadamente e mantenha um tom profissional/vendedor.\n- Se o cliente tiver troca, peça detalhes e fotos do veículo dele."
+                }
+            },
+            "id": "ai_agent_diego",
+            "name": "AI Agent: Diego",
+            "type": "@n8n/n8n-nodes-langchain.agent",
+            "typeVersion": 1.6,
+            "position": [
+                500,
+                180
+            ]
+        },
+        {
+            "parameters": {
+                "model": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "claude-3-5-sonnet-20240620",
+                    "cachedResultName": "Claude 3.5 Sonnet"
+                }
+            },
+            "id": "chat_model",
+            "name": "Anthropic Chat Model",
+            "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+            "typeVersion": 1.2,
+            "position": [
+                380,
+                380
+            ],
+            "credentials": {
+                "anthropicApi": {
+                    "id": "M5NjxZklUkywhCci",
+                    "name": "Anthropic account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "sessionIdType": "customKey",
+                "sessionKey": "={{ $('Webhook: Entry').item.json.body.entry[0].changes[0].value.messages[0].from }}",
+                "contextWindowLength": 15
+            },
+            "id": "memory",
+            "name": "Simple Memory",
+            "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+            "typeVersion": 1.2,
+            "position": [
+                500,
+                380
+            ]
+        },
+        {
+            "parameters": {
+                "name": "search_cars",
+                "description": "Busca veículos no estoque por nome/modelo ou preço máximo. Retorna fotos, preço e detalhes.",
+                "workflowId": "COLOCAR_ID_AQUI",
+                "workflowInputs": {
+                    "mappingMode": "defineBelow",
+                    "value": {},
+                    "matchingColumns": [],
+                    "schema": [
+                        {
+                            "id": "name",
+                            "displayName": "name",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true,
+                            "description": "Qualquer termo de busca (ex: Civic, Mercedes)"
+                        },
+                        {
+                            "id": "max_price",
+                            "displayName": "max_price",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "number",
+                            "canBeUsedToMatch": true,
+                            "description": "Preço máximo"
+                        }
+                    ]
+                }
+            },
+            "id": "tool_search_cars",
+            "name": "Tool: Search Cars",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "typeVersion": 1.1,
+            "position": [
+                620,
+                380
+            ]
+        },
+        {
+            "parameters": {
+                "name": "update_lead_name",
+                "description": "Salva o nome do cliente no banco de dados assim que ele se identificar.",
+                "workflowId": "COLOCAR_ID_NOME_AQUI",
+                "workflowInputs": {
+                    "mappingMode": "defineBelow",
+                    "value": {},
+                    "matchingColumns": [],
+                    "schema": [
+                        {
+                            "id": "name",
+                            "displayName": "name",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true,
+                            "description": "Nome do cliente"
+                        },
+                        {
+                            "id": "phone",
+                            "displayName": "phone",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true,
+                            "description": "Telefone do cliente (enviado automaticamente)"
+                        }
+                    ]
+                }
+            },
+            "id": "tool_update_name",
+            "name": "Tool: Update Name",
+            "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+            "typeVersion": 1.1,
+            "position": [
+                740,
+                380
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "send",
+                "phoneNumberId": "932714823267089",
+                "recipientPhoneNumber": "={{ $('Webhook: Entry').item.json.body.entry[0].changes[0].value.messages[0].from }}",
+                "textBody": "={{ $json.output }}",
+                "additionalFields": {}
+            },
+            "id": "whatsapp_send",
+            "name": "WhatsApp: Send Message",
+            "type": "n8n-nodes-base.whatsApp",
+            "typeVersion": 1,
+            "position": [
+                800,
+                180
+            ],
+            "credentials": {
+                "whatsAppApi": {
+                    "id": "2flwCjR7c6jhf2BI",
+                    "name": "WhatsApp account"
+                }
+            }
+        }
+    ],
+    "connections": {
+        "Webhook: Entry": {
+            "main": [
+                [
+                    {
+                        "node": "Supabase: Ensure Lead",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Supabase: Ensure Lead": {
+            "main": [
+                [
+                    {
+                        "node": "ai_agent_diego",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "chat_model": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "ai_agent_diego",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "memory": {
+            "ai_memory": [
+                [
+                    {
+                        "node": "ai_agent_diego",
+                        "type": "ai_memory",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "tool_search_cars": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "ai_agent_diego",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "tool_update_name": {
+            "ai_tool": [
+                [
+                    {
+                        "node": "ai_agent_diego",
+                        "type": "ai_tool",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "ai_agent_diego": {
+            "main": [
+                [
+                    {
+                        "node": "whatsapp_send",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

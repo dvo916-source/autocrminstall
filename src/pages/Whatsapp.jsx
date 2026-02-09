@@ -1,9 +1,12 @@
 import { MessageSquare, ListCheck, Plus, Trash2, Send, Star, X, Car, Search, ExternalLink, Image as ImageIcon, Edit2, GripVertical, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Calendar, Gauge, CircleDollarSign, Filter } from 'lucide-react';
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { useLoja } from '../context/LojaContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import NewVisitModal from '../components/NewVisitModal';
 import QuickVisitForm from '../components/QuickVisitForm';
+import { cleanVehicleName } from '../lib/utils';
+import { get, set } from 'idb-keyval'; // ⚡ Cache Local
 
 // Error Boundary para capturar crashes do React
 class ErrorBoundary extends React.Component {
@@ -65,7 +68,7 @@ const CarCard = memo(({ car, onSendPhotos, onSendInfo, onPasteLink, loadingCar }
 
                     <div className="min-w-0 flex-1 flex flex-col justify-between py-0.5">
                         <h4 className="text-sm font-bold text-white leading-tight tracking-tight line-clamp-2 group-hover:text-cyan-400 transition-colors">
-                            {car.nome.split('#')[0]}
+                            {cleanVehicleName(car.nome).split('#')[0]}
                         </h4>
 
                         <div className="flex flex-col items-start gap-1">
@@ -125,6 +128,7 @@ const CarCard = memo(({ car, onSendPhotos, onSendInfo, onPasteLink, loadingCar }
 });
 
 const Whatsapp = () => {
+    const { currentLoja } = useLoja();
     const location = useLocation();
     const navigate = useNavigate();
     const [scripts, setScripts] = useState([]);
@@ -249,7 +253,7 @@ const Whatsapp = () => {
                 }
 
                 // 3. Montar mensagem
-                const cleanName = vehicle.nome.split('#')[0].trim();
+                const cleanName = cleanVehicleName(vehicle.nome).split('#')[0].trim();
                 const message = `*${cleanName}*\n📅 Ano: ${vehicle.ano || 'Consulte'}\n⚙️ Câmbio: ${vehicle.cambio}\n🛣️ KM: ${vehicle.km}\n💰 ${vehicle.valor}\n\nLink: ${vehicle.link || ''}`;
 
                 // 4. Enviar Msg
@@ -283,25 +287,35 @@ const Whatsapp = () => {
             }
         };
         loadUserRole();
+
+        // 🚀 CORREÇÃO: Carrega dados IMEDIATAMENTE (não espera currentLoja)
+        // Usa currentLoja?.id se disponível, senão usa 'irw-motors-main' como fallback
+        console.log('🚀 [Whatsapp] Carregando dados IMEDIATAMENTE...');
         loadData();
 
-        // Listener para sincronização automática (Igual ao Estoque.jsx)
+        // Listener para sincronização automática
         const { ipcRenderer } = window.require('electron');
+        let refreshTimeout;
         const handleRefresh = (event, payload) => {
             const table = typeof payload === 'string' ? payload : payload?.table;
-            // Se for atualização de estoque ou genérica (sync-status do main)
+            // Debounce para evitar múltiplas chamadas
             if (table === 'estoque' || !table || payload?.success) {
-                console.log('🔄 [Whatsapp] Atualizando sidebar de estoque...');
-                loadData();
+                clearTimeout(refreshTimeout);
+                refreshTimeout = setTimeout(() => {
+                    console.log('🔄 [Whatsapp] Atualizando sidebar...');
+                    loadData();
+                }, 300); // Aguarda 300ms antes de atualizar
             }
         };
         ipcRenderer.on('sync-status', handleRefresh);
         ipcRenderer.on('refresh-data', handleRefresh);
+
         return () => {
+            clearTimeout(refreshTimeout);
             ipcRenderer.removeListener('sync-status', handleRefresh);
             ipcRenderer.removeListener('refresh-data', handleRefresh);
         };
-    }, []);
+    }, [currentLoja]);
 
 
 
@@ -311,25 +325,69 @@ const Whatsapp = () => {
         }));
     }, [isSidebarOpen]);
 
-    const loadData = async () => {
+    const loadData = async (force = false) => {
         try {
             const { ipcRenderer } = window.require('electron');
-            const username = localStorage.getItem('username'); // Use localStorage directly
+            const username = localStorage.getItem('username');
 
-            console.log('🔍 Carregando dados para usuário:', username);
+            // 🚀 FALLBACK: Se currentLoja não estiver definida, usa a loja padrão
+            const lojaId = currentLoja?.id || 'irw-motors-main';
+
+            console.log('🔍 [Whatsapp] Iniciando loadData...');
+            console.log('👤 [Whatsapp] Username:', username);
+            console.log('🏪 [Whatsapp] Loja atual:', currentLoja);
+            console.log('🎯 [Whatsapp] Usando lojaId:', lojaId);
+
+            // ⚡ CACHE LOCAL (Stale-While-Revalidate)
+            // Se não for forçado, tenta carregar do cache para mostrar algo instantaneamente
+            if (!force) {
+                try {
+                    const [cachedScripts, cachedEstoque] = await Promise.all([
+                        get(`scripts-cache-${lojaId}`),
+                        get(`estoque-cache-${lojaId}`)
+                    ]);
+
+                    if (cachedScripts && Array.isArray(cachedScripts)) {
+                        console.log(`⚡ [Cache] Carregados ${cachedScripts.length} scripts`);
+                        setScripts(cachedScripts);
+                    }
+                    if (cachedEstoque && Array.isArray(cachedEstoque)) {
+                        console.log(`⚡ [Cache] Carregados ${cachedEstoque.length} veículos`);
+                        setEstoque(cachedEstoque);
+                    }
+                } catch (e) { console.warn('Erro leitura cache Whatsapp:', e); }
+            }
 
             const [scriptsData, estoqueData] = await Promise.all([
-                ipcRenderer.invoke('get-scripts', username),
-                ipcRenderer.invoke('get-list', 'estoque')
+                ipcRenderer.invoke('get-scripts', { username, lojaId }),
+                ipcRenderer.invoke('get-list', { table: 'estoque', lojaId })
             ]);
 
-            console.log('📊 Scripts carregados:', scriptsData?.length || 0);
-            console.log('🚗 Estoque carregado:', estoqueData?.length || 0);
+            console.log('📊 [Whatsapp] Scripts recebidos:', scriptsData?.length || 0, scriptsData);
+            console.log('🚗 [Whatsapp] Estoque recebido:', estoqueData?.length || 0);
 
-            setScripts(scriptsData || []);
-            setEstoque(estoqueData || []);
+            if (estoqueData && estoqueData.length > 0) {
+                console.log('🚗 [Whatsapp] Primeiros 3 veículos:', estoqueData.slice(0, 3));
+            } else {
+                console.warn('⚠️  [Whatsapp] Nenhum veículo retornado!');
+                console.log('🔍 [Whatsapp] Verificando lojaId usado:', lojaId);
+            }
+
+            if (scriptsData) {
+                setScripts(scriptsData);
+                set(`scripts-cache-${lojaId}`, scriptsData).catch(console.error);
+            }
+
+            if (estoqueData) {
+                setEstoque(estoqueData);
+                set(`estoque-cache-${lojaId}`, estoqueData).catch(console.error);
+            }
+
+            // DEBUG: Verificar se está setando corretamente
+            console.log('🔍 [DEBUG] Após setEstoque, estoque.length deveria ser:', estoqueData?.length);
+            // console.log('🔍 [DEBUG] Valor de ativo nos primeiros 3:', estoqueData?.slice(0, 3).map(v => ({ nome: v.nome, ativo: v.ativo, tipo: typeof v.ativo })));
         } catch (err) {
-            console.error('❌ Erro ao carregar dados:', err);
+            console.error('❌ [Whatsapp] Erro ao carregar dados:', err);
         }
     };
 
@@ -346,7 +404,8 @@ const Whatsapp = () => {
                 isSystem: newScript.isSystem ? 1 : 0,
                 userRole,
                 link: newScript.link || null,
-                username: username
+                username: username,
+                lojaId: currentLoja?.id
             });
             setNewScript({ titulo: '', mensagem: '', isSystem: false, link: '' });
             setIsAddModalOpen(false);
@@ -376,7 +435,8 @@ const Whatsapp = () => {
                 isSystem: editingScript.isSystem ? 1 : 0,
                 userRole,
                 link: editingScript.link || null,
-                username: username
+                username: username,
+                loja_id: currentLoja?.id
             });
             setIsEditModalOpen(false);
             setEditingScript(null);
@@ -397,7 +457,8 @@ const Whatsapp = () => {
             await ipcRenderer.invoke('delete-script', {
                 id,
                 userRole,
-                username: username
+                username: username,
+                lojaId: currentLoja?.id
             });
             loadData();
         } catch (err) {
@@ -441,7 +502,7 @@ const Whatsapp = () => {
 
     const handleSendInfo = useCallback(async (car) => {
         const enriched = await enrichCarData(car);
-        const cleanName = enriched.nome.split('#')[0].trim();
+        const cleanName = cleanVehicleName(enriched.nome).split('#')[0].trim();
 
         // Formata KM se for numérico puro (ex: 182000 -> 182.000)
         let formattedKm = enriched.km;
@@ -480,16 +541,33 @@ const Whatsapp = () => {
         const query = (searchEstoque || "").toLowerCase();
         const limit = parseInt(priceLimit);
 
-        return (estoque || []).filter(car => {
-            if (!car || !car.nome) return false;
+        console.log('🔍 [filteredEstoque] Início do filtro');
+        console.log('🔍 [filteredEstoque] estoque.length:', estoque?.length);
+        console.log('🔍 [filteredEstoque] query:', query);
+        console.log('🔍 [filteredEstoque] priceLimit:', priceLimit);
+
+        const filtered = (estoque || []).filter(car => {
+            if (!car || !car.nome) {
+                console.log('🔍 [filteredEstoque] Rejeitado: sem nome', car);
+                return false;
+            }
             const matchesSearch = car.nome.toLowerCase().includes(query);
             const carPrice = parsePrice(car.valor);
             const matchesPrice = !priceLimit || isNaN(limit) || carPrice <= limit;
+            const ativoOk = car.ativo !== 0;
 
-            // if (priceLimit && car.nome.includes('Onix')) console.log(`🔍 [Sidebar] Filtrando ${car.nome}: Preço=${carPrice}, Limite=${limit}, Passou=${matchesPrice}`);
+            if (!matchesSearch || !matchesPrice || !ativoOk) {
+                console.log(`🔍 [filteredEstoque] Rejeitado: ${car.nome} - search:${matchesSearch}, price:${matchesPrice}, ativo:${ativoOk} (valor ativo=${car.ativo}, tipo=${typeof car.ativo})`);
+            }
 
-            return matchesSearch && matchesPrice && car.ativo !== 0;
+            return matchesSearch && matchesPrice && ativoOk;
         });
+
+        console.log('🔍 [filteredEstoque] Resultado FINAL:', filtered.length, 'veículos');
+        if (filtered.length === 0 && estoque && estoque.length > 0) {
+            console.error('❌ [filteredEstoque] PROBLEMA: estoque tem', estoque.length, 'mas filtro retorna 0!');
+        }
+        return filtered;
     }, [estoque, searchEstoque, priceLimit, parsePrice]);
 
     // Separa scripts para facilitar o Drag and Drop

@@ -3,8 +3,10 @@ import { Globe, Plus, Trash2, Power, PowerOff, CheckCircle2, Link as LinkIcon, E
 import { motion } from 'framer-motion';
 import ConfirmModal from '../components/ConfirmModal';
 import { supabase } from '../lib/supabase';
+import { useLoja } from '../context/LojaContext';
 
 const Portais = () => {
+    const { currentLoja } = useLoja();
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [newItem, setNewItem] = useState({ nome: '', link: '' });
@@ -35,6 +37,7 @@ const Portais = () => {
             const { data, error } = await supabase
                 .from('portais')
                 .select('*')
+                .eq('loja_id', currentLoja?.id)
                 .order('nome');
 
             if (error) throw error;
@@ -44,7 +47,7 @@ const Portais = () => {
             // Fallback local se estiver offline? 
             try {
                 const { ipcRenderer } = window.require('electron');
-                const localData = await ipcRenderer.invoke('get-list', 'portais');
+                const localData = await ipcRenderer.invoke('get-list', { table: 'portais', lojaId: currentLoja?.id });
                 setItems(localData);
             } catch (e) { }
         } finally {
@@ -61,7 +64,8 @@ const Portais = () => {
             await ipcRenderer.invoke('add-item', {
                 table: 'portais',
                 nome: newItem.nome.trim().toUpperCase(),
-                link: newItem.link.trim()
+                link: newItem.link.trim(),
+                loja_id: currentLoja?.id
             });
             setNewItem({ nome: '', link: '' });
             loadItems();
@@ -71,7 +75,7 @@ const Portais = () => {
     const toggleAtivo = async (nome, current) => {
         try {
             const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('toggle-item', { table: 'portais', nome, ativo: !current });
+            await ipcRenderer.invoke('toggle-item', { table: 'portais', nome, ativo: !current, loja_id: currentLoja?.id });
             loadItems();
         } catch (err) { console.error(err); }
     };
@@ -80,7 +84,7 @@ const Portais = () => {
         if (!deleteModal.nome) return;
         try {
             const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('delete-item', { table: 'portais', nome: deleteModal.nome });
+            await ipcRenderer.invoke('delete-item', { table: 'portais', nome: deleteModal.nome, loja_id: currentLoja?.id });
             loadItems();
             setDeleteModal({ isOpen: false, nome: null });
         } catch (err) { console.error(err); }

@@ -2,12 +2,15 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Lock, User, ChevronRight, AlertCircle, Mail, CheckCircle, ArrowLeft } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import ForcePasswordReset from '../components/ForcePasswordReset';
 
 const Login = ({ onLogin }) => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [needsReset, setNeedsReset] = useState(false);
+    const [pendingUser, setPendingUser] = useState(null);
 
     const [showForgot, setShowForgot] = useState(false);
     const [forgotEmail, setForgotEmail] = useState('');
@@ -25,7 +28,7 @@ const Login = ({ onLogin }) => {
     }, []);
 
     const handleSubmit = async (e) => {
-        e.preventDefault();
+        if (e) e.preventDefault();
         setLoading(true);
         setError('');
 
@@ -35,8 +38,23 @@ const Login = ({ onLogin }) => {
             const user = await ipcRenderer.invoke('login', { username, password });
 
             if (user) {
+                // Verificar se precisa resetar senha
+                if (user.reset_password === 1) {
+                    setPendingUser(user);
+                    setNeedsReset(true);
+                    setLoading(false);
+                    return;
+                }
+
                 localStorage.setItem('username', user.username);
                 localStorage.setItem('userRole', user.role);
+                localStorage.setItem('sessionId', user.session_id);
+
+                // 🏪 Se o usuário tiver uma loja vinculada (Admin/SDR), define como ativa
+                if (user.loja_id) {
+                    localStorage.setItem('active_loja_id', user.loja_id);
+                }
+
                 onLogin(user);
             } else {
                 setError('Credenciais inválidas ou conta pausada.');
@@ -115,7 +133,21 @@ const Login = ({ onLogin }) => {
                         </div>
                     </div>
 
-                    {!showForgot ? (
+                    {needsReset ? (
+                        <ForcePasswordReset
+                            username={pendingUser?.username}
+                            onComplete={() => {
+                                setNeedsReset(false);
+                                // Após trocar a senha, tenta logar novamente automaticamente ou avisa o usuário
+                                handleSubmit();
+                            }}
+                            onCancel={() => {
+                                setNeedsReset(false);
+                                setPendingUser(null);
+                                setPassword('');
+                            }}
+                        />
+                    ) : !showForgot ? (
                         <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
                             {/* Campo de Usuário */}
                             <div className="group/input mb-5 relative">

@@ -98,10 +98,19 @@ const WhatsappService = ({ isVisible, isActive }) => {
                     const raw = e.message.replace('__WA_NOTIFICATION__:', '');
                     const payload = JSON.parse(raw);
                     const { ipcRenderer } = window.require('electron');
+
+                    // Extrai nome e mensagem
+                    const clientName = payload.title || 'Cliente';
+                    const message = payload.options.body || '';
+
+                    // Monta notificação melhorada
                     ipcRenderer.send('show-native-notification', {
-                        title: "Agente IA IRW Motors",
-                        body: `${payload.title}: ${payload.options.body || ''}`,
-                        id: payload.id
+                        title: `💬 Nova Mensagem - ${clientName}`,
+                        body: message,
+                        icon: 'whatsapp',
+                        id: payload.id,
+                        clickAction: 'open-chat',
+                        clientName: clientName
                     });
                 } catch (err) { console.error("Erro notif:", err); }
             }

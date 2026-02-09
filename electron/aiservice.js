@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import * as db from './db.js';
 
 // --- CONFIG ---
-const SUPABASE_URL = "https://whyfmogbayqwaeddoxwf.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoeWZtb2diYXlxd2FlZGRveHdmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0NTQyMjksImV4cCI6MjA4NTAzMDIyOX0.CUTT4JXNpoeqa_uzb8C3XkxVXqqRdtNdTqqg9t8SO8U";
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || "https://mtbfzimnyactwhdonkgy.supabase.co";
+const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10YmZ6aW1ueWFjdHdoZG9ua2d5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0NzAwMTYsImV4cCI6MjA4NjA0NjAxNn0.drl9-iMcddxdyKSR5PnUoKoSdzU3Fw2n00MFd9p9uys";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -55,7 +55,7 @@ async function processIncomingMessage(message) {
         const settings = db.getAllSettings();
 
         // --- FALLBACK DE EMERGÊNCIA (Claude Key) ---
-        const FALLBACK_KEY = "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";
+        const FALLBACK_KEY = process.env.CLAUDE_API_KEY || "";
 
         const apiKey = settings['openai_api_key'] || FALLBACK_KEY;
         let model = settings['ai_model'] || 'claude-3-5-sonnet-20240620';

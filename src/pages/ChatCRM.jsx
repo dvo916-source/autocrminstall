@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { useLoja } from '../context/LojaContext';
 import { MessageSquare, Send, User, Bot, PauseCircle, PlayCircle, Check, Clock, Trash2, Search, Car, ChevronLeft, ChevronRight, X, Cpu, Zap, Activity, Shield, Sparkles, Terminal } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -7,6 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 
 const ChatCRM = () => {
+    const { currentLoja } = useLoja();
     const navigate = useNavigate();
     const [conversations, setConversations] = useState([]);
     const [activeChat, setActiveChat] = useState(null);
@@ -31,20 +33,27 @@ const ChatCRM = () => {
 
     // 1. Carregar Conversas
     useEffect(() => {
+        if (!currentLoja?.id) return;
         fetchConversations();
 
         const sub = supabase
-            .channel('crm_conversations_list')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_conversations' }, (payload) => {
+            .channel(`crm_conversations_${currentLoja.id}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'crm_conversations',
+                filter: `loja_id=eq.${currentLoja.id}`
+            }, (payload) => {
                 fetchConversations();
             })
             .subscribe();
 
         return () => { supabase.removeChannel(sub); };
-    }, []);
+    }, [currentLoja?.id]);
 
     // 2. Carregar Dados Auxiliares (Scripts e Estoque) via Electron
     useEffect(() => {
+        if (!currentLoja?.id) return;
         const loadAuxData = async () => {
             try {
                 if (!window.require) return;
@@ -52,8 +61,8 @@ const ChatCRM = () => {
                 const username = localStorage.getItem('username');
 
                 const [scriptsData, estoqueData] = await Promise.all([
-                    ipcRenderer.invoke('get-scripts', username),
-                    ipcRenderer.invoke('get-list', 'estoque')
+                    ipcRenderer.invoke('get-scripts', { username, lojaId: currentLoja.id }),
+                    ipcRenderer.invoke('get-list', { table: 'estoque', lojaId: currentLoja.id })
                 ]);
 
                 if (scriptsData) setScripts(scriptsData);
@@ -63,7 +72,7 @@ const ChatCRM = () => {
             }
         };
         loadAuxData();
-    }, []);
+    }, [currentLoja?.id]);
 
     // 3. Carregar Mensagens ao selecionar Chat
     useEffect(() => {
@@ -90,9 +99,11 @@ const ChatCRM = () => {
     }, [activeChat?.id]);
 
     const fetchConversations = async () => {
+        if (!currentLoja?.id) return;
         const { data, error } = await supabase
             .from('crm_conversations')
             .select('*')
+            .eq('loja_id', currentLoja.id)
             .order('last_message_at', { ascending: false });
 
         if (data) {
@@ -151,7 +162,12 @@ const ChatCRM = () => {
             }
 
             await supabase.functions.invoke('send-whatsapp', {
-                body: { to: cleanPhone, text: msgText, conversation_id: activeChat.id }
+                body: {
+                    to: cleanPhone,
+                    text: msgText,
+                    conversation_id: activeChat.id,
+                    loja_id: currentLoja?.id
+                }
             });
 
         } catch (error) {

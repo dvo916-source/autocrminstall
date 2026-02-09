@@ -16,7 +16,11 @@ import AdminIA from './pages/AdminIA';
 import ChatCRM from './pages/ChatCRM';
 import IaChat from './pages/IaChat';
 import PromptConfig from './pages/PromptConfig';
-import { AlertCircle, RotateCcw } from 'lucide-react';
+import MigracaoSupabase from './pages/MigracaoSupabase';
+import { AlertCircle, RotateCcw, Database } from 'lucide-react';
+import { LojaProvider, useLoja } from './context/LojaContext';
+import StoreManagement from './pages/StoreManagement';
+import { AnimatePresence } from 'framer-motion';
 
 // === ERROR BOUNDARY ===
 class ErrorBoundary extends Component {
@@ -92,11 +96,19 @@ const WhatsappOverlay = memo(({ user, isActive }) => {
   );
 }, (prev, next) => prev.isActive === next.isActive);
 
+const ProtectedRoute = ({ children, user }) => {
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  return children;
+};
+
 const MainContent = ({ user, handleLogout }) => {
   const location = useLocation();
   const navigate = useNavigate(); // Hook para navegação
   const isAdmin = user?.role === 'admin' || user?.role === 'master' || user?.role === 'developer';
   const isWhatsappActive = location.pathname === '/whatsapp';
+  const { currentLoja } = useLoja(); // Added useLoja hook
 
   useEffect(() => {
     console.log('📍 [App] Pathname atual:', location.pathname);
@@ -118,51 +130,99 @@ const MainContent = ({ user, handleLogout }) => {
   }, [navigate]);
 
   const hasPermission = (path) => {
-    // Admins always have access
+    // Developer has absolute access to everything
+    if (user?.role === 'developer') return true;
+
+    // Admins/Master have access by default unless specific permissions exist
     if (isAdmin) return true;
+
     if (!user?.permissions) return true; // Fallback for legacy
 
     let perms = [];
-    try { perms = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions; } catch { perms = []; }
+    try {
+      perms = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions;
+    } catch {
+      perms = [];
+    }
 
     if (!Array.isArray(perms)) return false;
-    return perms.includes(path);
+
+    // Restrição de loja para usuários não-developers
+    if (user?.role !== 'developer' && user?.loja_id && currentLoja?.id !== user?.loja_id) {
+      return false;
+    }
+
+    // Check if path is in permissions or if the path is the root (which everyone has)
+    const basePermission = perms.includes(path) || path === '/' || path === '/diario';
+    if (!basePermission) return false;
+
+    // Se não for developer, o módulo PRECISA estar habilitado na loja (modulos na tabela lojas)
+    if (user?.role !== 'developer') {
+      const lojaModulosRaw = currentLoja?.modulos;
+      if (lojaModulosRaw) {
+        try {
+          const enabledModules = typeof lojaModulosRaw === 'string' ? JSON.parse(lojaModulosRaw) : lojaModulosRaw;
+          // Se for "/", "/diario" ou "dashboard", geralmente permitimos se houver acesso base
+          if (path === '/' || path === '/diario') return true;
+
+          // Mapeia paths para nomes de módulos (ex: /whatsapp -> whatsapp)
+          const moduleName = path.replace('/', '');
+          if (moduleName && !enabledModules.includes(moduleName)) {
+            return false;
+          }
+        } catch (e) {
+          console.error("Erro ao validar módulos da loja:", e);
+        }
+      }
+    }
+
+    return true;
   };
+
+  const AppRoutes = () => (
+    <AnimatePresence mode="wait">
+      <Routes location={location} key={location.pathname}>
+        <Route path="/" element={<HomeSDR user={user} />} />
+        <Route path="/diario" element={<HomeSDR user={user} />} />
+        <Route path="/dashboard" element={<Dashboard user={user} />} />
+        <Route path="/whatsapp" element={<Whatsapp />} />
+        <Route path="/estoque" element={<Estoque user={user} />} />
+        <Route path="/visitas" element={<Visitas user={user} />} />
+        <Route path="/metas" element={<Metas />} />
+        <Route path="/portais" element={<Portais />} />
+        <Route path="/ia-chat" element={<IaChat />} />
+        <Route path="/usuarios" element={<Usuarios user={user} />} />
+
+        {/* Central de Lojas - Apenas para Developer */}
+        <Route
+          path="/central-lojas"
+          element={user?.role === 'developer' ? <StoreManagement /> : <Navigate to="/" />}
+        />
+
+        {/* Migração Supabase - Apenas para Developer */}
+        <Route
+          path="/migrar-supabase/:lojaId?"
+          element={user?.role === 'developer' ? <MigracaoSupabase /> : <Navigate to="/" />}
+        />
+
+        {/* Strictly Admin/Developer Routes */}
+        {isAdmin && (
+          <>
+            <Route path="/ia-prompts" element={<PromptConfig />} />
+            <Route path="/admin-ia" element={<AdminIA />} />
+            <Route path="/crm-ia" element={<ChatCRM />} />
+          </>
+        )}
+
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
+    </AnimatePresence>
+  );
 
   return (
     <div className="min-h-screen bg-[#0f172a]">
-      {/* WhatsappOverlay REMOVIDO PARA CORRIGIR LAYOUT */}
       <Shell user={user} onLogout={handleLogout}>
-        <Routes>
-          {/* Public / Common Routes */}
-          <Route path="/whatsapp" element={<Whatsapp />} />
-          <Route path="/" element={
-            user?.role === 'SDR' || user?.role === 'sdr'
-              ? <HomeSDR user={user} />
-              : <Dashboard user={user} />
-          } />
-
-          {/* Conditional Routes based on Permissions */}
-          {hasPermission('/visitas') && <Route path="/visitas" element={<Visitas user={user} />} />}
-          {hasPermission('/estoque') && <Route path="/estoque" element={<Estoque user={user} />} />}
-          {hasPermission('/metas') && <Route path="/metas" element={<Metas />} />}
-
-          {/* Admin or Permission-based Routes */}
-          {hasPermission('/portais') && <Route path="/portais" element={<Portais />} />}
-          {hasPermission('/usuarios') && <Route path="/usuarios" element={<Usuarios user={user} />} />}
-          {hasPermission('/ia-chat') && <Route path="/ia-chat" element={<IaChat />} />}
-
-          {/* Strictly Admin Routes */}
-          {isAdmin && (
-            <>
-              <Route path="/ia-prompts" element={<PromptConfig />} />
-              <Route path="/admin-ia" element={<AdminIA />} />
-              <Route path="/crm-ia" element={<ChatCRM />} />
-            </>
-          )}
-          <Route path="/diario" element={<HomeSDR user={user} />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <AppRoutes />
       </Shell>
     </div>
   );
@@ -222,6 +282,50 @@ const useAutoScaling = () => {
   }, []);
 };
 
+// === SESSION VALIDATION HOOK ===
+const useSessionValidation = (user, onLogout) => {
+  // 🔒 VALIDAÇÃO DE SESSÃO (TEMPORARIAMENTE DESABILITADA)
+  // TODO: Reimplementar de forma mais robusta para evitar desconexões indesejadas
+  /*
+  useEffect(() => {
+    if (!user) return;
+
+    const checkSession = async () => {
+      try {
+        const { ipcRenderer } = window.require('electron');
+        const sessionId = localStorage.getItem('sessionId');
+
+        if (!sessionId) return; // Sessão ainda não estabelecida localmente
+
+        const isValid = await ipcRenderer.invoke('validate-session', {
+          username: user.username,
+          sessionId
+        });
+
+        if (!isValid) {
+          console.warn('⚠️ [Session] Sessão inválida. Outro acesso detectado.');
+          alert('Sua conta foi acessada em outro dispositivo. Você será desconectado.');
+          onLogout();
+        }
+      } catch (err) {
+        console.error('Erro ao validar sessão:', err);
+      }
+    };
+
+    // Verifica a cada 60 segundos
+    const interval = setInterval(checkSession, 60000);
+
+    // Verifica também quando o app volta de standby ou o usuário volta para a aba
+    window.addEventListener('focus', checkSession);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', checkSession);
+    };
+  }, [user, onLogout]);
+  */
+};
+
 function App() {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
@@ -229,12 +333,26 @@ function App() {
   // Ativa o escalonamento proporcional via REM
   useAutoScaling();
 
+  // Ativa validação de sessão única
+  useSessionValidation(user, () => {
+    setUser(null);
+    localStorage.clear();
+  });
+
   useEffect(() => {
     const stored = localStorage.getItem('sdr_user');
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
         setUser(parsed);
+
+        // Se for developer, verificamos se ele já estava atendendo uma loja
+        if (parsed.role === 'developer') {
+          const activeLojaId = localStorage.getItem('active_loja_id');
+          if (!activeLojaId && window.location.hash !== '#/central-lojas') {
+            window.location.hash = '#/central-lojas';
+          }
+        }
       } catch (e) { }
     }
     setInitializing(false);
@@ -274,11 +392,18 @@ function App() {
     localStorage.setItem('username', formattedUser.username);
     localStorage.setItem('userRole', formattedUser.role);
     setUser(formattedUser);
+
+    // Developer Redirect
+    if (formattedUser.role === 'developer') {
+      window.location.hash = '#/central-lojas';
+    }
   };
 
   const handleLogout = () => {
     setUser(null);
     localStorage.clear();
+    // Força reload completo para resetar todos os estados
+    window.location.reload();
   };
 
   if (initializing) return <div className="min-h-screen bg-[#0f172a]" />;
@@ -292,13 +417,15 @@ function App() {
   }
 
   return (
-    <ErrorBoundary>
-      <HashRouter>
-        <Suspense fallback={<div className="min-h-screen bg-[#0f172a]" />}>
-          <MainContent user={user} handleLogout={handleLogout} />
-        </Suspense>
-      </HashRouter>
-    </ErrorBoundary>
+    <LojaProvider>
+      <ErrorBoundary>
+        <HashRouter>
+          <Suspense fallback={<div className="min-h-screen bg-[#0f172a]" />}>
+            <MainContent user={user} handleLogout={handleLogout} />
+          </Suspense>
+        </HashRouter>
+      </ErrorBoundary>
+    </LojaProvider>
   );
 }
 

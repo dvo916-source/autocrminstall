@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Save, Clock, AlertCircle, Phone, MessageCircle, StickyNote, Plus, Calendar, Check } from 'lucide-react';
+import { useLoja } from '../context/LojaContext';
 
 const NewNoteModal = ({ isOpen, onClose, onSuccess, initialDate, user, targetUser }) => {
+    const { currentLoja } = useLoja();
     const [note, setNote] = useState('');
     const [noteType, setNoteType] = useState('Lembrar'); // Default type
     const [customType, setCustomType] = useState('');
@@ -61,7 +63,8 @@ const NewNoteModal = ({ isOpen, onClose, onSuccess, initialDate, user, targetUse
             await ipcRenderer.invoke('add-nota', {
                 sdr_username: targetUser || user.username,
                 texto: finalText,
-                data_nota: finalDateStr
+                data_nota: finalDateStr,
+                lojaId: currentLoja?.id
             });
 
             onSuccess();

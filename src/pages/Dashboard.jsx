@@ -1,7 +1,9 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TrendingUp, Users, Calendar, Clock, Target, AlertTriangle, RefreshCw, Car, CheckCircle, ChevronRight, User, MapPin, MessageCircle, Award, MousePointer, ArrowRight, Zap, PieChart, BarChart2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useLoja } from '../context/LojaContext';
 // import { supabase } from '../lib/supabase'; // Not needed anymore
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -92,6 +94,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 };
 
 const Dashboard = () => {
+    const { currentLoja } = useLoja();
     const navigate = useNavigate();
     const [period, setPeriod] = useState(7); // 7, 15, 30
     const [platform, setPlatform] = useState('todas');
@@ -109,8 +112,8 @@ const Dashboard = () => {
 
                 // Fetch stats and competition data in parallel
                 const [data, competitionData] = await Promise.all([
-                    window.ipcRenderer.invoke('get-stats', period),
-                    window.ipcRenderer.invoke('get-competition')
+                    window.ipcRenderer.invoke('get-stats', { days: period, lojaId: currentLoja?.id }),
+                    window.ipcRenderer.invoke('get-competition', currentLoja?.id)
                 ]);
 
                 setCompetition(competitionData);

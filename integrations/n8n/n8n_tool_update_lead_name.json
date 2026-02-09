@@ -1,0 +1,112 @@
+{
+    "name": "Tool - Update Lead Name",
+    "nodes": [
+        {
+            "parameters": {},
+            "id": "77670940-272e-4cb8-8e68-c99933333333",
+            "name": "Execute Workflow Trigger",
+            "type": "n8n-nodes-base.executeWorkflowTrigger",
+            "typeVersion": 1,
+            "position": [
+                460,
+                360
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "update",
+                "tableId": "crm_conversations",
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "name": "={{ $json.name }}"
+                    },
+                    "matchingColumns": [
+                        "phone"
+                    ],
+                    "schema": [
+                        {
+                            "id": "name",
+                            "displayName": "name",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": false
+                        },
+                        {
+                            "id": "phone",
+                            "displayName": "phone",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        }
+                    ]
+                },
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyName": "phone",
+                            "condition": "eq",
+                            "keyValue": "={{ $json.phone }}"
+                        }
+                    ]
+                }
+            },
+            "id": "supabase_update_name",
+            "name": "Supabase Update Name",
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                680,
+                360
+            ],
+            "credentials": {
+                "supabaseApi": {
+                    "id": "JnfMH9wmasq5Xdqj",
+                    "name": "Supabase account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={ \"status\": \"success\", \"message\": \"Nome atualizado para {{ $json.name }}\" }"
+            },
+            "id": "respond_to_workflow",
+            "name": "Respond to Workflow",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1,
+            "position": [
+                900,
+                360
+            ]
+        }
+    ],
+    "connections": {
+        "Execute Workflow Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Supabase Update Name",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Supabase Update Name": {
+            "main": [
+                [
+                    {
+                        "node": "Respond to Workflow",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

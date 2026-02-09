@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toLocalISOString } from '../lib/utils';
 import PremiumSelect from './PremiumSelect';
 import PremiumDatePicker from './PremiumDatePicker';
+import { useLoja } from '../context/LojaContext';
 
 const TEMPERATURAS = [
     { value: 'Quente', label: '🔥 Quente' },
@@ -20,6 +21,7 @@ const FORMAS_PAGAMENTO = [
 ];
 
 const QuickVisitForm = ({ onClose }) => {
+    const { currentLoja } = useLoja();
     const [loading, setLoading] = useState(false);
     const [portais, setPortais] = useState([]);
     const [vendedores, setVendedores] = useState([]);
@@ -78,10 +80,10 @@ const QuickVisitForm = ({ onClose }) => {
         try {
             const { ipcRenderer } = window.require('electron');
             const [localPortais, localVendedores, localEstoque, localUsers] = await Promise.all([
-                ipcRenderer.invoke('get-list', 'portais'),
-                ipcRenderer.invoke('get-list', 'vendedores'),
-                ipcRenderer.invoke('get-list', 'estoque'),
-                ipcRenderer.invoke('get-list-users')
+                ipcRenderer.invoke('get-list', { table: 'portais', lojaId: currentLoja?.id }),
+                ipcRenderer.invoke('get-list', { table: 'vendedores', lojaId: currentLoja?.id }),
+                ipcRenderer.invoke('get-list', { table: 'estoque', lojaId: currentLoja?.id }),
+                ipcRenderer.invoke('get-list-users', currentLoja?.id)
             ]);
 
             setPortais(localPortais ? localPortais.filter(i => i.ativo) : []);
@@ -132,7 +134,8 @@ const QuickVisitForm = ({ onClose }) => {
                 mes: new Date().getMonth() + 1,
                 datahora: new Date().toISOString(),
                 status: 'Pendente',
-                historico_log: formData.negociacao
+                historico_log: formData.negociacao,
+                loja_id: currentLoja?.id
             };
 
             await ipcRenderer.invoke('add-visita', payload);

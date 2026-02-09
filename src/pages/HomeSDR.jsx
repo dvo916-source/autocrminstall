@@ -5,8 +5,11 @@ import SDRCalendar from '../components/SDRCalendar';
 import NewVisitModal from '../components/NewVisitModal';
 import NewNoteModal from '../components/NewNoteModal';
 import { getFirstName } from '../lib/utils';
+import { useLoja } from '../context/LojaContext';
+import { useMemo, useCallback } from 'react';
 
 const HomeSDR = ({ user }) => {
+    const { currentLoja } = useLoja();
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [loading, setLoading] = useState(true);
     const [dailyTasks, setDailyTasks] = useState([]);
@@ -39,7 +42,7 @@ const HomeSDR = ({ user }) => {
     useEffect(() => {
         if (isAdmin) {
             const { ipcRenderer } = window.require('electron');
-            ipcRenderer.invoke('get-list-users').then(users => {
+            ipcRenderer.invoke('get-list-users', currentLoja?.id).then(users => {
                 // Filter only SDRs or Sellers
                 const sdrs = users.filter(u => ['sdr', 'vendedor'].includes(u.role));
                 setSdrUsers(sdrs);
@@ -89,9 +92,9 @@ const HomeSDR = ({ user }) => {
 
             // Parallel Data Fetching
             const [allAgendamentos, teamSummary, allNotes] = await Promise.all([
-                ipcRenderer.invoke('get-agendamentos-detalhes', targetUser),
-                ipcRenderer.invoke('get-agendamentos-resumo'),
-                ipcRenderer.invoke('get-notas', targetUser)
+                ipcRenderer.invoke('get-agendamentos-detalhes', { username: targetUser, lojaId: currentLoja?.id }),
+                ipcRenderer.invoke('get-agendamentos-resumo', currentLoja?.id),
+                ipcRenderer.invoke('get-notas', { username: targetUser, lojaId: currentLoja?.id })
             ]);
 
             // Filter VISITS for Selected Date
@@ -404,7 +407,7 @@ const HomeSDR = ({ user }) => {
                                                         <button
                                                             onClick={() => {
                                                                 const { ipcRenderer } = window.require('electron');
-                                                                ipcRenderer.invoke('toggle-nota', { id: note.id, concluido: !note.concluido });
+                                                                ipcRenderer.invoke('toggle-nota', { id: note.id, concluido: !note.concluido, lojaId: currentLoja?.id });
                                                             }}
                                                             className={`mt-1 w-5 h-5 rounded-md border flex items-center justify-center transition-all ${note.concluido ? 'bg-green-500 border-green-500 text-black' : 'border-white/20 hover:border-purple-400'}`}
                                                         >
@@ -430,7 +433,7 @@ const HomeSDR = ({ user }) => {
                                                         <button
                                                             onClick={() => {
                                                                 const { ipcRenderer } = window.require('electron');
-                                                                if (confirm('Excluir esta nota?')) ipcRenderer.invoke('delete-nota', note.id);
+                                                                if (confirm('Excluir esta nota?')) ipcRenderer.invoke('delete-nota', { id: note.id, lojaId: currentLoja?.id });
                                                             }}
                                                             className="opacity-0 group-hover:opacity-100 p-2 text-gray-600 hover:text-red-400 transition-all"
                                                         >
@@ -642,7 +645,7 @@ const HomeSDR = ({ user }) => {
                                     <button
                                         onClick={() => {
                                             const { ipcRenderer } = window.require('electron');
-                                            ipcRenderer.invoke('delete-visita', confirmDelete.task.id).then(() => {
+                                            ipcRenderer.invoke('delete-visita', { id: confirmDelete.task.id, lojaId: currentLoja?.id }).then(() => {
                                                 loadData();
                                                 setConfirmDelete({ show: false, task: null });
                                             });
