@@ -55,7 +55,7 @@ async function processIncomingMessage(message) {
         const settings = db.getAllSettings();
 
         // --- FALLBACK DE EMERGÊNCIA (Claude Key) ---
-        const FALLBACK_KEY = "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";
+        const FALLBACK_KEY = process.env.CLAUDE_API_KEY || "";
 
         const apiKey = settings['openai_api_key'] || FALLBACK_KEY;
         let model = settings['ai_model'] || 'claude-3-5-sonnet-20240620';

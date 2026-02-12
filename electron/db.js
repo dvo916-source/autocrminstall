@@ -6,8 +6,8 @@ import { createClient } from '@supabase/supabase-js';
 
 // --- SUPABASE CONFIG ---
 const SUPABASE_CONFIG = {
-    url: "https://whyfmogbayqwaeddoxwf.supabase.co",
-    key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndoeWZtb2diYXlxd2FlZGRveHdmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0NTQyMjksImV4cCI6MjA4NTAzMDIyOX0.CUTT4JXNpoeqa_uzb8C3XkxVXqqRdtNdTqqg9t8SO8U"
+    url: process.env.VITE_SUPABASE_URL || "https://whyfmogbayqwaeddoxwf.supabase.co",
+    key: process.env.VITE_SUPABASE_ANON_KEY || ""
 };
 
 console.log("[DB] Iniciando Supabase com:", SUPABASE_CONFIG.url); // Log para debug em produção
@@ -448,13 +448,42 @@ export async function syncConfig() {
             BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'scripts'));
         }
 
-        // 4. Visitas (Recent Pull)
+        // 4. Estreia: Estoque (Tabela de Veículos)
+        try {
+            console.log("☁️ [SyncConfig] Puxando estoque do Supabase...");
+            const { data: cloudEstoque, error: eErr } = await supabase.from('estoque').select('*');
+            if (eErr) {
+                console.error("❌ Erro ao buscar estoque:", eErr.message);
+            } else if (cloudEstoque && cloudEstoque.length > 0) {
+                db.transaction(() => {
+                    for (const item of cloudEstoque) {
+                        try {
+                            db.prepare(`
+                                INSERT INTO estoque(id, nome, fotos, km, cambio, valor, ativo)
+                                VALUES(@id, @nome, @fotos, @km, @cambio, @valor, @ativo)
+                                ON CONFLICT(id) DO UPDATE SET
+                                    nome = excluded.nome, fotos = excluded.fotos, km = excluded.km,
+                                    cambio = excluded.cambio, valor = excluded.valor, ativo = excluded.ativo
+                            `).run({ ...item, ativo: item.ativo ? 1 : 0 });
+                        } catch (err) {
+                            console.error(`[SyncConfig] Erro ao inserir item estoque ${item.id}:`, err.message);
+                        }
+                    }
+                })();
+                console.log(`✅ Estoque sincronizado (${cloudEstoque.length} itens).`);
+                BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'estoque'));
+            }
+        } catch (err) {
+            console.error('[SyncConfig] Erro Estoque:', err.message);
+        }
+
+        // 5. Visitas (Recent Pull)
         console.log("☁️ [SyncConfig] Puxando visitas recentes do Supabase...");
         const { data: cloudVisitas, error: vErr } = await supabase
             .from('visitas')
             .select('*')
             .order('id', { ascending: false })
-            .limit(200);
+            .limit(5000); // Aumentado para 5000 para garantir carga inicial robusta
 
         if (vErr) {
             console.error("❌ Erro Sync Visitas:", vErr.message);
@@ -482,7 +511,7 @@ export async function syncConfig() {
                             `);
                 for (const v of cloudVisitas) stmt.run(v);
             })();
-            console.log(`✅ Visitas sincronizadas(${cloudVisitas.length}).`);
+            console.log(`✅ Visitas sincronizadas (${cloudVisitas.length}).`);
             BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'visitas'));
         }
 
