@@ -1698,22 +1698,28 @@ export async function deleteScript(id, userRole, username = null, lojaId = DEFAU
 export function getAgendamentosPorUsuario(lojaId = DEFAULT_STORE_ID) {
     const currentMonth = new Date().getMonth() + 1;
     return db.prepare(`
-SELECT
-u.username as nome,
-    u.nome_completo,
-    u.role,
-    u.ativo,
-    (SELECT COUNT(*) 
+        SELECT 
+            u.username as nome,
+            u.nome_completo,
+            u.role,
+            u.ativo,
+            (SELECT COUNT(*) 
              FROM visitas v 
              WHERE v.vendedor_sdr = u.username 
                AND v.loja_id = ?
-    AND v.mes = ?) as total
+               AND v.mes = ?) as total,
+            (SELECT COUNT(*) 
+             FROM visitas v 
+             WHERE v.vendedor_sdr = u.username 
+               AND v.loja_id = ?
+               AND v.mes = ?
+               AND (LOWER(v.status_pipeline) IN ('venda concluída', 'vendido') OR LOWER(v.status) IN ('venda concluída', 'vendido'))) as sales_month
         FROM usuarios u
         WHERE u.role IN('sdr', 'vendedor', 'admin') 
           AND u.username != 'diego' COLLATE NOCASE
           AND u.loja_id = ?
-    ORDER BY total DESC
-        `).all(lojaId, currentMonth, lojaId);
+        ORDER BY total DESC
+    `).all(lojaId, currentMonth, lojaId, currentMonth, lojaId);
 }
 
 export function getAgendamentosDetalhes(username = null, lojaId = DEFAULT_STORE_ID) {

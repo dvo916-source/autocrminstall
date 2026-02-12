@@ -790,8 +790,17 @@ w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all mb-
                                                 {getFirstName(member.nome_completo || member.nome)}
                                             </p>
                                         </div>
-                                        <div className="flex flex-col items-end">
-                                            <span className={`text-xs font-black ${index === 0 ? 'text-yellow-400' : 'text-white'}`}>{score}</span>
+                                        <div className="flex items-center gap-2">
+                                            {/* Visitas Card */}
+                                            <div className="flex items-center gap-1.5 bg-white/5 px-2 py-1 rounded-lg border border-white/5 min-w-[38px] justify-center">
+                                                <CalendarIcon size={10} className="text-blue-400" />
+                                                <span className="text-[10px] font-black text-white">{score}</span>
+                                            </div>
+                                            {/* Vendas Card */}
+                                            <div className="flex items-center gap-1.5 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/20 min-w-[38px] justify-center">
+                                                <CheckCircle2 size={10} className="text-emerald-400" />
+                                                <span className="text-[10px] font-black text-emerald-400">{member.sales_month || 0}</span>
+                                            </div>
                                         </div>
                                     </motion.div>
                                 );
