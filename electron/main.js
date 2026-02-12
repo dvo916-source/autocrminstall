@@ -62,10 +62,26 @@ ipcMain.handle('get-agendamentos-resumo', async (e, lojaId) => {
 ipcMain.handle('get-notas', async (e, { username, lojaId }) => {
     return db.getNotas({ username, lojaId });
 });
-ipcMain.handle('add-nota', async (e, n) => db.addNota(n));
-ipcMain.handle('update-nota', async (e, n) => db.updateNota(n));
-ipcMain.handle('toggle-nota', async (e, { id, concluido, lojaId }) => db.toggleNota(id, concluido, lojaId));
-ipcMain.handle('delete-nota', async (e, { id, lojaId }) => db.deleteNota(id, lojaId));
+ipcMain.handle('add-nota', async (e, n) => {
+    const res = await db.addNota(n);
+    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'notas'));
+    return res;
+});
+ipcMain.handle('update-nota', async (e, n) => {
+    const res = await db.updateNota(n);
+    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'notas'));
+    return res;
+});
+ipcMain.handle('toggle-nota', async (e, { id, concluido, lojaId }) => {
+    const res = await db.toggleNota(id, concluido, lojaId);
+    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'notas'));
+    return res;
+});
+ipcMain.handle('delete-nota', async (e, { id, lojaId }) => {
+    const res = await db.deleteNota(id, lojaId);
+    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'notas'));
+    return res;
+});
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('🔥 [CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);

@@ -625,71 +625,107 @@ w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all mb-
                                         ) : (
                                             <motion.div
                                                 key="notas"
-                                                initial={{ opacity: 0 }}
-                                                animate={{ opacity: 1 }}
-                                                exit={{ opacity: 0 }}
-                                                className="space-y-3"
+                                                initial={{ opacity: 0, y: 10 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                exit={{ opacity: 0, scale: 0.95 }}
+                                                className="space-y-4 pb-4"
                                             >
                                                 {dailyNotes.length > 0 ? dailyNotes.map((note, i) => (
-                                                    <div
+                                                    <motion.div
                                                         key={note.id || i}
-                                                        className={`p-4 rounded-2xl border transition-all flex items-start gap-4 group ${note.concluido ? 'bg-green-500/5 border-green-500/10 opacity-60' : 'bg-white/5 border-white/5 hover:border-purple-500/30'}`}
+                                                        layout
+                                                        className={`group relative p-5 rounded-[2rem] border transition-all ${note.concluido
+                                                            ? 'bg-emerald-500/5 border-emerald-500/10 opacity-70'
+                                                            : 'bg-white/5 border-white/5 hover:border-purple-500/40 hover:bg-white/[0.07] shadow-lg'
+                                                            }`}
                                                     >
-                                                        {/* Checkbox */}
-                                                        <button
-                                                            onClick={() => {
-                                                                const { ipcRenderer } = window.require('electron');
-                                                                ipcRenderer.invoke('toggle-nota', { id: note.id, concluido: !note.concluido, lojaId: currentLoja?.id });
-                                                            }}
-                                                            className={`mt-1 w-5 h-5 rounded-md border flex items-center justify-center transition-all ${note.concluido ? 'bg-green-500 border-green-500 text-black' : 'border-white/20 hover:border-purple-400'}`}
-                                                        >
-                                                            {note.concluido && <X size={14} className="rotate-45" strokeWidth={4} />}
-                                                        </button>
+                                                        {/* INDICADOR DE STATUS (LED) */}
+                                                        <div className={`absolute top-6 left-0 w-1 h-8 rounded-r-full transition-all ${note.concluido ? 'bg-emerald-500' : 'bg-purple-500'
+                                                            }`} />
 
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className="flex items-start justify-between gap-4">
-                                                                <p className={`text-sm font-medium leading-relaxed whitespace-pre-wrap ${note.concluido ? 'text-gray-500' : 'text-gray-200'}`}>
-                                                                    {note.texto}
-                                                                </p>
-                                                                <span className="px-2 py-0.5 bg-white/5 border border-white/10 rounded-lg text-[10px] text-gray-500 font-black uppercase whitespace-nowrap overflow-hidden text-ellipsis max-w-[80px]">
-                                                                    {getUserDisplayName(note.sdr_username)}
-                                                                </span>
-                                                            </div>
-                                                            <div className="mt-2 flex items-center gap-2">
-                                                                <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">
-                                                                    {new Date(note.data_nota).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-all">
-                                                            <button
-                                                                onClick={() => {
-                                                                    setEditingNote(note);
-                                                                    setIsNoteModalOpen(true);
-                                                                }}
-                                                                className="p-2 text-gray-600 hover:text-purple-400 hover:bg-purple-400/10 rounded-lg transition-all"
-                                                                title="Editar Nota"
-                                                            >
-                                                                <Edit2 size={16} />
-                                                            </button>
+                                                        <div className="flex gap-4">
+                                                            {/* CHECKBOX CUSTOMIZADO */}
                                                             <button
                                                                 onClick={() => {
                                                                     const { ipcRenderer } = window.require('electron');
-                                                                    if (confirm('Excluir esta nota?')) ipcRenderer.invoke('delete-nota', { id: note.id, lojaId: currentLoja?.id }).then(() => loadData());
+                                                                    ipcRenderer.invoke('toggle-nota', { id: note.id, concluido: !note.concluido, lojaId: currentLoja?.id });
                                                                 }}
-                                                                className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all"
-                                                                title="Excluir Nota"
+                                                                className={`mt-1 shrink-0 w-6 h-6 rounded-xl border flex items-center justify-center transition-all ${note.concluido
+                                                                    ? 'bg-emerald-500 border-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                                                                    : 'border-white/20 hover:border-purple-400 bg-black/20'
+                                                                    }`}
                                                             >
-                                                                <X size={16} />
+                                                                {note.concluido ? <Check size={14} strokeWidth={4} /> : <div className="w-1.5 h-1.5 rounded-full bg-white/20" />}
                                                             </button>
+
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex items-start justify-between gap-4 mb-3">
+                                                                    <p className={`text-[13px] font-bold leading-relaxed whitespace-pre-wrap ${note.concluido ? 'text-gray-500 line-through decoration-emerald-500/30' : 'text-gray-100'
+                                                                        }`}>
+                                                                        {note.texto}
+                                                                    </p>
+                                                                </div>
+
+                                                                <div className="flex items-center gap-3">
+                                                                    {/* BADGE USUÁRIO */}
+                                                                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 rounded-lg border border-white/5 shadow-inner">
+                                                                        <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.4)]" />
+                                                                        <span className="text-[9px] font-black text-white/50 uppercase tracking-widest">
+                                                                            {getUserDisplayName(note.sdr_username)}
+                                                                        </span>
+                                                                    </div>
+
+                                                                    {/* HORÁRIO */}
+                                                                    <div className="flex items-center gap-1.5 text-gray-600">
+                                                                        <Clock size={10} />
+                                                                        <span className="text-[10px] font-black uppercase tracking-widest">
+                                                                            {new Date(note.data_nota).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* AÇÕES FLUTUANTES (VISÍVEIS NO HOVER) */}
+                                                            <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setEditingNote(note);
+                                                                        setIsNoteModalOpen(true);
+                                                                    }}
+                                                                    className="p-2.5 bg-white/5 hover:bg-purple-500/20 text-gray-500 hover:text-purple-400 rounded-xl transition-all border border-transparent hover:border-purple-500/30"
+                                                                    title="Editar"
+                                                                >
+                                                                    <Edit2 size={14} />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        const { ipcRenderer } = window.require('electron');
+                                                                        if (confirm(`Deseja excluir esta nota?\n\n"${note.texto.substring(0, 30)}..."`)) {
+                                                                            ipcRenderer.invoke('delete-nota', { id: note.id, lojaId: currentLoja?.id });
+                                                                        }
+                                                                    }}
+                                                                    className="p-2.5 bg-white/5 hover:bg-red-500/20 text-gray-500 hover:text-red-400 rounded-xl transition-all border border-transparent hover:border-red-500/30"
+                                                                    title="Excluir"
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            </div>
                                                         </div>
-                                                    </div>
+                                                    </motion.div>
                                                 )) : (
-                                                    <div className="py-12 flex flex-col items-center justify-center opacity-30">
-                                                        <FileText size={48} className="mb-4 text-gray-500" />
-                                                        <p className="font-bold tracking-widest text-sm text-center">SEM NOTAS HOJE</p>
-                                                    </div>
+                                                    <motion.div
+                                                        initial={{ opacity: 0 }}
+                                                        animate={{ opacity: 1 }}
+                                                        className="py-24 flex flex-col items-center justify-center text-center px-10"
+                                                    >
+                                                        <div className="w-20 h-20 rounded-[2.5rem] bg-white/5 flex items-center justify-center mb-6 border border-white/5">
+                                                            <FileText size={40} className="text-gray-700" />
+                                                        </div>
+                                                        <h3 className="text-sm font-black text-gray-600 uppercase tracking-[0.3em] mb-2">Nada por aqui</h3>
+                                                        <p className="text-[11px] font-bold text-gray-700 uppercase tracking-widest max-w-[200px] leading-relaxed">
+                                                            Ainda não há notas para esta data. Que tal criar uma agora?
+                                                        </p>
+                                                    </motion.div>
                                                 )}
                                             </motion.div>
                                         )}
