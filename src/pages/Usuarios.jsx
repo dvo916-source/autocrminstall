@@ -335,7 +335,6 @@ const Usuarios = ({ user }) => {
                 onError={(msg) => addToast(msg, 'error')}
                 isMaster={isMaster}
                 isMasterOrAdmin={isMasterOrAdmin}
-                isMasterOrAdmin={isMasterOrAdmin}
                 formatPhone={formatPhone}
                 currentLoja={currentLoja}
             />
