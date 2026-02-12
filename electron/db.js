@@ -10,12 +10,14 @@ import { app, BrowserWindow } from 'electron';
 import bcrypt from 'bcryptjs'; // Para criptografia de senhas
 import { createClient } from '@supabase/supabase-js'; // Cliente Supabase
 import { v4 as uuidv4 } from 'uuid'; // Para gerar IDs únicos
+import dotenv from 'dotenv';
+dotenv.config({ path: path.join(process.cwd(), '.env') });
 
 // 🔐 CONFIGURAÇÃO PADRÃO (SUPABASE)
 // Caso a loja não tenha um projeto dedicado, usará este projeto mestre.
 const SUPABASE_CONFIG = {
-    url: "https://mtbfzimnyactwhdonkgy.supabase.co",
-    key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10YmZ6aW1ueWFjdHdoZG9ua2d5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0NzAwMTYsImV4cCI6MjA4NjA0NjAxNn0.drl9-iMcddxdyKSR5PnUoKoSdzU3Fw2n00MFd9p9uys"
+    url: process.env.VITE_SUPABASE_URL || "https://mtbfzimnyactwhdonkgy.supabase.co",
+    key: process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10YmZ6aW1ueWFjdHdoZG9ua2d5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0NzAwMTYsImV4cCI6MjA4NjA0NjAxNn0.drl9-iMcddxdyKSR5PnUoKoSdzU3Fw2n00MFd9p9uys"
 };
 
 const DEFAULT_STORE_ID = 'irw-motors-main';

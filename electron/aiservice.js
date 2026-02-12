@@ -1,6 +1,9 @@
-
 import { createClient } from '@supabase/supabase-js';
 import * as db from './db.js';
+import path from 'path';
+import dotenv from 'dotenv';
+
+dotenv.config({ path: path.join(process.cwd(), '.env') });
 
 // --- CONFIG ---
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || "https://mtbfzimnyactwhdonkgy.supabase.co";
