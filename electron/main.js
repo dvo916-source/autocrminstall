@@ -326,7 +326,15 @@ ipcMain.on('show-native-notification', (event, { title, body, icon, id, clientNa
 // --- COMUNICAÇÃO IPC (INTER-PROCESS COMMUNICATION) ---
 
 // Autenticação e Usuários
-ipcMain.handle('login', async (e, { username, password }) => await db.checkLogin(username, password));
+ipcMain.handle('login', async (e, { username, password }) => {
+    const user = await db.checkLogin(username, password);
+    if (user && user.loja_id) {
+        console.log(`🚀 [Main] Login detectado para loja ${user.loja_id}. Forçando sincronização imediata...`);
+        // Dispara sync em background mas não bloqueia o login
+        db.syncXml(user.loja_id).catch(err => console.error('[LoginSync] Erro:', err));
+    }
+    return user;
+});
 ipcMain.handle('get-user', async (e, username) => await db.getUserByUsername(username));
 ipcMain.handle('get-app-version', () => app.getVersion());
 ipcMain.handle('get-user-data-path', () => app.getPath('userData'));

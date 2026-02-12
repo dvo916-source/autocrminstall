@@ -10,9 +10,6 @@ import { app, BrowserWindow } from 'electron';
 import bcrypt from 'bcryptjs'; // Para criptografia de senhas
 import { createClient } from '@supabase/supabase-js'; // Cliente Supabase
 import { v4 as uuidv4 } from 'uuid'; // Para gerar IDs únicos
-import dotenv from 'dotenv';
-dotenv.config({ path: path.join(process.cwd(), '.env') });
-
 // 🔐 CONFIGURAÇÃO PADRÃO (SUPABASE)
 // Caso a loja não tenha um projeto dedicado, usará este projeto mestre.
 const SUPABASE_CONFIG = {
@@ -523,7 +520,6 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
                             password = excluded.password, role = excluded.role, reset_password = excluded.reset_password,
                             nome_completo = excluded.nome_completo, email = excluded.email, whatsapp = excluded.whatsapp,
                             ativo = excluded.ativo, permissions = excluded.permissions, loja_id = excluded.loja_id
-                        WHERE excluded.username NOT IN('diego', 'Diego', 'admin', 'Admin')
                     `).run({
                         ...u,
                         reset_password: u.reset_password ? 1 : 0,
@@ -1373,7 +1369,7 @@ WHERE(username = ? OR email = ?) COLLATE NOCASE
             const { data: cloudUser, error } = await client
                 .from('usuarios')
                 .select('*')
-                .or(`username.ilike.${identifier}, email.ilike.${identifier} `)
+                .or(`username.ilike.${identifier},email.ilike.${identifier}`)
                 .eq('ativo', true)
                 .maybeSingle();
 
