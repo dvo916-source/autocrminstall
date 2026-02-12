@@ -11,7 +11,7 @@ import { get, set } from 'idb-keyval'; // ⚡ Cache Local
 
 const Estoque = ({ user }) => {
     const { currentLoja } = useLoja();
-    const currentUser = user || JSON.parse(localStorage.getItem('sdr_user') || '{"username":"SDR","role":"vendedor"}');
+    const currentUser = user || JSON.parse(localStorage.getItem('vexcore_user') || '{"username":"VEX","role":"vendedor"}');
     const navigate = useNavigate();
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Save, Clock, AlertCircle, Phone, MessageCircle, StickyNote, Plus, Calendar, Check } from 'lucide-react';
 import { useLoja } from '../context/LojaContext';
 
-const NewNoteModal = ({ isOpen, onClose, onSuccess, initialDate, user, targetUser }) => {
+const NewNoteModal = ({ isOpen, onClose, onSuccess, initialDate, user, targetUser, editingNote = null }) => {
     const { currentLoja } = useLoja();
     const [note, setNote] = useState('');
     const [noteType, setNoteType] = useState('Lembrar'); // Default type
@@ -14,12 +14,53 @@ const NewNoteModal = ({ isOpen, onClose, onSuccess, initialDate, user, targetUse
     const [hasAlert, setHasAlert] = useState(false);
     // Initialize alertDate with the selected 'initialDate' but current time
     const [alertDateTime, setAlertDateTime] = useState(() => {
+        if (editingNote) return new Date(editingNote.data_nota);
         if (!initialDate) return new Date();
         const d = new Date(initialDate);
         const now = new Date();
         d.setHours(now.getHours(), now.getMinutes());
         return d;
     });
+
+    // Populate when editing
+    React.useEffect(() => {
+        if (isOpen && editingNote) {
+            // Regex to extract [TYPE] text
+            const match = editingNote.texto.match(/^\[(.*?)\]\s*(.*)$/);
+            if (match) {
+                const type = match[1];
+                const content = match[2];
+
+                const isStdType = NOTE_TYPES.some(t => t.id.toLowerCase() === type.toLowerCase());
+                if (isStdType) {
+                    setNoteType(toTitleCase(type));
+                    setIsCustomType(false);
+                } else {
+                    setCustomType(toTitleCase(type));
+                    setIsCustomType(true);
+                }
+                setNote(content);
+            } else {
+                setNote(editingNote.texto);
+            }
+
+            if (editingNote.data_nota) {
+                const d = new Date(editingNote.data_nota);
+                setAlertDateTime(d);
+                setHasAlert(true);
+            }
+        } else if (isOpen) {
+            // Reset for new note
+            setNote('');
+            setNoteType('Lembrar');
+            setIsCustomType(false);
+            setHasAlert(false);
+        }
+    }, [isOpen, editingNote]);
+
+    function toTitleCase(str) {
+        return str.toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+    }
 
     const [loading, setLoading] = useState(false);
 
@@ -60,12 +101,21 @@ const NewNoteModal = ({ isOpen, onClose, onSuccess, initialDate, user, targetUse
             }
 
             // Electron Interact
-            await ipcRenderer.invoke('add-nota', {
-                sdr_username: targetUser || user.username,
-                texto: finalText,
-                data_nota: finalDateStr,
-                lojaId: currentLoja?.id
-            });
+            if (editingNote) {
+                await ipcRenderer.invoke('update-nota', {
+                    id: editingNote.id,
+                    texto: finalText,
+                    data_nota: finalDateStr,
+                    lojaId: currentLoja?.id
+                });
+            } else {
+                await ipcRenderer.invoke('add-nota', {
+                    sdr_username: targetUser || user.username,
+                    texto: finalText,
+                    data_nota: finalDateStr,
+                    lojaId: currentLoja?.id
+                });
+            }
 
             onSuccess();
             setNote('');
@@ -101,7 +151,7 @@ const NewNoteModal = ({ isOpen, onClose, onSuccess, initialDate, user, targetUse
                                 <Save size={20} />
                             </div>
                             <div>
-                                <h3 className="text-lg font-black text-white leading-none">Nova Nota</h3>
+                                <h3 className="text-lg font-black text-white leading-none">{editingNote ? 'Editar Nota' : 'Nova Nota'}</h3>
                                 <p className="text-gray-500 text-xs mt-1">
                                     {initialDate ? initialDate.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }) : 'Nova Anotação'}
                                 </p>

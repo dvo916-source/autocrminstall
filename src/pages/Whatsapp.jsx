@@ -133,7 +133,7 @@ const Whatsapp = () => {
     const navigate = useNavigate();
     const [scripts, setScripts] = useState([]);
     const [estoque, setEstoque] = useState([]);
-    const [activeTab, setActiveTab] = useState('templates');
+    const [activeTab, setActiveTab] = useState('veiculos');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false); // <--- INICIA FECHADO AGORA
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -634,16 +634,16 @@ const Whatsapp = () => {
                                 {/* Tabs */}
                                 <div className="bg-black/40 p-1.5 rounded-2xl flex gap-1 border border-white/5">
                                     <button
-                                        onClick={() => setActiveTab('templates')}
-                                        className={`flex-1 transition-all rounded-xl py-2 text-[11px] font-bold tracking-widest uppercase ${activeTab === 'templates' ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
-                                    >
-                                        Scripts
-                                    </button>
-                                    <button
                                         onClick={() => setActiveTab('veiculos')}
                                         className={`flex-1 transition-all rounded-xl py-2 text-[11px] font-bold tracking-widest uppercase ${activeTab === 'veiculos' ? 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg shadow-orange-500/20' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
                                     >
                                         Estoque
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('templates')}
+                                        className={`flex-1 transition-all rounded-xl py-2 text-[11px] font-bold tracking-widest uppercase ${activeTab === 'templates' ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
+                                    >
+                                        Scripts
                                     </button>
                                 </div>
                             </div>

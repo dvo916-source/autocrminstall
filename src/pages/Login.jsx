@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Lock, User, ChevronRight, AlertCircle, Mail, CheckCircle, ArrowLeft } from 'lucide-react';
+import { Lock, User, ChevronRight, AlertCircle, Mail, CheckCircle, ArrowLeft, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import ForcePasswordReset from '../components/ForcePasswordReset';
+import { ToastContainer } from '../components/Toast';
 
 const Login = ({ onLogin }) => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [needsReset, setNeedsReset] = useState(false);
     const [pendingUser, setPendingUser] = useState(null);
@@ -15,10 +15,11 @@ const Login = ({ onLogin }) => {
     const [showForgot, setShowForgot] = useState(false);
     const [forgotEmail, setForgotEmail] = useState('');
     const [forgotSent, setForgotSent] = useState(false);
+    const [toasts, setToasts] = useState([]);
 
     const [appVersion, setAppVersion] = useState('...');
 
-    React.useEffect(() => {
+    useEffect(() => {
         try {
             const { ipcRenderer } = window.require('electron');
             ipcRenderer.invoke('get-app-version').then(setAppVersion).catch(() => setAppVersion('v1.1.2'));
@@ -27,18 +28,29 @@ const Login = ({ onLogin }) => {
         }
     }, []);
 
+    const addToast = useCallback((message, type = 'success') => {
+        const id = Date.now();
+        setToasts(prev => [...prev, { id, message, type }]);
+    }, []);
+
+    const removeToast = useCallback((id) => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+    }, []);
+
     const handleSubmit = async (e) => {
         if (e) e.preventDefault();
+        if (!username.trim() || !password.trim()) {
+            addToast('Preencha todos os campos.', 'error');
+            return;
+        }
+
         setLoading(true);
-        setError('');
 
         try {
             const { ipcRenderer } = window.require('electron');
-            // 'username' pode ser email ou username agora
             const user = await ipcRenderer.invoke('login', { username, password });
 
             if (user) {
-                // Verificar se precisa resetar senha
                 if (user.reset_password === 1) {
                     setPendingUser(user);
                     setNeedsReset(true);
@@ -50,34 +62,39 @@ const Login = ({ onLogin }) => {
                 localStorage.setItem('userRole', user.role);
                 localStorage.setItem('sessionId', user.session_id);
 
-                // 🏪 Se o usuário tiver uma loja vinculada (Admin/SDR), define como ativa
                 if (user.loja_id) {
                     localStorage.setItem('active_loja_id', user.loja_id);
                 }
 
                 onLogin(user);
             } else {
-                setError('Credenciais inválidas ou conta pausada.');
+                addToast('Credenciais inválidas ou conta pausada.', 'error');
             }
         } catch (err) {
-            setError('Erro ao conectar ao servidor local.');
+            console.error(err);
+            addToast('Erro ao conectar ao servidor local.', 'error');
         } finally {
             setLoading(false);
         }
     };
 
     const handleForgotPassword = async (e) => {
-        e.preventDefault();
+        if (e) e.preventDefault();
+        if (!forgotEmail.trim()) {
+            addToast('Digite seu email.', 'error');
+            return;
+        }
+
         setLoading(true);
-        setError('');
         try {
             const { error: resetError } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
                 redirectTo: 'http://localhost:5173/reset-password',
             });
             if (resetError) throw resetError;
             setForgotSent(true);
+            addToast("Email de recuperação enviado!");
         } catch (err) {
-            setError(err.message || 'Erro ao enviar email de recuperação.');
+            addToast(err.message || 'Erro ao enviar email de recuperação.', 'error');
         } finally {
             setLoading(false);
         }
@@ -85,10 +102,8 @@ const Login = ({ onLogin }) => {
 
     return (
         <div className="fixed inset-0 flex items-center justify-center z-[100] bg-[#01091e] overflow-hidden selection:bg-cyan-500/30 selection:text-cyan-200">
-            {/* --- BACKGROUND SÓLIDO COM GLOWS FOCAIS --- */}
-            {/* Removido gradiente geral para garantir cor exata #01091e */}
+            <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-            {/* Orbs de Luz Neon (Mantidos mas sutis para ambiente) */}
             <div className="absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] bg-blue-600/5 rounded-full blur-[120px] animate-[pulse_8s_ease-in-out_infinite]" />
             <div className="absolute top-[20%] right-[0%] w-[50vw] h-[50vw] bg-cyan-500/5 rounded-full blur-[100px] animate-[pulse_10s_ease-in-out_infinite_reverse]" />
 
@@ -98,48 +113,63 @@ const Login = ({ onLogin }) => {
                 transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
                 className="relative w-full max-w-[420px] mx-4"
             >
-                {/* --- NEON SPARK BORDER EFFECT (REFINADO) --- */}
-                {/* Container da Animação de Borda */}
                 <div className="absolute -inset-[1px] rounded-[2.5rem] overflow-hidden z-0">
-                    {/* O "Cometa" Giratório - Agora com cauda transparente para fusão perfeita */}
                     <div className="absolute inset-[-100%] bg-[conic-gradient(from_90deg_at_50%_50%,transparent_0%,transparent_50%,#22d3ee_100%)] animate-[spin_4s_linear_infinite]" />
                 </div>
 
-                {/* CARD "MONOLITHO" */}
-                <div className="relative z-10 bg-[#01091e] rounded-[2.5rem] m-[1px] p-8 md:p-10 shadow-2xl overflow-hidden group">
-
-                    {/* Efeitos de Borda (Glow interno sutil) */}
+                <div className="relative z-10 bg-[#01091e] rounded-[2.5rem] m-[1px] p-8 md:p-10 shadow-2xl overflow-hidden">
                     <div className="absolute inset-0 rounded-[2.5rem] border border-white/5 pointer-events-none" />
 
-                    {/* Header: Logo & Título */}
                     <div className="relative z-10 flex flex-col items-center mb-8">
-                        {/* Container da Logo (Imagem Original Pura) */}
-                        <div className="relative w-32 h-32 mb-6 hover:scale-105 transition-transform duration-500 ease-out">
-                            <img
-                                src="./icon.png"
-                                alt="SDR App Icon"
-                                className="w-full h-full object-contain"
-                            />
-                        </div>
-
-                        {/* Título Estilizado com Fonte TECH (Rajdhani) */}
-                        <div className="text-center">
-                            <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight " style={{ fontFamily: "'Rajdhani', sans-serif" }}>
-                                SDR <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">IRW MOTORS</span>
-                            </h1>
-                            <p className="text-cyan-200/60 text-xs font-semibold tracking-[0.4em] mt-3 border-b border-cyan-500/20 pb-4 uppercase" style={{ fontFamily: "'Rajdhani', sans-serif" }}>
-                                Intelligence Experience
-                            </p>
+                        <div className="absolute -top-12 -left-12 w-40 h-40 bg-cyan-500/10 blur-[60px] rounded-full" />
+                        <div className="text-center group select-none py-4">
+                            <div className="relative inline-block scale-110 md:scale-125 mb-12">
+                                <motion.div
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+                                    className="relative flex flex-col items-center select-none group w-full"
+                                >
+                                    <div className="absolute inset-0 bg-cyan-500/10 blur-[80px] rounded-full scale-150 transition-all duration-1000" />
+                                    <div className="relative flex justify-center items-center px-8">
+                                        <h1 className="text-8xl md:text-9xl font-black italic tracking-tighter font-rajdhani leading-none absolute inset-0 text-black/40 blur-[6px] pointer-events-none text-center pr-4"
+                                            style={{ transform: 'skewX(-6deg) translateY(6px)' }}>
+                                            Vex
+                                        </h1>
+                                        <h1 className="text-8xl md:text-9xl font-black italic tracking-tighter font-rajdhani leading-none relative z-10 pr-6 text-center"
+                                            style={{
+                                                transform: 'skewX(-6deg)',
+                                                background: 'linear-gradient(180deg, #fff 0%, #a5f3fc 20%, #22d3ee 45%, #0ea5e9 65%, #0369a1 85%, #083344 100%)',
+                                                WebkitBackgroundClip: 'text',
+                                                WebkitTextFillColor: 'transparent',
+                                                backgroundSize: '100% 120%'
+                                            }}>
+                                            Vex
+                                        </h1>
+                                    </div>
+                                    <div className="mt-0 flex items-center justify-center gap-5 w-full opacity-95">
+                                        <div className="h-[1.5px] flex-1 max-w-[60px] bg-gradient-to-r from-transparent via-cyan-500/50 to-cyan-500/80" />
+                                        <span className="text-[16px] font-black tracking-[1.2em] text-cyan-400 font-mono uppercase"
+                                            style={{ marginRight: '-1.2em' }}>
+                                            CORE
+                                        </span>
+                                        <div className="h-[1.5px] flex-1 max-w-[60px] bg-gradient-to-l from-transparent via-cyan-500/50 to-cyan-500/80" />
+                                    </div>
+                                </motion.div>
+                            </div>
                         </div>
                     </div>
 
                     {needsReset ? (
                         <ForcePasswordReset
                             username={pendingUser?.username}
-                            onComplete={() => {
+                            onComplete={(newPass) => {
                                 setNeedsReset(false);
-                                // Após trocar a senha, tenta logar novamente automaticamente ou avisa o usuário
-                                handleSubmit();
+                                if (newPass) setPassword(newPass);
+                                // A g u a r d a o estado atualizar para disparar o login automático
+                                setTimeout(() => {
+                                    handleSubmit();
+                                }, 100);
                             }}
                             onCancel={() => {
                                 setNeedsReset(false);
@@ -148,8 +178,7 @@ const Login = ({ onLogin }) => {
                             }}
                         />
                     ) : !showForgot ? (
-                        <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
-                            {/* Campo de Usuário */}
+                        <form onSubmit={handleSubmit} noValidate className="space-y-6 relative z-10">
                             <div className="group/input mb-5 relative">
                                 <div className="relative bg-[#01091e] border border-white/10 hover:border-white/20 group-focus-within/input:border-cyan-500/50 rounded-2xl flex items-center transition-all h-14">
                                     <div className="pl-4 text-cyan-400 group-focus-within/input:text-cyan-300 transition-colors drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]">
@@ -166,7 +195,6 @@ const Login = ({ onLogin }) => {
                                 </div>
                             </div>
 
-                            {/* Campo de Senha */}
                             <div className="group/input mb-2 relative">
                                 <div className="relative bg-[#01091e] border border-white/10 hover:border-white/20 group-focus-within/input:border-cyan-500/50 rounded-2xl flex items-center transition-all h-14">
                                     <div className="pl-4 text-cyan-400 group-focus-within/input:text-cyan-300 transition-colors drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]">
@@ -182,7 +210,6 @@ const Login = ({ onLogin }) => {
                                 </div>
                             </div>
 
-                            {/* Link Esqueci a Senha */}
                             <div className="flex justify-end pt-2 pr-1">
                                 <button
                                     type="button"
@@ -193,34 +220,21 @@ const Login = ({ onLogin }) => {
                                 </button>
                             </div>
 
-                            {error && (
-                                <motion.div
-                                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                                    className="flex items-center gap-4 p-4 mt-6 bg-red-950/30 border border-red-500/30 rounded-2xl shadow-[0_0_20px_-5px_rgba(239,68,68,0.3)] backdrop-blur-sm group/error"
-                                >
-                                    <div className="p-2 bg-red-500/10 rounded-full group-hover/error:bg-red-500/20 transition-colors shrink-0">
-                                        <AlertCircle size={20} className="text-red-400 drop-shadow-[0_0_8px_rgba(248,113,113,0.5)]" />
-                                    </div>
-                                    <p className="text-red-200 text-xs font-bold  tracking-wider font-['Rajdhani'] leading-relaxed">
-                                        {error}
-                                    </p>
-                                </motion.div>
-                            )}
-
                             <button
                                 type="submit"
                                 disabled={loading}
-                                className="relative w-full group overflow-hidden rounded-2xl p-[1px] shadow-[0_0_20px_rgba(34,211,238,0.3)] transition-all hover:shadow-[0_0_30px_rgba(34,211,238,0.5)] active:scale-[0.98]"
+                                className="relative w-full group/btn overflow-hidden rounded-2xl p-[1px] shadow-[0_4px_12px_rgba(0,0,0,0.5),0_0_10px_rgba(34,211,238,0.1)] transition-all hover:shadow-[0_8px_30px_rgba(0,0,0,0.6)] active:scale-[0.98]"
                             >
-                                <div className="absolute inset-0 bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600 animate-[gradient_3s_ease_infinite] bg-[length:200%_200%]" />
-                                <div className="relative bg-[#020617] bg-opacity-80 backdrop-blur-sm rounded-2xl px-6 py-3 flex items-center justify-center gap-2 group-hover:bg-opacity-0 transition-all duration-300">
+                                <div className="absolute inset-0 bg-gradient-to-r from-cyan-500 via-blue-600 to-cyan-400 animate-[gradient_4s_ease_infinite] bg-[length:200%_200%]" />
+                                <div className="relative bg-[#020617] bg-opacity-[0.92] backdrop-blur-md rounded-2xl px-6 py-3.5 flex items-center justify-center gap-2 group-hover/btn:bg-opacity-70 transition-all duration-500">
                                     {loading ? (
                                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                     ) : (
                                         <>
-                                            <span className="text-sm font-black text-white tracking-[0.15em] group-hover:tracking-[0.2em] transition-all uppercase">Acessar Sistema</span>
-                                            <ChevronRight size={18} className="text-cyan-400 group-hover:text-white group-hover:translate-x-1 transition-all" />
+                                            <span className="text-sm font-extrabold text-white/90 tracking-[0.25em] group-hover/btn:text-white transition-all duration-500 uppercase font-sans group-hover/btn:scale-110 group-hover/btn:-translate-y-0.5 transform origin-center inline-block">
+                                                Acessar Sistema
+                                            </span>
+                                            <ArrowRight size={20} className="text-cyan-400 group-hover/btn:text-white group-hover/btn:translate-x-1.5 transition-all duration-500" />
                                         </>
                                     )}
                                 </div>
@@ -230,7 +244,7 @@ const Login = ({ onLogin }) => {
                         <form onSubmit={handleForgotPassword} className="space-y-6 relative z-10 text-left">
                             <button
                                 type="button"
-                                onClick={() => { setShowForgot(false); setError(''); setForgotSent(false); }}
+                                onClick={() => { setShowForgot(false); setForgotSent(false); }}
                                 className="flex items-center gap-2 text-[10px] font-bold text-gray-400 hover:text-white transition-colors mb-2 group/back"
                             >
                                 <div className="p-1 rounded-full bg-white/5 group-hover/back:bg-white/10 transition-colors">
@@ -248,7 +262,6 @@ const Login = ({ onLogin }) => {
 
                                     <div className="space-y-2">
                                         <div className="relative group/input">
-                                            <div className="absolute inset-0 bg-orange-500/20 blur-md rounded-2xl opacity-0 group-focus-within/input:opacity-100 transition-opacity" />
                                             <div className="relative bg-[#020617]/60 border border-white/10 hover:border-white/20 group-focus-within/input:border-orange-500/50 rounded-2xl flex items-center transition-all">
                                                 <div className="pl-4 text-gray-500 group-focus-within/input:text-orange-400 transition-colors">
                                                     <Mail size={20} strokeWidth={1.5} />
@@ -264,12 +277,6 @@ const Login = ({ onLogin }) => {
                                             </div>
                                         </div>
                                     </div>
-
-                                    {error && (
-                                        <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs font-bold">
-                                            <AlertCircle size={14} /> {error}
-                                        </div>
-                                    )}
 
                                     <button
                                         type="submit"
@@ -302,10 +309,9 @@ const Login = ({ onLogin }) => {
                         </form>
                     )}
 
-                    {/* Footer Clean */}
                     <div className="mt-8 text-center relative z-10 opacity-60 hover:opacity-100 transition-opacity duration-300">
                         <p className="text-[11px] text-cyan-100 font-bold tracking-[0.2em] uppercase">
-                            IRW Motors &copy; 2026 <span className="mx-2 opacity-30">|</span> v{appVersion}
+                            VexCORE &copy; 2026 <span className="mx-2 opacity-30">|</span> v{appVersion}
                         </p>
                     </div>
                 </div>

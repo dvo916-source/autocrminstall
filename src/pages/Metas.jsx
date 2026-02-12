@@ -43,8 +43,8 @@ const ProgressBar = ({ value, max, label, color }) => {
     );
 };
 
-const SDRCard = ({ sdr, metas, rank }) => {
-    const isChampion = rank === 0 && (sdr.vendas_mes > 0 || sdr.visitas_semana > 0);
+const VexCard = ({ usuario, metas, rank }) => {
+    const isChampion = rank === 0 && (usuario.vendas_mes > 0 || usuario.visitas_semana > 0);
 
     return (
         <motion.div
@@ -69,36 +69,43 @@ const SDRCard = ({ sdr, metas, rank }) => {
 
             <div className="flex items-center gap-5 mb-8">
                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-xl font-rajdhani border relative ${isChampion ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20 shadow-[0_0_15px_rgba(234,179,8,0.1)]' : 'bg-white/5 text-gray-500 border-white/10'}`}>
-                    {(sdr.username || '??').substring(0, 2).toUpperCase()}
+                    {(usuario.username || '??').substring(0, 2).toUpperCase()}
                     {isChampion && <motion.div animate={{ rotate: 360 }} transition={{ duration: 4, repeat: Infinity, ease: "linear" }} className="absolute inset-0 rounded-2xl border-t border-yellow-500/40" />}
                 </div>
-                <div className="min-w-0 flex-1">
-                    <h3 className={`text-xl font-bold truncate font-rajdhani ${isChampion ? 'text-yellow-400' : 'text-white'}`}>
-                        {sdr.nome_completo || sdr.username}
+                <div className="flex-1 min-w-0">
+                    <h3 className="font-black text-white text-lg tracking-tight truncate leading-none mb-1">
+                        {usuario.nome_completo || usuario.username}
                     </h3>
-                    <p className="text-[10px] font-bold text-gray-500  tracking-[0.2em] font-rajdhani">SDR Executive</p>
+                    <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest">VexCORE Executive</p>
                 </div>
-                {rank === 1 && <Medal size={24} className="text-slate-400 opacity-50" />}
-                {rank === 2 && <Medal size={24} className="text-orange-900 opacity-50" />}
-            </div>
 
-            <div className="space-y-6">
-                <ProgressBar value={sdr.visitas_semana} max={metas.visita_semanal} label="Visitas (Semana)" color="cyan" />
-                <ProgressBar value={sdr.vendas_mes} max={metas.venda_mensal} label="Vendas (Mês)" color="green" />
-            </div>
-
-            {/* Percentual Geral */}
-            <div className="mt-8 pt-6 border-t border-white/5 flex justify-between items-center">
-                <div className="flex flex-col">
-                    <span className="text-[11px] font-black text-gray-500  tracking-widest font-rajdhani">Eficiência de Fechamento</span>
-                    <div className="flex items-center gap-2 mt-1.5">
-                        <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 2 }} className={`w-2 h-2 rounded-full ${isChampion ? 'bg-yellow-500' : 'bg-cyan-500'}`} />
-                        <span className="text-xs text-gray-400 font-bold font-rajdhani  tracking-wider">Mês Corrente</span>
+                {isChampion && (
+                    <div className="relative group/rank cursor-help">
+                        {/* Improved Rank Label */}
+                        <div className="flex bg-yellow-500/10 border border-yellow-500/20 px-2 py-1 rounded-lg gap-1.5 items-center">
+                            <Trophy size={10} className="text-yellow-500" />
+                            <span className="text-[9px] font-black text-yellow-500 uppercase">#1</span>
+                        </div>
                     </div>
+                )}
+            </div>
+
+            {/* Stats Grid */}
+            <div className="space-y-4">
+                <ProgressBar value={usuario.visitas_semana} max={metas.visita_semanal} label="Visitas (Semana)" color="cyan" />
+                <ProgressBar value={usuario.vendas_mes} max={metas.venda_mensal} label="Vendas (Mês)" color="green" />
+            </div>
+
+            {/* Achievement Footer */}
+            <div className="mt-5 pt-4 border-t border-white/5 flex items-center justify-between">
+                <div className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Eficiência Mensal</div>
+                <div className="flex items-center gap-2">
+                    <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 2 }} className={`w-2 h-2 rounded-full ${isChampion ? 'bg-yellow-500' : 'bg-cyan-500'}`} />
+                    <span className="text-xs text-gray-400 font-bold font-rajdhani  tracking-wider">Mês Corrente</span>
                 </div>
                 <div className="text-right">
                     <span className={`text-4xl font-black italic font-rajdhani leading-none ${isChampion ? 'text-yellow-400' : 'text-white'}`}>
-                        {Math.round((sdr.vendas_mes / (metas.venda_mensal || 1)) * 100)}%
+                        {Math.round((usuario.vendas_mes / (metas.venda_mensal || 1)) * 100)}%
                     </span>
                 </div>
             </div>
@@ -271,8 +278,8 @@ const Metas = () => {
             {/* Ranking Grid */}
             {performance.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                    {performance.map((sdr, index) => (
-                        <SDRCard key={sdr.username} sdr={sdr} metas={metas} rank={index} />
+                    {performance.map((usuario, index) => (
+                        <VexCard key={usuario.username} usuario={usuario} metas={metas} rank={index} />
                     ))}
                 </div>
             ) : (

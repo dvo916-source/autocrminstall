@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, Check, Search } from 'lucide-react';
 
-const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...", className = "", searchable = false, itemRenderer = null }) => {
+const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...", className = "", searchable = false, creatable = false, multiSelect = false, autoCapitalize = false, itemRenderer = null }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const containerRef = useRef(null);
@@ -11,16 +11,32 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
     const [portalContainer, setPortalContainer] = useState(null);
     const [dropdownStyle, setDropdownStyle] = useState({});
 
-    const selectedOption = options.find(opt => opt.value === value);
+    const toTitleCase = (str) => {
+        return str.replace(/\b\w/g, l => l.toUpperCase());
+    };
+
+    // Se for multiSelect, value deve ser um array ou string separada por vírgula
+    const getValues = () => {
+        if (!multiSelect) return value ? [value] : [];
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') return value.split(',').map(v => v.trim()).filter(Boolean);
+        return [];
+    };
+
+    const currentValues = getValues();
+    const selectedOptions = options.filter(opt => currentValues.includes(opt.value));
+    const selectedOption = !multiSelect ? selectedOptions[0] : null;
 
     // Initial value for search term if searchable
     useEffect(() => {
-        if (selectedOption && searchable && !isOpen) {
-            setSearchTerm(selectedOption.label);
-        } else if (!selectedOption && !isOpen) {
-            setSearchTerm('');
+        if (!multiSelect) {
+            if (selectedOption && searchable && !isOpen) {
+                setSearchTerm(selectedOption.label);
+            } else if (!selectedOption && !isOpen) {
+                setSearchTerm('');
+            }
         }
-    }, [selectedOption, isOpen, searchable]);
+    }, [selectedOption, isOpen, searchable, multiSelect]);
 
     // Create persistent portal container
     useEffect(() => {
@@ -87,10 +103,10 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
 
     // Auto-focus when opened
     useEffect(() => {
-        if (isOpen && searchable && inputRef.current) {
+        if (isOpen && (searchable || creatable) && inputRef.current) {
             inputRef.current.focus();
         }
-    }, [isOpen, searchable]);
+    }, [isOpen, searchable, creatable]);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -98,11 +114,23 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
             const isInsideDropdown = event.target.closest('[data-select-content="true"]');
 
             if (!isInsideInput && !isInsideDropdown) {
-                setIsOpen(false);
-                if (searchable && selectedOption) {
-                    setSearchTerm(selectedOption.label);
-                } else if (searchable) {
-                    setSearchTerm('');
+                if (isOpen) {
+                    // Se for creatable e tiver algo digitado, vamos tentar "assumir" esse valor
+                    if (creatable && searchTerm.trim() && !multiSelect) {
+                        const exactMatch = options.find(opt => opt.label.toLowerCase() === searchTerm.trim().toLowerCase());
+                        if (exactMatch) {
+                            onChange(exactMatch.value);
+                            setSearchTerm(exactMatch.label);
+                        } else {
+                            // É um item novo
+                            onChange(searchTerm.trim());
+                        }
+                    } else if (searchable && selectedOption && !multiSelect) {
+                        setSearchTerm(selectedOption.label);
+                    } else if (searchable && !multiSelect) {
+                        setSearchTerm('');
+                    }
+                    setIsOpen(false);
                 }
             }
         };
@@ -125,43 +153,84 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
             document.removeEventListener('mousedown', handleClickOutside);
             window.removeEventListener('scroll', handleScroll, true);
         };
-    }, [selectedOption, searchable, isOpen]);
+    }, [selectedOption, searchable, isOpen, creatable, searchTerm, multiSelect]);
 
     const filteredOptions = searchable
         ? options.filter(opt => opt.label.toLowerCase().includes(searchTerm.toLowerCase()))
         : options;
 
+    const showCreatable = creatable && searchTerm && !options.some(opt => opt.label.toLowerCase() === searchTerm.toLowerCase()) && !multiSelect;
+
     const handleToggle = (e) => {
         e.stopPropagation();
+
+        // Se já estiver aberto e o clique for no input, não fecha
+        if (isOpen && (creatable || searchable)) return;
+
         const nextState = !isOpen;
         setIsOpen(nextState);
 
-        if (nextState && searchable) {
-            setSearchTerm(''); // Clear to search fresh
+        if (nextState && (searchable || creatable)) {
+            // Ao abrir, se já temos um valor selecionado que NÃO está nas opções (item customizado),
+            // inicializamos o searchTerm com ele em vez de limpar.
+            if (value && !selectedOption && !multiSelect) {
+                setSearchTerm(value);
+            } else {
+                setSearchTerm(''); // Clear to search fresh
+            }
         }
     };
 
+    const handleOptionClick = (optionValue) => {
+        if (multiSelect) {
+            let nextValues;
+            if (currentValues.includes(optionValue)) {
+                nextValues = currentValues.filter(v => v !== optionValue);
+            } else {
+                nextValues = [...currentValues, optionValue];
+            }
+            onChange(nextValues);
+        } else {
+            onChange(optionValue);
+            setIsOpen(false);
+            const opt = options.find(o => o.value === optionValue);
+            if (opt && (searchable || creatable)) setSearchTerm(opt.label);
+        }
+    };
+
+    const getTriggerDisplay = () => {
+        if (multiSelect) {
+            if (selectedOptions.length === 0) return placeholder;
+            if (selectedOptions.length === 1) return selectedOptions[0].label;
+            return `${selectedOptions.length} Selecionados`;
+        }
+        return selectedOption ? selectedOption.label : placeholder;
+    };
+
     return (
-        <div className={`relative w-full`} ref={containerRef}>
+        <div className={`relative w-full ${className}`} ref={containerRef}>
             {/* Trigger Container */}
             <div
                 onClick={handleToggle}
                 className={`w-full h-14 bg-white/5 border ${isOpen ? 'border-cyan-500/50 bg-white/10 ring-1 ring-cyan-500/30' : 'border-white/10'} rounded-2xl px-5 flex items-center justify-between cursor-pointer transition-all hover:bg-white/10 group shadow-lg`}
             >
-                {searchable ? (
+                {(searchable || creatable) && !multiSelect ? (
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                         <input
                             ref={inputRef}
                             type="text"
                             className="bg-transparent border-none outline-none text-white text-base font-bold tracking-tight w-full placeholder-gray-500 cursor-text"
                             placeholder={placeholder}
-                            value={isOpen ? searchTerm : (selectedOption ? selectedOption.label : '')}
-                            onChange={(e) => setSearchTerm(e.target.value)}
+                            value={isOpen ? searchTerm : (selectedOption ? selectedOption.label : value || '')}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                setSearchTerm(autoCapitalize ? toTitleCase(val) : val);
+                            }}
                         />
                     </div>
                 ) : (
-                    <span className={`text-base font-bold tracking-tight truncate flex-1 pr-2 ${!selectedOption ? 'text-gray-500' : 'text-white'}`}>
-                        {selectedOption ? selectedOption.label : placeholder}
+                    <span className={`text-base font-bold tracking-tight truncate flex-1 pr-2 ${currentValues.length === 0 ? 'text-gray-500' : 'text-white'}`}>
+                        {getTriggerDisplay()}
                     </span>
                 )}
 
@@ -188,17 +257,35 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
                             className="bg-[#111827] border border-white/10 rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] overflow-hidden backdrop-blur-3xl p-1.5 mt-1"
                         >
                             <div className="max-h-60 overflow-y-auto custom-scrollbar overscroll-contain pr-1">
+                                {showCreatable && (
+                                    <div
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOptionClick(searchTerm);
+                                        }}
+                                        className="flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all mb-1 bg-cyan-600/10 text-cyan-400 font-bold border border-cyan-500/20 shadow-[0_0_15px_rgba(6,182,212,0.1)]"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center border border-cyan-500/30">
+                                                <Search size={14} />
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-xs font-black uppercase tracking-widest text-white">Usar: {searchTerm}</span>
+                                                <span className="text-[9px] font-bold text-cyan-400/70 uppercase tracking-tight">Manual / Fora de Estoque</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {filteredOptions.length > 0 ? (
                                     filteredOptions.map((option) => (
                                         <div
                                             key={option.value}
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                onChange(option.value);
-                                                setIsOpen(false);
-                                                if (searchable) setSearchTerm(option.label);
+                                                handleOptionClick(option.value);
                                             }}
-                                            className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all mb-1 last:mb-0 ${value === option.value
+                                            className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all mb-1 last:mb-0 ${currentValues.includes(option.value)
                                                 ? 'bg-blue-600/20 text-blue-400 font-black border border-blue-500/20 shadow-[0_0_15px_rgba(59,130,246,0.1)]'
                                                 : 'hover:bg-white/5 text-gray-400 hover:text-white'
                                                 }`}
@@ -210,13 +297,23 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
                                                     <span className="text-sm font-bold tracking-wide uppercase">{option.label}</span>
                                                 )}
                                             </div>
-                                            {value === option.value && <Check size={14} strokeWidth={3} className="shrink-0 ml-2" />}
+                                            {currentValues.includes(option.value) && (
+                                                multiSelect ? (
+                                                    <div className="w-4 h-4 rounded bg-blue-500 flex items-center justify-center shadow-[0_0_10px_rgba(59,130,246,0.5)]">
+                                                        <Check size={10} strokeWidth={4} className="text-white" />
+                                                    </div>
+                                                ) : (
+                                                    <Check size={14} strokeWidth={3} className="shrink-0 ml-2" />
+                                                )
+                                            )}
                                         </div>
                                     ))
                                 ) : (
-                                    <div className="p-4 text-center text-gray-500 text-[10px] font-black tracking-widest bg-white/5 rounded-xl m-1 uppercase">
-                                        Nenhuma opção encontrada
-                                    </div>
+                                    !showCreatable && (
+                                        <div className="p-4 text-center text-gray-500 text-[10px] font-black tracking-widest bg-white/5 rounded-xl m-1 uppercase">
+                                            Nenhuma opção encontrada
+                                        </div>
+                                    )
                                 )}
                             </div>
                         </motion.div>

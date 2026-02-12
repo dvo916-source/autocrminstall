@@ -13,14 +13,17 @@ const TEMPERATURAS = [
 ];
 
 const FORMAS_PAGAMENTO = [
+    { value: 'A Vista', label: '💵 A Vista' },
     { value: 'Financiamento', label: '🏦 Financiamento' },
-    { value: 'À Vista', label: '💵 À Vista' },
+    { value: 'Veículo na Troca', label: '🚗 Veículo na Troca' },
+    { value: 'Troca com Troco', label: '💰 Troca com Troco' },
     { value: 'Consórcio', label: '📝 Consórcio' },
-    { value: 'Cartão', label: '💳 Crédito' },
-    { value: 'Troca com Troco', label: '💰 Troca c/ Troco' }
+    { value: 'Cartão de Crédito', label: '💳 Cartão de Crédito' },
+    { value: 'PIX', label: '📲 PIX' },
+    { value: 'Transferência Bancária', label: '🏦 Transferência Bancária' }
 ];
 
-const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone = '', targetUser }) => {
+const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone = '', targetUser, editingTask = null }) => {
     const { currentLoja } = useLoja();
     const [loading, setLoading] = useState(true);
     const [portais, setPortais] = useState([]);
@@ -30,6 +33,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
     const [currentUser, setCurrentUser] = useState(null);
 
     const [successState, setSuccessState] = useState(null); // { message: string }
+    const [recontatoDate, setRecontatoDate] = useState('');
     const [formData, setFormData] = useState({
         cliente: '', telefone: initialPhone || '', cpf_cliente: '',
         portal: '', temperatura: 'Morno',
@@ -39,6 +43,10 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
         vendedor: '',
         negociacao: '', motivo_perda: '', status_pipeline: 'Agendado'
     });
+
+    const toTitleCase = (str) => {
+        return str.replace(/\b\w/g, l => l.toUpperCase());
+    };
 
     // Formatter helpers
     function maskPhone(val) {
@@ -108,28 +116,59 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
     useEffect(() => {
         if (isOpen) {
             loadData();
-            const storedUser = JSON.parse(localStorage.getItem('sdr_user') || '{"username":"SDR","role":"vendedor"}');
+            const storedUser = JSON.parse(localStorage.getItem('vexcore_user') || '{"username":"VEX","role":"vendedor"}');
             setCurrentUser(storedUser);
 
-            setFormData({
-                cliente: '',
-                telefone: initialPhone || '',
-                cpf_cliente: '',
-                portal: '',
-                temperatura: 'Morno',
-                data_agendamento: toLocalISOString(new Date()),
-                veiculo_interesse: '',
-                veiculo_troca: '',
-                valor_proposta: '',
-                forma_pagamento: '',
-                vendedor_sdr: targetUser || storedUser.username,
-                vendedor: '',
-                negociacao: '',
-                motivo_perda: '',
-                status_pipeline: 'Agendado'
-            });
+            if (editingTask) {
+                setFormData({
+                    ...editingTask,
+                    data_agendamento: editingTask.data_agendamento || toLocalISOString(new Date()),
+                    valor_proposta: editingTask.valor_proposta || ''
+                });
+
+                // Tentar extrair data de recontato das notas
+                if (editingTask.negociacao) {
+                    const regex = /\[RECONTATO AGENDADO PARA: (\d{2}\/\d{2}\/\d{4}) às (\d{2}:\d{2})\]/g;
+                    const matches = [...editingTask.negociacao.matchAll(regex)];
+                    if (matches.length > 0) {
+                        const lastMatch = matches[matches.length - 1];
+                        const [_, datePart, timePart] = lastMatch;
+                        const [day, month, year] = datePart.split('/');
+                        const [hours, minutes] = timePart.split(':');
+                        const d = new Date(year, month - 1, day, hours, minutes);
+                        if (!isNaN(d.getTime())) {
+                            setRecontatoDate(d.toISOString());
+                        } else {
+                            setRecontatoDate('');
+                        }
+                    } else {
+                        setRecontatoDate('');
+                    }
+                } else {
+                    setRecontatoDate('');
+                }
+            } else {
+                setFormData({
+                    cliente: '',
+                    telefone: initialPhone || '',
+                    cpf_cliente: '',
+                    portal: '',
+                    temperatura: 'Morno',
+                    data_agendamento: initialDate ? toLocalISOString(initialDate) : toLocalISOString(new Date()),
+                    veiculo_interesse: '',
+                    veiculo_troca: '',
+                    valor_proposta: '',
+                    forma_pagamento: '',
+                    vendedor_sdr: ['developer', 'master'].includes(storedUser.role) ? '' : (targetUser || storedUser.username),
+                    vendedor: (['developer', 'admin', 'master', 'gerente'].includes(storedUser.role)) ? '' : storedUser.username,
+                    negociacao: '',
+                    motivo_perda: '',
+                    status_pipeline: 'Agendado'
+                });
+                setRecontatoDate('');
+            }
         }
-    }, [isOpen, initialPhone, targetUser]);
+    }, [isOpen, initialPhone, targetUser, editingTask, initialDate]);
 
     useEffect(() => {
         try {
@@ -158,7 +197,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
             setPortais(localPortais ? localPortais.filter(i => i.ativo) : []);
             setVendedores(localVendedores ? localVendedores.filter(i => i.ativo) : []);
             setEstoque(localEstoque ? localEstoque.filter(i => i.ativo) : []);
-            setUsuarios((localUsers || []).filter(u => u.role === 'sdr' || !u.role));
+            setUsuarios((localUsers || []).filter(u => ['sdr', 'vendedor', 'admin', 'gerente'].includes(u.role) && !['developer', 'master'].includes(u.role)));
         } catch (err) {
             console.error('Erro ao carregar dados do modal:', err);
         } finally {
@@ -213,6 +252,16 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
             data_agendamento: 'Data & Hora'
         };
 
+        if (formData.status_pipeline === 'Finalizado' && !formData.motivo_perda) {
+            window.dispatchEvent(new CustomEvent('show-notification', {
+                detail: {
+                    message: "⚠️ Informe o motivo do cancelamento/finalização.",
+                    type: 'error'
+                }
+            }));
+            return;
+        }
+
         const missing = Object.entries(required)
             .filter(([key]) => !formData[key])
             .map(([_, label]) => label);
@@ -230,18 +279,40 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
         try {
             setLoading(true);
             const { ipcRenderer } = window.require('electron');
+            let finalNegociacao = formData.negociacao;
+            if (formData.status_pipeline === 'Pendente' && recontatoDate) {
+                const dateLabel = new Date(recontatoDate).toLocaleString('pt-BR', {
+                    day: '2-digit', month: '2-digit', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                }).replace(',', ' às');
+
+                const recontatoNote = `[RECONTATO AGENDADO PARA: ${dateLabel}]`;
+
+                // Só adiciona se a última nota de recontato for diferente da atual
+                if (!finalNegociacao || !finalNegociacao.includes(recontatoNote)) {
+                    finalNegociacao = `${finalNegociacao || ''}\n\n${recontatoNote}`.trim();
+                }
+            }
+
             const payload = {
                 ...formData,
+                id: editingTask?.id, // Garantir que o ID seja enviado para o update
+                data_agendamento: (formData.status_pipeline === 'Pendente' && recontatoDate) ? recontatoDate : formData.data_agendamento,
+                negociacao: finalNegociacao,
                 mes: new Date().getMonth() + 1,
-                datahora: new Date().toISOString(),
-                status: 'Pendente',
-                historico_log: formData.negociacao,
-                loja_id: currentLoja?.id
+                datahora: formData.datahora || new Date().toISOString(),
+                status: formData.status || 'Pendente',
+                historico_log: finalNegociacao,
+                loja_id: currentLoja?.id || 'irw-motors-main'
             };
 
-            await ipcRenderer.invoke('add-visita', payload);
+            if (editingTask?.id) {
+                await ipcRenderer.invoke('update-visita-full', payload);
+            } else {
+                await ipcRenderer.invoke('add-visita', payload);
+            }
 
-            const repassMessage = `*📅 NOVO AGENDAMENTO SDR*
+            const repassMessage = `*📅 NOVO AGENDAMENTO VEXCORE*
             
 👤 *CLIENTE:* ${formData.cliente}
 🚗 *CARRO:* ${formData.veiculo_interesse}
@@ -249,7 +320,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
 ⏰ *DATA/HORA:* ${new Date(formData.data_agendamento).toLocaleString('pt-BR')}
 👨‍💼 *CONSULTOR:* ${formData.vendedor}
 🔄 *TROCA:* ${formData.veiculo_troca || ''}
-📝 *NOTAS:* ${formData.negociacao || ''}`;
+📝 *NOTAS:* ${finalNegociacao || ''}`;
 
             setSuccessState({ repassMessage });
             setLoading(false);
@@ -284,7 +355,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                         initial={{ scale: 0.95, opacity: 0, y: 20 }}
                         animate={{ scale: 1, opacity: 1, y: 0 }}
                         exit={{ scale: 0.95, opacity: 0, y: 20 }}
-                        className="relative w-full max-w-5xl bg-[#0f172a]/95 border border-white/10 rounded-[2.5rem] shadow-2xl overflow-hidden backdrop-blur-3xl flex flex-col min-h-[600px]"
+                        className="relative w-full max-w-5xl bg-[#0f172a]/95 border border-white/10 rounded-[2.5rem] shadow-2xl overflow-hidden backdrop-blur-3xl flex flex-col max-h-[92vh]"
                     >
                         {successState ? (
                             <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
@@ -294,8 +365,24 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                 >
                                     <CheckCircle size={48} strokeWidth={3} />
                                 </motion.div>
-                                <h2 className="text-4xl font-black text-white mb-2 tracking-tight">Agendamento Criado!</h2>
-                                <p className="text-gray-400 text-lg mb-10 max-w-md">O cliente foi registrado com sucesso no sistema.</p>
+                                <h2 className="text-4xl font-black text-white mb-2 tracking-tight">
+                                    {editingTask ? 'Status Atualizado!' : 'Agendamento Criado!'}
+                                </h2>
+                                <p className="text-gray-400 text-lg mb-6 max-w-md">
+                                    {editingTask ? 'As informações do cliente foram registradas com sucesso.' : 'O cliente foi registrado com sucesso no sistema.'}
+                                </p>
+
+                                {recontatoDate && formData.status_pipeline === 'Pendente' && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                                        className="mb-10 px-6 py-3 bg-blue-500/10 border border-blue-500/20 rounded-2xl flex items-center gap-3 text-blue-400"
+                                    >
+                                        <Clock size={16} className="animate-pulse" />
+                                        <span className="text-sm font-bold uppercase tracking-wider">
+                                            Recontato: {new Date(recontatoDate).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ' às')}
+                                        </span>
+                                    </motion.div>
+                                )}
 
                                 <div className="flex gap-4 w-full max-w-md">
                                     <button
@@ -331,7 +418,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                     </button>
                                 </div>
 
-                                <div className="px-10 pb-10 overflow-y-auto custom-scrollbar">
+                                <div className="px-10 pb-10 overflow-y-auto custom-scrollbar flex-1">
                                     <form onSubmit={handleSubmit} className="space-y-8">
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                             <div>
@@ -340,7 +427,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                                     className="w-full h-14 bg-white/[0.03] border border-white/10 rounded-2xl px-5 text-white text-base font-bold tracking-tight outline-none focus:border-blue-500/50 focus:bg-white/5 transition-all placeholder:text-gray-600"
                                                     placeholder="Nome completo..."
                                                     value={formData.cliente}
-                                                    onChange={e => setFormData({ ...formData, cliente: e.target.value })}
+                                                    onChange={e => setFormData(prev => ({ ...prev, cliente: toTitleCase(e.target.value) }))}
                                                     autoFocus
                                                 />
                                             </div>
@@ -377,6 +464,8 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                                     onChange={handleVehicleChange}
                                                     placeholder="Pesquisar estoque..."
                                                     searchable
+                                                    creatable
+                                                    autoCapitalize={true}
                                                     itemRenderer={renderVehicleOption}
                                                 />
                                             </div>
@@ -385,8 +474,9 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                                 <PremiumSelect
                                                     options={FORMAS_PAGAMENTO}
                                                     value={formData.forma_pagamento}
-                                                    onChange={val => setFormData({ ...formData, forma_pagamento: val })}
-                                                    placeholder="Forma de pagto..."
+                                                    onChange={(val) => setFormData(prev => ({ ...prev, forma_pagamento: Array.isArray(val) ? val.join(', ') : val }))}
+                                                    placeholder="Meios de Pagamento"
+                                                    multiSelect={true}
                                                 />
                                             </div>
                                             <div>
@@ -400,45 +490,129 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 p-8 rounded-[2rem] bg-white/[0.02] border border-white/5">
-                                            <div>
-                                                <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Data & Hora</label>
-                                                <PremiumDatePicker
-                                                    value={formData.data_agendamento}
-                                                    onChange={val => setFormData({ ...formData, data_agendamento: val })}
-                                                    allowPastDates={['admin', 'gerente', 'master', 'developer'].includes(currentUser?.role)}
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Vendedor</label>
-                                                <PremiumSelect
-                                                    options={vendedores.map(v => ({ value: v.nome, label: v.nome }))}
-                                                    value={formData.vendedor}
-                                                    onChange={val => setFormData({ ...formData, vendedor: val })}
-                                                    placeholder="Responsável..."
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Temperatura</label>
-                                                <div className="flex bg-black/20 p-1 rounded-2xl gap-1 h-14 items-center">
-                                                    {TEMPERATURAS.map(t => (
+                                        <div className="p-8 rounded-[2rem] bg-white/[0.02] border border-white/5 space-y-6">
+                                            <div className="flex flex-col gap-4">
+                                                <label className="text-[11px] text-gray-400 font-black ml-1 tracking-[0.2em] uppercase">Marcar Status do Negócio</label>
+                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                    {[
+                                                        { id: 'Pendente', label: 'PENDENTE', color: 'red', desc: 'Aguardando' },
+                                                        { id: 'Negociação', label: 'NEGOCIAÇÃO', color: 'blue', desc: 'Em andamento' },
+                                                        { id: 'Vendido', label: 'FECHADO', color: 'green', desc: 'Venda Concluída' },
+                                                        { id: 'Finalizado', label: 'ENCERRAR', color: 'gray', desc: 'Não Vendido' }
+                                                    ].map((s) => (
                                                         <button
-                                                            key={t.value}
+                                                            key={s.id}
                                                             type="button"
-                                                            onClick={() => setFormData({ ...formData, temperatura: t.value })}
+                                                            onClick={() => setFormData({ ...formData, status_pipeline: s.id })}
                                                             className={`
-                                                                flex-1 h-12 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all
-                                                                ${formData.temperatura === t.value
-                                                                    ? 'bg-blue-600 text-white shadow-lg'
-                                                                    : 'text-gray-500 hover:text-gray-300'
+                                                                relative overflow-hidden group flex flex-col items-center justify-center p-4 rounded-2xl border transition-all duration-300
+                                                                ${formData.status_pipeline === s.id
+                                                                    ? `bg-${s.color}-500/10 border-${s.color}-500/40 shadow-[0_0_20px_rgba(var(--${s.color}-rgb),0.2)]`
+                                                                    : 'bg-black/20 border-white/5 hover:bg-white/5 hover:border-white/10'
                                                                 }
                                                             `}
                                                         >
-                                                            {t.label.split(' ')[1]}
+                                                            <div className={`w-2 h-2 rounded-full mb-2 ${formData.status_pipeline === s.id ? `bg-${s.color}-400 animate-pulse shadow-[0_0_10px_rgba(var(--${s.color}-rgb),0.8)]` : 'bg-gray-600'}`} />
+                                                            <span className={`text-[11px] font-black tracking-widest ${formData.status_pipeline === s.id ? `text-${s.color}-400` : 'text-gray-400'}`}>{s.label}</span>
+                                                            <span className="text-[9px] text-gray-600 font-bold uppercase mt-0.5">{s.desc}</span>
+
+                                                            {formData.status_pipeline === s.id && (
+                                                                <motion.div layoutId="status-glow" className={`absolute inset-0 border-2 border-${s.color}-500/20 rounded-2xl pointer-events-none`} />
+                                                            )}
                                                         </button>
                                                     ))}
                                                 </div>
                                             </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-white/5">
+                                                <div>
+                                                    <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Data & Hora</label>
+                                                    <PremiumDatePicker
+                                                        value={formData.data_agendamento}
+                                                        onChange={val => setFormData({ ...formData, data_agendamento: val })}
+                                                        allowPastDates={true}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Vendedor</label>
+                                                    <PremiumSelect
+                                                        options={vendedores.map(v => ({ value: v.nome, label: v.nome }))}
+                                                        value={formData.vendedor}
+                                                        onChange={val => setFormData({ ...formData, vendedor: val })}
+                                                        placeholder="Responsável..."
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Temperatura</label>
+                                                    <div className="flex bg-black/20 p-1 rounded-2xl gap-1 h-14 items-center">
+                                                        {TEMPERATURAS.map(t => (
+                                                            <button
+                                                                key={t.value}
+                                                                type="button"
+                                                                onClick={() => setFormData({ ...formData, temperatura: t.value })}
+                                                                className={`
+                                                                    flex-1 h-12 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all
+                                                                    ${formData.temperatura === t.value
+                                                                        ? 'bg-blue-600 text-white shadow-lg'
+                                                                        : 'text-gray-500 hover:text-gray-300'
+                                                                    }
+                                                                `}
+                                                            >
+                                                                {t.label.split(' ')[1]}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {formData.status_pipeline === 'Finalizado' && (
+                                                <motion.div
+                                                    initial={{ opacity: 0, scale: 0.95 }}
+                                                    animate={{ opacity: 1, scale: 1 }}
+                                                    className="p-6 bg-red-500/10 border border-red-500/20 rounded-2xl"
+                                                >
+                                                    <label className="text-[11px] text-red-400 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Motivo do Fechamento (OBRIGATÓRIO)</label>
+                                                    <textarea
+                                                        className="w-full h-24 bg-black/20 border border-red-500/20 rounded-xl p-4 text-white text-sm font-bold tracking-tight outline-none focus:border-red-500/50 transition-all placeholder:text-red-900/40 resize-none"
+                                                        placeholder="Descreva por que o atendimento foi encerrado..."
+                                                        value={formData.motivo_perda}
+                                                        onChange={e => setFormData({ ...formData, motivo_perda: e.target.value })}
+                                                    />
+                                                </motion.div>
+                                            )}
+
+                                            {formData.status_pipeline === 'Pendente' && (
+                                                <motion.div
+                                                    initial={{ opacity: 0, scale: 0.95 }}
+                                                    animate={{ opacity: 1, scale: 1 }}
+                                                    className="p-6 bg-blue-500/10 border border-blue-500/20 rounded-2xl"
+                                                >
+                                                    <label className="text-[11px] text-blue-400 font-black ml-1 mb-2 block tracking-[0.2em] uppercase flex items-center gap-2">
+                                                        <Clock size={14} /> Marcar Recontato (Opcional)
+                                                    </label>
+                                                    <div className="flex gap-4 items-center">
+                                                        <div className="flex-1">
+                                                            <PremiumDatePicker
+                                                                value={recontatoDate}
+                                                                onChange={val => setRecontatoDate(val)}
+                                                                allowPastDates={false}
+                                                            />
+                                                        </div>
+                                                        {recontatoDate && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setRecontatoDate('')}
+                                                                className="px-4 h-14 bg-white/5 border border-white/10 rounded-2xl text-red-400 hover:bg-red-500/10 transition-colors font-bold text-xs uppercase"
+                                                            >
+                                                                Limpar
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-[10px] text-gray-500/60 font-bold mt-2 ml-1 uppercase tracking-wider italic">
+                                                        * Se selecionada, a data será anexada automaticamente às notas da conversa.
+                                                    </p>
+                                                </motion.div>
+                                            )}
                                         </div>
 
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -454,7 +628,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                             <div className="flex flex-col justify-between">
                                                 {['admin', 'master', 'developer', 'gerente'].includes(currentUser?.role) && (
                                                     <div>
-                                                        <label className="text-[10px] text-blue-400 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Monitoramento SDR</label>
+                                                        <label className="text-[10px] text-blue-400 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Monitoramento VexCORE</label>
                                                         <PremiumSelect
                                                             options={usuarios.map(u => ({ value: u.username, label: u.nome_completo || u.username }))}
                                                             value={formData.vendedor_sdr}
@@ -473,7 +647,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                                     ) : (
                                                         <>
                                                             <CheckCircle size={22} className="group-hover:scale-110 transition-transform" />
-                                                            Gravar Agendamento
+                                                            {editingTask ? 'Salvar Alterações' : 'Gravar Agendamento'}
                                                         </>
                                                     )}
                                                 </button>

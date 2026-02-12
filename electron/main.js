@@ -50,22 +50,22 @@ ipcMain.handle('execute-sql', async (e, { query }) => {
     }
 });
 
-// 📅 HANDLERS TEMPORÁRIOS - Módulos Futuros (Agendamentos e Notas)
-// Estes handlers evitam errors no console até os módulos serem implementados
-ipcMain.handle('get-agendamentos-detalhes', async (e, lojaId) => {
-    console.log('⚠️  [Agendamentos] Módulo ainda não implementado');
-    return [];
+// 📅 HANDLERS DE AGENDAMENTOS E NOTAS (CRM)
+ipcMain.handle('get-agendamentos-detalhes', async (e, { username, lojaId }) => {
+    return db.getAgendamentosDetalhes(username, lojaId);
 });
 
 ipcMain.handle('get-agendamentos-resumo', async (e, lojaId) => {
-    console.log('⚠️  [Agendamentos] Módulo ainda não implementado');
-    return []; // Retornar array vazio para evitar erro no .sort()
+    return db.getAgendamentosPorUsuario(lojaId);
 });
 
-ipcMain.handle('get-notas', async (e, lojaId) => {
-    console.log('⚠️  [Notas] Módulo ainda não implementado');
-    return [];
+ipcMain.handle('get-notas', async (e, { username, lojaId }) => {
+    return db.getNotas({ username, lojaId });
 });
+ipcMain.handle('add-nota', async (e, n) => db.addNota(n));
+ipcMain.handle('update-nota', async (e, n) => db.updateNota(n));
+ipcMain.handle('toggle-nota', async (e, { id, concluido, lojaId }) => db.toggleNota(id, concluido, lojaId));
+ipcMain.handle('delete-nota', async (e, { id, lojaId }) => db.deleteNota(id, lojaId));
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('🔥 [CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
@@ -73,7 +73,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Configuração necessária para as notificações aparecerem corretamente no Windows
 if (process.platform === 'win32') {
-    app.setAppUserModelId('SDR IRW Motors');
+    app.setAppUserModelId('VexCORE');
 }
 
 // 🛡️ TRAVA DE INSTÂNCIA ÚNICA
@@ -98,7 +98,7 @@ function createWindow() {
     const iconPath = path.join(__dirname, '../icon.png');
 
     mainWindow = new BrowserWindow({
-        title: 'SDR IRW Motors',
+        title: 'VexCORE',
         width: 1200,
         height: 800,
         autoHideMenuBar: true, // Esconde a barra de menu (Arquivo, Editar...)
@@ -145,7 +145,7 @@ function createWindow() {
         win.show();
 
         // Verifica atualizações ao abrir
-        autoUpdater.checkForUpdatesAndNotify();
+        autoUpdater.checkForUpdates();
 
         // 🚀 OTIMIZAÇÃO: Controle de Sincronização
         let syncInProgress = false;
@@ -227,13 +227,24 @@ function createWindow() {
 
     // Eventos do 'autoUpdater' para gerenciar atualizações via GitHub
     autoUpdater.logger = console;
+    autoUpdater.autoDownload = true; // Garante que o download comece sozinho
+    autoUpdater.autoInstallOnAppQuit = true; // Instala ao fechar se já baixou
+
+    autoUpdater.on('checking-for-update', () => {
+        console.log('[Updater] Verificando se há atualizações...');
+    });
+
+    autoUpdater.on('error', (err) => {
+        console.error('[Updater] Erro no processo de atualização:', err);
+        if (mainWindow) mainWindow.webContents.send('update-error', err.message);
+    });
 
     // Quando o React termina de carregar, esperamos 3 segundos e checamos atualizações
     win.webContents.on('did-finish-load', () => {
         console.log('[Main] Renderer Totalmente Carregado');
         setTimeout(() => {
             console.log('[Updater] Iniciando verificação programada...');
-            autoUpdater.checkForUpdatesAndNotify().catch(err => console.error('[Updater] Erro Check:', err));
+            autoUpdater.checkForUpdates().catch(err => console.error('[Updater] Erro Check:', err));
         }, 3000);
     });
 
@@ -244,8 +255,9 @@ function createWindow() {
     autoUpdater.on('download-progress', (progress) => {
         win.webContents.send('update-progress', progress.percent); // Mostra progresso do download
     });
-    autoUpdater.on('update-downloaded', () => {
-        win.webContents.send('update-downloaded'); // Avisa que está pronto para instalar
+    autoUpdater.on('update-downloaded', (info) => {
+        console.log('[Updater] Download concluído. Versão:', info.version);
+        win.webContents.send('update-downloaded', info); // Avisa que está pronto para instalar
     });
 }
 
@@ -274,7 +286,7 @@ ipcMain.on('whatsapp-view-ready', (event) => {
 // Handler para Notificações Nativas (COM REF GLOBAL PARA PREVENIR GC)
 ipcMain.on('show-native-notification', (event, { title, body, icon, id, clientName }) => {
     const notif = new Notification({
-        title: title || 'SDR IRW Motors',
+        title: title || 'VexCORE',
         body: body || '',
         icon: path.join(__dirname, '../public/icon.png'),
         silent: false,
@@ -317,6 +329,7 @@ ipcMain.on('show-native-notification', (event, { title, body, icon, id, clientNa
 ipcMain.handle('login', async (e, { username, password }) => await db.checkLogin(username, password));
 ipcMain.handle('get-user', async (e, username) => await db.getUserByUsername(username));
 ipcMain.handle('get-app-version', () => app.getVersion());
+ipcMain.handle('get-user-data-path', () => app.getPath('userData'));
 ipcMain.handle('change-password', async (e, { username, newPassword }) => await db.changePassword(username, newPassword));
 ipcMain.handle('update-user-password', async (e, { username, newPassword }) => await db.changePassword(username, newPassword)); // Alias
 ipcMain.handle('add-user', async (e, user) => await db.addUser(user));
@@ -332,8 +345,9 @@ ipcMain.handle('validate-session', async (e, { username, sessionId }) => {
 // Comandos de Visitas (CRM)
 ipcMain.handle('get-visitas-secure', (e, { role, username, lojaId }) => db.getVisitas(role, username, lojaId));
 ipcMain.handle('add-visita', async (e, v) => await db.addVisita(v));
-ipcMain.handle('update-visita-status', async (e, { id, status, pipeline }) => await db.updateVisitaStatus(id, status, pipeline));
+ipcMain.handle('update-visita-status', async (e, { id, status, pipeline }) => await db.updateVisitaStatusQuick({ id, status, pipeline }));
 ipcMain.handle('delete-visita', async (e, { id, lojaId }) => await db.deleteVisita(id, lojaId));
+ipcMain.handle('update-visita-full', async (e, v) => await db.updateVisitaFull(v));
 
 // Comandos de Loja (Multi-tenant)
 ipcMain.handle('get-stores', () => db.getStores());
@@ -345,6 +359,7 @@ ipcMain.handle('delete-store', async (e, id) => await db.deleteStore(id));
 // CRUD Genérico (Tabelas: estoque, portais, vendedores, etc)
 ipcMain.handle('get-list', async (e, { table, lojaId }) => await db.getList(table, lojaId));
 ipcMain.handle('add-item', async (e, { table, data }) => await db.addItem(table, data));
+ipcMain.handle('update-item', async (e, { table, oldNome, data }) => await db.updateItem(table, oldNome, data));
 ipcMain.handle('toggle-item', async (e, { table, nome, ativo, loja_id }) => await db.toggleItem(table, nome, ativo, loja_id));
 ipcMain.handle('delete-item', async (e, { table, nome, loja_id }) => await db.deleteItem(table, nome, loja_id));
 
@@ -355,7 +370,7 @@ ipcMain.handle('update-script', async (e, s) => await db.updateScript(s));
 ipcMain.handle('delete-script', async (e, { id, role, username, lojaId }) => await db.deleteScript(id, role, username, lojaId));
 
 // Dashboard, Metas e Estatísticas
-ipcMain.handle('get-stats', async (e, { days, lojaId }) => await db.getStats(days, lojaId));
+ipcMain.handle('get-stats', async (e, options) => await db.getStats(options));
 ipcMain.handle('get-competition', async (e, lojaId) => await db.getCompetitionData(lojaId));
 ipcMain.handle('get-config-meta', async (e, lojaId) => await db.getConfigMeta(lojaId));
 ipcMain.handle('get-sdr-performance', async (e, lojaId) => await db.getSdrPerformance(lojaId));
@@ -364,7 +379,11 @@ ipcMain.handle('set-config-meta', async (e, { visita, venda, lojaId }) => await 
 // Comandos de Sincronização e Atualização
 ipcMain.handle('sync-xml', (e, lojaId) => db.syncXml(lojaId));
 ipcMain.handle('sync-essential', async (e, lojaId) => await db.syncConfig(lojaId));
-ipcMain.handle('install-update', () => autoUpdater.quitAndInstall());
+ipcMain.handle('install-update', () => {
+    console.log('[Updater] Forçando fechamento e instalação...');
+    autoUpdater.quitAndInstall(false, true); // (isSilent, isForceRunAfter)
+    return true;
+});
 
 // Utilitário para ler arquivos do sistema (usado na Central de Migração)
 ipcMain.handle('read-file-content', async (e, fileName) => {

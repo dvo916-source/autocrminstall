@@ -1,7 +1,7 @@
 {
-  "name": "sdr-irw-motors",
+  "name": "vexcore",
   "private": true,
-  "version": "1.1.4",
+  "version": "1.1.6",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -16,8 +16,8 @@
     "build:installer": "vite build && electron-builder --win nsis"
   },
   "build": {
-    "appId": "com.irwmotors.app",
-    "productName": "SDR IRW Motors",
+    "appId": "com.vexcore.app",
+    "productName": "VexCORE",
     "directories": {
       "output": "dist"
     },
@@ -39,11 +39,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "SDR IRW Motors",
-      "artifactName": "SDR_IRW_Motors_Setup_${version}.exe"
+      "shortcutName": "VexCORE",
+      "artifactName": "VexCORE_Setup_${version}.exe"
     },
     "portable": {
-      "artifactName": "SDR_Crystal_Portable.exe"
+      "artifactName": "VexCORE_Portable.exe"
     },
     "asar": true,
     "asarUnpack": [

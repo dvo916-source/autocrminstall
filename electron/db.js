@@ -240,7 +240,8 @@ export function initDb() {
         "ALTER TABLE usuarios ADD COLUMN cpf TEXT",
         "ALTER TABLE usuarios ADD COLUMN session_id TEXT",
         "ALTER TABLE usuarios ADD COLUMN last_login TEXT",
-        "ALTER TABLE usuarios ADD COLUMN created_by TEXT"
+        "ALTER TABLE usuarios ADD COLUMN created_by TEXT",
+        "ALTER TABLE vendedores ADD COLUMN id TEXT"
     ];
 
     migrations.forEach(query => {
@@ -297,16 +298,8 @@ export function initDb() {
             console.log('🌱 [SEED] Metas padrão configuradas.');
         }
 
-        // 2. Configurar Portais Padrão
-        const countPortais = db.prepare("SELECT count(*) as c FROM portais").get();
-        if (countPortais.c === 0) {
-            const defaults = [
-                { nome: 'PASSANTE', link: '' }
-            ];
-            const insert = db.prepare("INSERT INTO portais (nome, link, ativo) VALUES (?, ?, 1)");
-            defaults.forEach(p => insert.run(p.nome, p.link));
-            console.log('🌱 [SEED] Portais padrão inseridos.');
-        }
+        // 2. Configurar Portais Padrão (Garante que a lista inicial exista)
+        ensurePortals();
 
         // 3. Configurar Campanha Padrão (Seed para Demonstração)
         const campaignCheck = db.prepare("SELECT valor FROM config WHERE chave = 'active_campaign'").get();
@@ -453,6 +446,32 @@ function performMaintenance() {
     ensureDevUser();
     // db.prepare("DELETE FROM usuarios WHERE username = 'admin'").run();
     ensurePortals();
+    fixMissingDates();
+}
+
+function fixMissingDates() {
+    try {
+        const missing = db.prepare("SELECT id, data_agendamento FROM visitas WHERE datahora IS NULL OR datahora = ''").all();
+        if (missing.length > 0) {
+            console.log(`🛠️ [Maintenance] Corrigindo ${missing.length} visitas sem datahora.`);
+            const stmt = db.prepare("UPDATE visitas SET datahora = ?, mes = ? WHERE id = ?");
+
+            missing.forEach(v => {
+                let d = new Date();
+                // Se tiver agendamento, usa como base
+                if (v.data_agendamento) {
+                    const parsed = new Date(v.data_agendamento);
+                    if (!isNaN(parsed.getTime())) d = parsed;
+                }
+                const iso = d.toISOString();
+                const mes = d.getMonth() + 1;
+                stmt.run(iso, mes, v.id);
+            });
+            console.log("✅ [Maintenance] Visitas corrigidas.");
+        }
+    } catch (e) {
+        console.error("Erro ao corrigir datas:", e);
+    }
 }
 
 
@@ -576,7 +595,7 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
                 .select('*')
                 .eq('loja_id', lojaId)
                 .order('id', { ascending: false })
-                .limit(200);
+                .limit(2000);
 
             if (vErr) {
                 console.error('[SyncConfig] Erro ao buscar visitas:', vErr);
@@ -609,7 +628,38 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
             stats.errors.push(`Visitas: ${err.message}`);
         }
 
-        // 5. Configurações Globais (IA Prompts e Categorias)
+        // 5. Portais
+        try {
+            const { data: cloudPortals, error: pErr } = await client.from('portais').select('*').eq('loja_id', lojaId);
+            if (pErr) {
+                console.error('[SyncConfig] Erro ao buscar portais:', pErr);
+            } else if (cloudPortals && cloudPortals.length > 0) {
+                db.transaction(() => {
+                    for (const p of cloudPortals) {
+                        try {
+                            db.prepare(`
+                                INSERT OR REPLACE INTO portais(nome, link, ativo, loja_id)
+                                VALUES(@nome, @link, @ativo, @loja_id)
+                            `).run({ ...p, ativo: p.ativo ? 1 : 0 });
+                        } catch (err) {
+                            console.error(`[SyncConfig] Erro ao inserir portal ${p.nome}:`, err.message);
+                        }
+                    }
+                })();
+                BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'portais'));
+            } else {
+                // Se a nuvem estiver vazia, vamos tentar subir os locais (Upstream Sync)
+                const localPortals = db.prepare("SELECT * FROM portais WHERE loja_id = ?").all(lojaId);
+                if (localPortals.length > 0) {
+                    console.log(`⬆️ [SyncConfig] Subindo ${localPortals.length} portais locais para a nuvem...`);
+                    await safeSupabaseUpsert('portais', localPortals, lojaId, { onConflict: 'nome,loja_id' });
+                }
+            }
+        } catch (err) {
+            console.error('[SyncConfig] Erro Portais:', err.message);
+        }
+
+        // 6. Configurações Globais (IA Prompts e Categorias)
         try {
             const client = getSupabaseClient(lojaId);
             const { data: cloudConfig, error: cErr } = await client.from('crm_settings').select('*').eq('loja_id', lojaId);
@@ -661,10 +711,21 @@ function ensureDevUser() {
 
 
 function ensurePortals() {
-    const portalCheck = db.prepare("SELECT COUNT(*) as c FROM portais").get();
-    if (portalCheck.c === 0) {
-        const insertPortal = db.prepare("INSERT INTO portais (nome) VALUES (?)");
-        ["OLX", "Facebook", "Instagram", "iCarros", "Webmotors", "Site", "Loja (Presencial)"].forEach(p => insertPortal.run(p));
+    try {
+        // 1. Corrigir registros órfãos (sem loja_id)
+        db.prepare("UPDATE portais SET loja_id = ? WHERE loja_id IS NULL OR loja_id = ''").run(DEFAULT_STORE_ID);
+
+        // 2. Garantir portais padrão usando INSERT OR IGNORE individual
+        const defaults = ["OLX", "FACEBOOK", "INSTAGRAM", "ICARROS", "WEBMOTORS", "SITE", "LOJA (PRESENCIAL)", "PASSANTE"];
+        const insertPortal = db.prepare("INSERT OR IGNORE INTO portais (nome, loja_id, ativo) VALUES (?, ?, 1)");
+
+        defaults.forEach(p => {
+            insertPortal.run(p, DEFAULT_STORE_ID);
+        });
+
+        console.log(`🌱 [SEED] Verificação de portais concluída.`);
+    } catch (e) {
+        console.error("Erro ao garantir portais:", e.message);
     }
 }
 
@@ -740,27 +801,54 @@ export async function scrapCarDetails(nome, url) {
 
 // --- CRUD & Stats ---
 
-export function getStats(days = 30, lojaId) {
-    // Calcula a data de corte (hoje - dias)
-    // SQLite: date('now', '-X days')
-    // javascript: new Date(...) to ISO string
-    const dateOffset = new Date();
-    dateOffset.setDate(dateOffset.getDate() - days);
-    // Ajusta para o início do dia para pegar tudo
-    dateOffset.setHours(0, 0, 0, 0);
-    const dateLimit = dateOffset.toISOString();
+export function getStats(options = {}) {
+    let days = options.days || 30;
+    let month = options.month;
+    let year = options.year;
+    let lojaId = options.lojaId || DEFAULT_STORE_ID;
+
+    // Suporte legado se receber argumentos posicionais
+    if (typeof options === 'number') {
+        days = options;
+        lojaId = arguments[1] || DEFAULT_STORE_ID;
+    }
+
+    const activeLojaId = lojaId || DEFAULT_STORE_ID;
+    console.log(`📊 [DB] getStats called with:`, JSON.stringify(options));
+    console.log(`📊 [DB] activeLojaId determined: "${activeLojaId}"`);
+
+    let startDate, endDate, periodTitle;
+    let chartDays = days;
+
+    if (month && year) {
+        // Mês específico
+        const dStart = new Date(year, month - 1, 1);
+        const dEnd = new Date(year, month, 0); // Último dia do mês
+        startDate = dStart.toISOString().split('T')[0] + ' 00:00:00';
+        endDate = dEnd.toISOString().split('T')[0] + ' 23:59:59';
+        chartDays = dEnd.getDate();
+        periodTitle = `${month}/${year}`;
+    } else {
+        // Período de dias (X dias atrás até agora)
+        const dStart = new Date();
+        dStart.setDate(dStart.getDate() - days);
+        dStart.setHours(0, 0, 0, 0);
+        startDate = dStart.toISOString();
+        endDate = new Date().toISOString();
+        periodTitle = `${days}D`;
+    }
 
     // 1. Total Leads (Entrada) no período
-    const leadsTotal = db.prepare("SELECT COUNT(*) as c FROM visitas WHERE datahora >= ? AND loja_id = ?").get(dateLimit, lojaId).c;
+    const leadsTotal = db.prepare("SELECT COUNT(*) as c FROM visitas WHERE datahora >= ? AND datahora <= ? AND loja_id = ?").get(startDate, endDate, activeLojaId).c;
 
     // 2. Atendidos (Com vendedor atribuído) no período
-    const leadsAtendidos = db.prepare("SELECT COUNT(*) as c FROM visitas WHERE vendedor IS NOT NULL AND vendedor != '' AND datahora >= ? AND loja_id = ?").get(dateLimit, lojaId).c;
+    const leadsAtendidos = db.prepare("SELECT COUNT(*) as c FROM visitas WHERE vendedor IS NOT NULL AND vendedor != '' AND datahora >= ? AND datahora <= ? AND loja_id = ?").get(startDate, endDate, activeLojaId).c;
 
     // 3. Agendados (Com data de agendamento) no período
-    const leadsAgendados = db.prepare("SELECT COUNT(*) as c FROM visitas WHERE data_agendamento IS NOT NULL AND data_agendamento != '' AND datahora >= ? AND loja_id = ?").get(dateLimit, lojaId).c;
+    const leadsAgendados = db.prepare("SELECT COUNT(*) as c FROM visitas WHERE data_agendamento IS NOT NULL AND data_agendamento != '' AND datahora >= ? AND datahora <= ? AND loja_id = ?").get(startDate, endDate, activeLojaId).c;
 
     // 4. Vendas (Fechamentos) no período
-    const leadsVendidos = db.prepare("SELECT COUNT(*) as c FROM visitas WHERE status = 'Vendido' AND datahora >= ? AND loja_id = ?").get(dateLimit, lojaId).c;
+    const leadsVendidos = db.prepare("SELECT COUNT(*) as c FROM visitas WHERE status = 'Vendido' AND datahora >= ? AND datahora <= ? AND loja_id = ?").get(startDate, endDate, activeLojaId).c;
 
     // 5. Origem (Portais) no período
     const leadsPorPortal = db.prepare(`
@@ -769,12 +857,12 @@ export function getStats(days = 30, lojaId) {
             COUNT(*) as value,
             SUM(CASE WHEN status = 'Vendido' THEN 1 ELSE 0 END) as sales
         FROM visitas 
-        WHERE portal IS NOT NULL AND portal != '' AND datahora >= ? AND loja_id = ?
+        WHERE portal IS NOT NULL AND portal != '' AND datahora >= ? AND datahora <= ? AND loja_id = ?
         GROUP BY portal 
         ORDER BY value DESC
-    `).all(dateLimit, lojaId);
+    `).all(startDate, endDate, activeLojaId);
 
-    // 6. Fluxo de Vendedores (Mantém lógica atual, independente de período, pois é snapshot do momento)
+    // 6. Fluxo de Vendedores
     let fluxoVendedores = { ultimo: 'N/A', proximo: 'N/A' };
     const lastVisit = db.prepare("SELECT vendedor FROM visitas WHERE vendedor IS NOT NULL AND vendedor != '' ORDER BY id DESC LIMIT 1").get();
     const activeSellers = db.prepare("SELECT nome FROM vendedores WHERE ativo = 1 ORDER BY nome ASC").all().map(v => v.nome);
@@ -791,76 +879,62 @@ export function getStats(days = 30, lojaId) {
         }
     }
 
-    // 7. Dados do Gráfico (Dinâmico conforme dias)
-    // Se dias > 30, agrupar por semana ou mês seria ideal, mas por agora vamos limitar a mostrar os últimos 'days' ou max 30 pontos para não poluir.
-    // Vamos mostrar o gráfico do período solicitado (diário).
-
-    // Otimização: Se for > 60 dias, talvez agrupar. Mas o usuário pediu 7, 15, 30. Então diário está ótimo.
-    const chartData = [];
+    // 7. Dados do Gráfico
     const visitasPorDiaRaw = db.prepare(`
         SELECT substr(datahora, 1, 10) as dia, COUNT(*) as total 
         FROM visitas 
-        WHERE datahora >= ? AND loja_id = ?
+        WHERE datahora >= ? AND datahora <= ? AND loja_id = ?
         GROUP BY dia 
         ORDER BY dia ASC
-    `).all(dateLimit, lojaId);
+    `).all(startDate, endDate, activeLojaId);
 
     const vendasPorDiaRaw = db.prepare(`
         SELECT substr(datahora, 1, 10) as dia, COUNT(*) as total 
         FROM visitas 
-        WHERE status = 'Vendido' AND datahora >= ? AND loja_id = ?
+        WHERE status = 'Vendido' AND datahora >= ? AND datahora <= ? AND loja_id = ?
         GROUP BY dia 
         ORDER BY dia ASC
-    `).all(dateLimit, lojaId);
+    `).all(startDate, endDate, activeLojaId);
 
-    // Preenche os dias vazios para o gráfico ficar bonito contínuo
-    for (let i = days - 1; i >= 0; i--) { // De X dias atrás até hoje
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const diaStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
-        const diaDisplay = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-
-        const visitas = visitasPorDiaRaw.find(r => r.dia === diaStr)?.total || 0;
-        const vendas = vendasPorDiaRaw.find(r => r.dia === diaStr)?.total || 0;
-
-        chartData.push({ name: diaDisplay, leads: visitas, atendimentos: 0, vendas }); // Ajustei chave para match frontend (leads, vendas)
-        // Nota: frontend usa 'leads' e 'atendimentos'. Vou mandar 'vendas' também ou mapear atendimentos?
-        // No frontend: AreaChart dataKey="leads" e "atendimentos".
-        // Vamos buscar atendimentos por dia também.
-    }
-
-    // 7b. Atendimentos por dia (para o gráfico ficar completo)
     const atendimentosPorDiaRaw = db.prepare(`
         SELECT substr(datahora, 1, 10) as dia, COUNT(*) as total 
         FROM visitas 
-        WHERE vendedor IS NOT NULL AND vendedor != '' AND datahora >= ? AND loja_id = ?
+        WHERE vendedor IS NOT NULL AND vendedor != '' AND datahora >= ? AND datahora <= ? AND loja_id = ?
         GROUP BY dia 
         ORDER BY dia ASC
-    `).all(dateLimit, lojaId);
+    `).all(startDate, endDate, activeLojaId);
 
-    // Atualiza o loop acima para incluir atendimentos
-    chartData.forEach(item => {
-        // Preciso reconstruir a data original para bater... item.name é 'DD/MM'.
-        // Mais fácil rodar o map de novo com acesso aos dados Raw
-    });
-
-    // Refazendo loop do gráfico corretamente
     const finalChartData = [];
     try {
-        for (let i = days - 1; i >= 0; i--) {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            const diaStr = d.toISOString().split('T')[0];
-            const diaDisplay = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+        if (month && year) {
+            // Se for mês, iteramos pelos dias do mês
+            for (let i = 1; i <= chartDays; i++) {
+                const diaStr = `${year}-${month.toString().padStart(2, '0')}-${i.toString().padStart(2, '0')}`;
+                const diaDisplay = i.toString().padStart(2, '0');
 
-            const leads = visitasPorDiaRaw.find(r => r.dia === diaStr)?.total || 0;
-            const atendimentos = atendimentosPorDiaRaw.find(r => r.dia === diaStr)?.total || 0;
-            const vendas = vendasPorDiaRaw.find(r => r.dia === diaStr)?.total || 0;
+                const leads = visitasPorDiaRaw.find(r => r.dia === diaStr)?.total || 0;
+                const atendimentos = atendimentosPorDiaRaw.find(r => r.dia === diaStr)?.total || 0;
+                const vendas = vendasPorDiaRaw.find(r => r.dia === diaStr)?.total || 0;
 
-            finalChartData.push({ name: diaDisplay, leads, atendimentos, vendas });
+                finalChartData.push({ name: diaDisplay, leads, atendimentos, vendas });
+            }
+        } else {
+            // Se for período de dias, iteramos de trás pra frente
+            for (let i = chartDays - 1; i >= 0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                const diaStr = d.toISOString().split('T')[0];
+                const diaDisplay = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+
+                const leads = visitasPorDiaRaw.find(r => r.dia === diaStr)?.total || 0;
+                const atendimentos = atendimentosPorDiaRaw.find(r => r.dia === diaStr)?.total || 0;
+                const vendas = vendasPorDiaRaw.find(r => r.dia === diaStr)?.total || 0;
+
+                finalChartData.push({ name: diaDisplay, leads, atendimentos, vendas });
+            }
         }
     } catch (e) {
-        console.error("Erro Atendimentos por dia:", e);
+        console.error("Erro ao montar chartData:", e);
     }
 
     return {
@@ -870,7 +944,8 @@ export function getStats(days = 30, lojaId) {
         leadsVendidos,
         leadsPorPortal,
         fluxoVendedores,
-        chartData: finalChartData
+        chartData: finalChartData,
+        periodTitle
     };
 }
 
@@ -982,30 +1057,37 @@ export function setCompetitionData(data) {
 }
 
 export function getVisitas(userRole = 'vendedor', username = null, lojaId = DEFAULT_STORE_ID) {
-    if (userRole === 'developer') {
-        // Developer sees active store by default, but we'll pass the specific store ID
-        return db.prepare("SELECT * FROM visitas WHERE loja_id = ? ORDER BY id DESC LIMIT 200").all(lojaId);
-    }
-    if (userRole === 'admin' || userRole === 'master') {
-        return db.prepare("SELECT * FROM visitas WHERE loja_id = ? ORDER BY id DESC LIMIT 200").all(lojaId);
-    } else {
-        return db.prepare("SELECT * FROM visitas WHERE loja_id = ? AND (vendedor_sdr = ? OR vendedor = ?) ORDER BY id DESC LIMIT 200").all(lojaId, username, username);
-    }
+    const activeLojaId = lojaId || DEFAULT_STORE_ID;
+    const query = `
+        SELECT * FROM visitas 
+        WHERE loja_id = ? 
+        ORDER BY COALESCE(data_agendamento, NULLIF(datahora, '')) DESC, id DESC 
+        LIMIT 2000
+    `;
+    return db.prepare(query).all(activeLojaId);
 }
 
+
 export async function addVisita(visita) {
+    if (!visita.datahora) {
+        visita.datahora = new Date().toISOString();
+    }
+    if (!visita.mes) {
+        visita.mes = new Date(visita.datahora).getMonth() + 1;
+    }
+
     const stmt = db.prepare(`
-        INSERT INTO visitas (
-            mes, datahora, cliente, telefone, portal, 
-            veiculo_interesse, veiculo_troca, vendedor, vendedor_sdr, negociacao, 
-            status, data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline, valor_proposta, cpf_cliente, historico_log, loja_id
-        )
-        VALUES (
-            @mes, @datahora, @cliente, @telefone, @portal, 
-            @veiculo_interesse, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao, 
-            'Pendente', @data_agendamento, @temperatura, @motivo_perda, @forma_pagamento, 
-            @status_pipeline, @valor_proposta, @cpf_cliente, @historico_log, @loja_id
-        )
+        INSERT INTO visitas(
+        mes, datahora, cliente, telefone, portal,
+        veiculo_interesse, veiculo_troca, vendedor, vendedor_sdr, negociacao,
+        status, data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline, valor_proposta, cpf_cliente, historico_log, loja_id
+    )
+VALUES(
+    @mes, @datahora, @cliente, @telefone, @portal,
+    @veiculo_interesse, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao,
+    'Pendente', @data_agendamento, @temperatura, @motivo_perda, @forma_pagamento,
+    @status_pipeline, @valor_proposta, @cpf_cliente, @historico_log, @loja_id
+)
     `);
     const result = stmt.run(visita);
     const id = result.lastInsertRowid;
@@ -1056,6 +1138,7 @@ export async function updateVisitaFull(visita) {
             veiculo_interesse = @veiculo_interesse,
             veiculo_troca = @veiculo_troca,
             vendedor = @vendedor,
+            vendedor_sdr = @vendedor_sdr,
             negociacao = @negociacao,
             data_agendamento = @data_agendamento,
             temperatura = @temperatura,
@@ -1074,6 +1157,27 @@ export async function updateVisitaFull(visita) {
         const client = getSupabaseClient(visita.loja_id || null);
         if (client) {
             await client.from('visitas').update(visita).eq('id', visita.id);
+        }
+    } catch (e) { }
+
+    // 📣 REFRESH UI
+    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'visitas'));
+
+    return result;
+}
+
+export async function updateVisitaStatusQuick({ id, status, pipeline, lojaId }) {
+    const activeLojaId = lojaId || DEFAULT_STORE_ID;
+    const stmt = db.prepare(`
+        UPDATE visitas SET status = ?, status_pipeline = ? WHERE id = ? AND loja_id = ?
+    `);
+    const result = stmt.run(status, pipeline, id, activeLojaId);
+
+    // ☁️ SYNC SUPABASE
+    try {
+        const client = getSupabaseClient(activeLojaId);
+        if (client) {
+            await client.from('visitas').update({ status, status_pipeline: pipeline }).eq('id', id);
         }
     } catch (e) { }
 
@@ -1105,12 +1209,12 @@ export async function addUser(user) {
     const lojaId = user.loja_id || null;
 
     const stmt = db.prepare(`
-        INSERT INTO usuarios (username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id)
-        VALUES (@username, @password, @role, 1, @nome_completo, @email, @whatsapp, 1, @permissions, @loja_id)
+        INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id)
+VALUES(@username, @password, @role, 1, @nome_completo, @email, @whatsapp, 1, @permissions, @loja_id)
     `);
 
     try {
-        console.log(`➕ [DB] Adicionando usuário: ${username}`);
+        console.log(`➕[DB] Adicionando usuário: ${username} `);
         const result = stmt.run({
             username: username,
             password: hash,
@@ -1121,12 +1225,12 @@ export async function addUser(user) {
             permissions: user.permissions ? JSON.stringify(user.permissions) : '[]',
             loja_id: lojaId
         });
-        console.log(`✅ [DB] Usuário local criado com sucesso.`);
+        console.log(`✅[DB] Usuário local criado com sucesso.`);
 
         // ☁️ SYNC SUPABASE
         const client = getSupabaseClient(null);
         if (client) {
-            console.log(`☁️ [Sync] Enviando novo usuário para a nuvem...`);
+            console.log(`☁️[Sync] Enviando novo usuário para a nuvem...`);
             await client.from('usuarios').upsert([{
                 username: username,
                 password: hash,
@@ -1139,7 +1243,7 @@ export async function addUser(user) {
                 permissions: user.permissions ? (typeof user.permissions === 'string' ? user.permissions : JSON.stringify(user.permissions)) : '[]',
                 loja_id: lojaId
             }], { onConflict: 'username' });
-            console.log(`✅ [Sync] Sincronização de criação concluída.`);
+            console.log(`✅[Sync] Sincronização de criação concluída.`);
         }
 
         BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'usuarios'));
@@ -1243,17 +1347,17 @@ export async function checkLogin(identifier, pass) {
     }
 
     // 1. TENTA LOCALMENTE
-    console.log(`🔑 [Auth] Tentativa de login para: ${identifier}`);
+    console.log(`🔑[Auth] Tentativa de login para: ${identifier} `);
     let userData = db.prepare(`
-        SELECT * FROM usuarios 
-        WHERE (username = ? OR email = ?) COLLATE NOCASE 
+SELECT * FROM usuarios
+WHERE(username = ? OR email = ?) COLLATE NOCASE 
         AND ativo = 1
     `).get(identifier, identifier);
 
     if (userData) {
-        console.log(`✅ [Auth] Usuário '${identifier}' encontrado localmente.`);
+        console.log(`✅[Auth] Usuário '${identifier}' encontrado localmente.`);
     } else {
-        console.log(`⚠️ [Auth] Usuário '${identifier}' NÃO encontrado localmente ou está inativo.`);
+        console.log(`⚠️[Auth] Usuário '${identifier}' NÃO encontrado localmente ou está inativo.`);
     }
 
     // 2. SE NÃO ACHAR OU SENHA ERRADA LOCALMENTE, TENTA NUVEM (PARA CASOS DE SYNC PENDENTE)
@@ -1261,38 +1365,38 @@ export async function checkLogin(identifier, pass) {
     const localValid = userData ? bcrypt.compareSync(pass, userData.password) : false;
 
     if (!userData || !localValid) {
-        console.log(`🔍 [Auth] Usuário '${identifier}' não validado localmente. Consultando Nuvem...`);
+        console.log(`🔍[Auth] Usuário '${identifier}' não validado localmente.Consultando Nuvem...`);
         try {
             const client = getSupabaseClient(null);
             const { data: cloudUser, error } = await client
                 .from('usuarios')
                 .select('*')
-                .or(`username.ilike.${identifier},email.ilike.${identifier}`)
+                .or(`username.ilike.${identifier}, email.ilike.${identifier} `)
                 .eq('ativo', true)
                 .maybeSingle();
 
             if (!error && cloudUser) {
-                console.log(`✅ [Auth] Usuário '${identifier}' encontrado na Nuvem. Validando senha...`);
+                console.log(`✅[Auth] Usuário '${identifier}' encontrado na Nuvem.Validando senha...`);
                 // Valida a senha na nuvem antes de sincronizar
                 const cloudValid = bcrypt.compareSync(pass, cloudUser.password);
 
                 if (cloudValid) {
-                    console.log(`✅ [Auth] Senha correta na Nuvem. Sincronizando dados locais...`);
+                    console.log(`✅[Auth] Senha correta na Nuvem.Sincronizando dados locais...`);
                     const permsString = typeof cloudUser.permissions === 'string'
                         ? cloudUser.permissions
                         : JSON.stringify(cloudUser.permissions || []);
 
                     db.prepare(`
-                        INSERT INTO usuarios (username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id)
-                        VALUES (@username, @password, @role, @reset_password, @nome_completo, @email, @whatsapp, @ativo, @permissions, @loja_id)
-                        ON CONFLICT(username) DO UPDATE SET 
-                            password=excluded.password, role=excluded.role, 
-                            nome_completo=excluded.nome_completo, email=excluded.email, 
-                            whatsapp=excluded.whatsapp, ativo=excluded.ativo,
-                            reset_password=excluded.reset_password,
-                            permissions=excluded.permissions,
-                            loja_id=excluded.loja_id
-                    `).run({
+                        INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id)
+VALUES(@username, @password, @role, @reset_password, @nome_completo, @email, @whatsapp, @ativo, @permissions, @loja_id)
+                        ON CONFLICT(username) DO UPDATE SET
+password = excluded.password, role = excluded.role,
+    nome_completo = excluded.nome_completo, email = excluded.email,
+    whatsapp = excluded.whatsapp, ativo = excluded.ativo,
+    reset_password = excluded.reset_password,
+    permissions = excluded.permissions,
+    loja_id = excluded.loja_id
+        `).run({
                         username: cloudUser.username,
                         password: cloudUser.password,
                         role: cloudUser.role,
@@ -1308,13 +1412,13 @@ export async function checkLogin(identifier, pass) {
 
                     userData = db.prepare("SELECT * FROM usuarios WHERE username = ? COLLATE NOCASE").get(cloudUser.username);
                 } else {
-                    console.error(`❌ [Auth] Senha inválida para usuário '${identifier}' na Nuvem.`);
+                    console.error(`❌[Auth] Senha inválida para usuário '${identifier}' na Nuvem.`);
                 }
             } else if (error) {
-                console.error(`❌ [Auth] Erro ao consultar nuvem:`, error.message);
+                console.error(`❌[Auth] Erro ao consultar nuvem: `, error.message);
             }
         } catch (e) {
-            console.error(`❌ [Auth] Erro catastrófico na validação em nuvem:`, e.message);
+            console.error(`❌[Auth] Erro catastrófico na validação em nuvem: `, e.message);
         }
     }
 
@@ -1361,17 +1465,17 @@ export function getList(table, lojaId = DEFAULT_STORE_ID) {
     if (!lojaId) lojaId = DEFAULT_STORE_ID;
 
     if (!['estoque', 'portais', 'vendedores'].includes(table)) {
-        console.warn(`⚠️  [getList] Tabela inválida: ${table}`);
+        console.warn(`⚠️[getList] Tabela inválida: ${table} `);
         return [];
     }
 
     try {
         const result = db.prepare(`SELECT * FROM ${table} WHERE loja_id = ? ORDER BY nome`).all(lojaId);
-        console.log(`✅ [getList] ${table}: ${result.length} itens (loja: ${lojaId})`);
+        console.log(`✅[getList] ${table}: ${result.length} itens(loja: ${lojaId})`);
 
         return result;
     } catch (err) {
-        console.error(`❌ [getList] Erro ao consultar ${table}:`, err.message);
+        console.error(`❌[getList] Erro ao consultar ${table}: `, err.message);
         return [];
     }
 }
@@ -1384,11 +1488,11 @@ export async function addItem(table, data) {
     let stmt;
 
     if (table === 'vendedores') {
-        stmt = db.prepare(`INSERT OR IGNORE INTO ${table} (nome, sobrenome, telefone, ativo, loja_id) VALUES (@nome, @sobrenome, @telefone, 1, @loja_id)`);
+        stmt = db.prepare(`INSERT OR IGNORE INTO ${table} (id, nome, sobrenome, telefone, ativo, loja_id) VALUES(@id, @nome, @sobrenome, @telefone, 1, @loja_id)`);
     } else if (table === 'portais') {
-        stmt = db.prepare(`INSERT OR IGNORE INTO ${table} (nome, link, ativo, loja_id) VALUES (@nome, @link, 1, @loja_id)`);
+        stmt = db.prepare(`INSERT OR IGNORE INTO ${table} (nome, link, ativo, loja_id) VALUES(@nome, @link, 1, @loja_id)`);
     } else {
-        stmt = db.prepare(`INSERT OR IGNORE INTO ${table} (nome, ativo, loja_id) VALUES (@nome, 1, @loja_id)`);
+        stmt = db.prepare(`INSERT OR IGNORE INTO ${table} (nome, ativo, loja_id) VALUES(@nome, 1, @loja_id)`);
     }
 
     const result = stmt.run(syncData);
@@ -1396,9 +1500,39 @@ export async function addItem(table, data) {
     // ☁️ SYNC SUPABASE
     try {
         const conflictKey = table === 'estoque' ? 'id' : 'nome';
-        await safeSupabaseUpsert(table, [syncData], { onConflict: conflictKey });
+        // safeSupabaseUpsert(table, data, lojaId, options)
+        await safeSupabaseUpsert(table, [syncData], lojaId, { onConflict: conflictKey });
     } catch (e) {
-        console.error(`❌ [Supabase] Erro Sync ${table}:`, e.message);
+        console.error(`❌[Supabase] Erro Sync ${table}: `, e.message);
+    }
+
+    return result;
+}
+
+export async function updateItem(table, oldNome, data) {
+    if (!['estoque', 'portais', 'vendedores'].includes(table)) return;
+
+    const lojaId = data.loja_id || DEFAULT_STORE_ID;
+
+    // Atualização Local
+    const stmt = db.prepare(`UPDATE ${table} SET nome = ?, link = ? WHERE nome = ? AND loja_id = ? `);
+    const result = stmt.run(data.nome, data.link || '', oldNome, lojaId);
+
+    // ☁️ SYNC SUPABASE
+    try {
+        const client = getSupabaseClient(lojaId);
+        if (client) {
+            const { error } = await client
+                .from(table)
+                .update({ nome: data.nome, link: data.link })
+                .eq('nome', oldNome)
+                .eq('loja_id', lojaId);
+
+            if (error) throw error;
+            console.log(`✅[Supabase] ${table} '${data.nome}' atualizado na nuvem.`);
+        }
+    } catch (e) {
+        console.error(`❌[Supabase] Erro ao atualizar ${table}: `, e.message);
     }
 
     return result;
@@ -1406,7 +1540,7 @@ export async function addItem(table, data) {
 
 export async function toggleItem(table, nome, ativo, lojaId) {
     if (!['estoque', 'portais', 'vendedores'].includes(table)) return;
-    const result = db.prepare(`UPDATE ${table} SET ativo = ? WHERE nome = ? AND loja_id = ?`).run(ativo ? 1 : 0, nome, lojaId);
+    const result = db.prepare(`UPDATE ${table} SET ativo = ? WHERE nome = ? AND loja_id = ? `).run(ativo ? 1 : 0, nome, lojaId);
 
     // ☁️ SYNC SUPABASE
     try {
@@ -1421,7 +1555,7 @@ export async function toggleItem(table, nome, ativo, lojaId) {
 
 export async function deleteItem(table, nome, lojaId) {
     if (!['estoque', 'portais', 'vendedores'].includes(table)) return;
-    const result = db.prepare(`DELETE FROM ${table} WHERE nome = ? AND loja_id = ?`).run(nome, lojaId);
+    const result = db.prepare(`DELETE FROM ${table} WHERE nome = ? AND loja_id = ? `).run(nome, lojaId);
 
     setTimeout(async () => {
         try {
@@ -1441,7 +1575,7 @@ export function getListUsers(lojaId) {
         console.warn('[DB] getListUsers called without lojaId. Returning empty list for security.');
         return [];
     }
-    const users = db.prepare("SELECT username, email, nome_completo, whatsapp, role, ativo, reset_password, permissions FROM usuarios WHERE loja_id = ? AND role != 'developer' ORDER BY username").all(lojaId);
+    const users = db.prepare("SELECT username, email, nome_completo, whatsapp, role, ativo, reset_password, permissions FROM usuarios WHERE loja_id = ? AND role NOT IN ('developer', 'master') ORDER BY username").all(lojaId);
     return users;
 }
 
@@ -1454,10 +1588,10 @@ export async function changePassword(username, newPassword) {
         const client = getSupabaseClient(null); // Assuming user's loja_id is not directly available here, or it's a global user operation
         if (client) {
             await client.from('usuarios').update({ password: hash, reset_password: 0 }).eq('username', username);
-            console.log(`✅ [Supabase] Senha de '${username}' atualizada na nuvem.`);
+            console.log(`✅[Supabase] Senha de '${username}' atualizada na nuvem.`);
         }
     } catch (e) {
-        console.error(`❌ [Supabase] Erro ao atualizar senha:`, e.message);
+        console.error(`❌[Supabase] Erro ao atualizar senha: `, e.message);
     }
     return result;
 }
@@ -1564,36 +1698,40 @@ export async function deleteScript(id, userRole, username = null, lojaId = DEFAU
 
 
 export function getAgendamentosPorUsuario(lojaId = DEFAULT_STORE_ID) {
+    const currentMonth = new Date().getMonth() + 1;
     return db.prepare(`
-        SELECT 
-            u.username as nome, 
-            u.nome_completo, 
-            u.role, 
-            u.ativo,
-            COUNT(v.id) as total
+SELECT
+u.username as nome,
+    u.nome_completo,
+    u.role,
+    u.ativo,
+    (SELECT COUNT(*) 
+             FROM visitas v 
+             WHERE v.vendedor_sdr = u.username 
+               AND v.loja_id = ?
+    AND v.mes = ?) as total
         FROM usuarios u
-        LEFT JOIN visitas v ON u.username = v.vendedor_sdr AND v.loja_id = ?
-        WHERE u.role IN('sdr', 'vendedor', 'admin', 'master', 'developer') AND u.loja_id = ?
-        GROUP BY u.username
-    `).all(lojaId, lojaId);
+        WHERE u.role IN('sdr', 'vendedor', 'admin') 
+          AND u.username != 'diego' COLLATE NOCASE
+          AND u.loja_id = ?
+    ORDER BY total DESC
+        `).all(lojaId, currentMonth, lojaId);
 }
 
 export function getAgendamentosDetalhes(username = null, lojaId = DEFAULT_STORE_ID) {
     try {
-        const today = new Date().toISOString().split('T')[0];
         let query = `
-SELECT * FROM visitas
-WHERE loja_id = ? AND (status_pipeline = 'Agendado' OR status_pipeline IS NULL OR status_pipeline = '')
-AND(substr(data_agendamento, 1, 10) >= ? OR data_agendamento IS NULL OR data_agendamento = '')
-            `;
-        const params = [lojaId, today];
+SELECT * FROM visitas 
+            WHERE loja_id = ?
+        `;
+        const params = [lojaId];
 
         if (username) {
-            query += " AND (vendedor_sdr = ? OR vendedor = ?)";
+            query += " AND (vendedor_sdr = ? COLLATE NOCASE OR vendedor = ? COLLATE NOCASE)";
             params.push(username, username);
         }
 
-        query += " ORDER BY data_agendamento ASC, datahora DESC LIMIT 100";
+        query += " ORDER BY data_agendamento DESC, datahora DESC LIMIT 500";
 
         return db.prepare(query).all(...params);
     } catch (err) {
@@ -1606,13 +1744,13 @@ export function getTemperatureStats(lojaId = DEFAULT_STORE_ID) {
     try {
         const today = new Date().toISOString().split('T')[0];
         const stats = db.prepare(`
-            SELECT 
-                SUM(CASE WHEN temperatura = 'Quente' THEN 1 ELSE 0 END) as quente,
-                SUM(CASE WHEN temperatura = 'Morno' THEN 1 ELSE 0 END) as morno,
-                SUM(CASE WHEN temperatura = 'Frio' THEN 1 ELSE 0 END) as frio
+            SELECT
+SUM(CASE WHEN temperatura = 'Quente' THEN 1 ELSE 0 END) as quente,
+    SUM(CASE WHEN temperatura = 'Morno' THEN 1 ELSE 0 END) as morno,
+    SUM(CASE WHEN temperatura = 'Frio' THEN 1 ELSE 0 END) as frio
             FROM visitas
             WHERE substr(data_agendamento, 1, 10) = ? AND loja_id = ?
-        `).get(today, lojaId);
+    `).get(today, lojaId);
 
         return {
             quente: stats.quente || 0,
@@ -1736,11 +1874,11 @@ export function enableRealtimeSync() {
 
                         db.prepare(`
                             INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id)
-        VALUES(@username, @password, @role, @reset_password, @nome_completo, @email, @whatsapp, @ativo, @permissions, @loja_id)
+VALUES(@username, @password, @role, @reset_password, @nome_completo, @email, @whatsapp, @ativo, @permissions, @loja_id)
                             ON CONFLICT(username) DO UPDATE SET
-        password = excluded.password, role = excluded.role, reset_password = excluded.reset_password,
-            nome_completo = excluded.nome_completo, email = excluded.email, whatsapp = excluded.whatsapp, ativo = excluded.ativo, permissions = excluded.permissions, loja_id = excluded.loja_id
-                `).run({
+password = excluded.password, role = excluded.role, reset_password = excluded.reset_password,
+    nome_completo = excluded.nome_completo, email = excluded.email, whatsapp = excluded.whatsapp, ativo = excluded.ativo, permissions = excluded.permissions, loja_id = excluded.loja_id
+        `).run({
                             username: newRec.username,
                             password: newRec.password,
                             role: newRec.role,
@@ -1777,10 +1915,10 @@ export function enableRealtimeSync() {
                     } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
                         db.prepare(`
                             INSERT INTO vendedores(nome, sobrenome, telefone, ativo, loja_id)
-        VALUES(@nome, @sobrenome, @telefone, @ativo, @loja_id)
+VALUES(@nome, @sobrenome, @telefone, @ativo, @loja_id)
                             ON CONFLICT(nome, loja_id) DO UPDATE SET
-        sobrenome = excluded.sobrenome, telefone = excluded.telefone, ativo = excluded.ativo
-            `).run({
+sobrenome = excluded.sobrenome, telefone = excluded.telefone, ativo = excluded.ativo
+    `).run({
                             nome: newRec.nome,
                             sobrenome: newRec.sobrenome,
                             telefone: newRec.telefone,
@@ -1806,11 +1944,11 @@ export function enableRealtimeSync() {
                     } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
                         db.prepare(`
                             INSERT INTO scripts(id, titulo, mensagem, is_system, link, username, ordem, loja_id)
-        VALUES(@id, @titulo, @mensagem, @is_system, @link, @username, @ordem, @loja_id)
+VALUES(@id, @titulo, @mensagem, @is_system, @link, @username, @ordem, @loja_id)
                             ON CONFLICT(id) DO UPDATE SET
-        titulo = excluded.titulo, mensagem = excluded.mensagem,
-            is_system = excluded.is_system, link = excluded.link, username = excluded.username, ordem = excluded.ordem, loja_id = excluded.loja_id
-                `).run({
+titulo = excluded.titulo, mensagem = excluded.mensagem,
+    is_system = excluded.is_system, link = excluded.link, username = excluded.username, ordem = excluded.ordem, loja_id = excluded.loja_id
+        `).run({
                             ...newRec,
                             is_system: newRec.is_system ? 1 : 0,
                             loja_id: newRec.loja_id
@@ -1832,11 +1970,11 @@ export function enableRealtimeSync() {
                     if (newRec) {
                         db.prepare(`
                             INSERT INTO estoque(id, nome, foto, fotos, link, km, cambio, ano, valor, ativo, loja_id)
-        VALUES(@id, @nome, @foto, @fotos, @link, @km, @cambio, @ano, @valor, @ativo, @loja_id)
+VALUES(@id, @nome, @foto, @fotos, @link, @km, @cambio, @ano, @valor, @ativo, @loja_id)
                             ON CONFLICT(id) DO UPDATE SET
-        nome = excluded.nome, foto = excluded.foto, fotos = excluded.fotos, link = excluded.link,
-            km = excluded.km, cambio = excluded.cambio, ano = excluded.ano, valor = excluded.valor, ativo = excluded.ativo, loja_id = excluded.loja_id
-                `).run({
+nome = excluded.nome, foto = excluded.foto, fotos = excluded.fotos, link = excluded.link,
+    km = excluded.km, cambio = excluded.cambio, ano = excluded.ano, valor = excluded.valor, ativo = excluded.ativo, loja_id = excluded.loja_id
+        `).run({
                             ...newRec,
                             fotos: typeof newRec.fotos === 'string' ? newRec.fotos : JSON.stringify(newRec.fotos),
                             ativo: newRec.ativo ? 1 : 0,
@@ -1863,24 +2001,24 @@ export function enableRealtimeSync() {
                     } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
                         db.prepare(`
                             INSERT INTO visitas(
-                    id, datahora, mes, cliente, telefone, portal,
-                    veiculo_interesse, veiculo_troca, vendedor, vendedor_sdr, negociacao, status,
-                    data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline, valor_proposta, cpf_cliente, historico_log, loja_id
-                )
-        VALUES(
-            @id, @datahora, @mes, @cliente, @telefone, @portal,
-            @veiculo_interesse, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao, @status,
-            @data_agendamento, @temperatura, @motivo_perda, @forma_pagamento, @status_pipeline, @valor_proposta, @cpf_cliente, @historico_log, @loja_id
+            id, datahora, mes, cliente, telefone, portal,
+            veiculo_interesse, veiculo_troca, vendedor, vendedor_sdr, negociacao, status,
+            data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline, valor_proposta, cpf_cliente, historico_log, loja_id
         )
+VALUES(
+    @id, @datahora, @mes, @cliente, @telefone, @portal,
+    @veiculo_interesse, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao, @status,
+    @data_agendamento, @temperatura, @motivo_perda, @forma_pagamento, @status_pipeline, @valor_proposta, @cpf_cliente, @historico_log, @loja_id
+)
                             ON CONFLICT(id) DO UPDATE SET
-        datahora = excluded.datahora, mes = excluded.mes, cliente = excluded.cliente, telefone = excluded.telefone,
-            portal = excluded.portal, veiculo_interesse = excluded.veiculo_interesse, veiculo_troca = excluded.veiculo_troca,
-            vendedor = excluded.vendedor, vendedor_sdr = excluded.vendedor_sdr, negociacao = excluded.negociacao,
-            status = excluded.status, data_agendamento = excluded.data_agendamento, temperatura = excluded.temperatura,
-            motivo_perda = excluded.motivo_perda, forma_pagamento = excluded.forma_pagamento,
-            status_pipeline = excluded.status_pipeline, valor_proposta = excluded.valor_proposta,
-            cpf_cliente = excluded.cpf_cliente, historico_log = excluded.historico_log, loja_id = excluded.loja_id
-                `).run(newRec);
+datahora = excluded.datahora, mes = excluded.mes, cliente = excluded.cliente, telefone = excluded.telefone,
+    portal = excluded.portal, veiculo_interesse = excluded.veiculo_interesse, veiculo_troca = excluded.veiculo_troca,
+    vendedor = excluded.vendedor, vendedor_sdr = excluded.vendedor_sdr, negociacao = excluded.negociacao,
+    status = excluded.status, data_agendamento = excluded.data_agendamento, temperatura = excluded.temperatura,
+    motivo_perda = excluded.motivo_perda, forma_pagamento = excluded.forma_pagamento,
+    status_pipeline = excluded.status_pipeline, valor_proposta = excluded.valor_proposta,
+    cpf_cliente = excluded.cpf_cliente, historico_log = excluded.historico_log, loja_id = excluded.loja_id
+        `).run(newRec);
                     }
                     BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'visitas'));
                 } catch (e) { console.error("Erro Realtime Visitas:", e); }
@@ -1900,7 +2038,7 @@ export function enableRealtimeSync() {
                         db.prepare(`
                             INSERT INTO crm_settings(key, value, updated_at, loja_id) VALUES(@key, @value, @updated_at, @loja_id)
                             ON CONFLICT(key, loja_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-            `).run(newRec);
+    `).run(newRec);
                     }
                 } else if (eventType === 'DELETE' && oldRec) {
                     db.prepare("DELETE FROM crm_settings WHERE key = ?").run(oldRec.key);
@@ -1986,7 +2124,7 @@ export function getSdrPerformance(lojaId = DEFAULT_STORE_ID) {
 
         // Pega todos que são Vendedores ou Admin que atuam como (para garantir que apareçam na lista)
         // O usuario pediu "para cada SDR". SDR deve ter role 'vendedor' ou 'sdr'. Vamos assumir 'vendedor'.
-        const users = db.prepare("SELECT username FROM usuarios WHERE role IN ('vendedor', 'sdr') AND loja_id = ?").all(lojaId);
+        const users = db.prepare("SELECT username FROM usuarios WHERE role IN ('vendedor', 'sdr') AND username != 'diego' COLLATE NOCASE AND loja_id = ?").all(lojaId);
 
         const performance = [];
 
@@ -1996,19 +2134,19 @@ export function getSdrPerformance(lojaId = DEFAULT_STORE_ID) {
             const visitas = db.prepare(`
                 SELECT COUNT(*) as count FROM visitas
                 WHERE vendedor_sdr = ?
-            AND(status_pipeline = 'Agendado' OR status_pipeline = 'Visita Realizada' OR status_pipeline = 'Vendido' OR status_pipeline = 'Proposta')
+    AND(status_pipeline = 'Agendado' OR status_pipeline = 'Visita Realizada' OR status_pipeline = 'Vendido' OR status_pipeline = 'Proposta')
                 AND data_agendamento BETWEEN ? AND ?
-                AND loja_id = ?
-            `).get(u.username, weekIsoStart, weekIsoEnd, lojaId).count;
+    AND loja_id = ?
+        `).get(u.username, weekIsoStart, weekIsoEnd, lojaId).count;
 
             // Meta Mensal: VENDAS (status_pipeline = 'Vendido') no mês corrente
             const vendas = db.prepare(`
                 SELECT COUNT(*) as count FROM visitas
                 WHERE vendedor_sdr = ?
-            AND status_pipeline = 'Vendido'
+    AND status_pipeline = 'Vendido'
                 AND data_agendamento BETWEEN ? AND ?
-                AND loja_id = ?
-            `).get(u.username, monthIsoStart, monthIsoEnd, lojaId).count;
+    AND loja_id = ?
+        `).get(u.username, monthIsoStart, monthIsoEnd, lojaId).count;
 
             performance.push({
                 username: u.username,
@@ -2045,7 +2183,7 @@ export async function saveSettingsBatch(settings, lojaId = DEFAULT_STORE_ID) {
         const stmt = db.prepare(`
             INSERT INTO crm_settings(key, value, category, updated_at, loja_id) VALUES(@key, @value, @category, @updated_at, @loja_id)
             ON CONFLICT(key, loja_id) DO UPDATE SET value = excluded.value, category = excluded.category, updated_at = excluded.updated_at
-        `);
+    `);
 
         const insertMany = db.transaction((items) => {
             for (const item of items) {
@@ -2097,6 +2235,12 @@ export function deleteNota(id, lojaId = DEFAULT_STORE_ID) {
     } catch (e) { throw e; }
 }
 
+export function updateNota({ id, texto, data_nota, lojaId }) {
+    try {
+        return db.prepare("UPDATE notas SET texto = ?, data_nota = ? WHERE id = ? AND loja_id = ?").run(texto, data_nota, id, lojaId);
+    } catch (e) { throw e; }
+}
+
 // --- Store CRUD ---
 
 export function getStores() {
@@ -2112,8 +2256,8 @@ export function addStore(store) {
     const modulos = store.modulos || JSON.stringify(['dashboard', 'diario', 'whatsapp', 'estoque', 'visitas', 'metas', 'portais', 'ia-chat', 'usuarios']);
     const stmt = db.prepare(`
         INSERT INTO lojas(id, nome, logo_url, slug, modulos, ativo)
-        VALUES(?, ?, ?, ?, ?, 1)
-            `);
+VALUES(?, ?, ?, ?, ?, 1)
+    `);
     const result = stmt.run(id, store.nome, store.logo_url, id, modulos);
     return { ...result, id };
 }
@@ -2121,14 +2265,14 @@ export function addStore(store) {
 export async function updateStore(store) {
     const stmt = db.prepare(`
         UPDATE lojas SET
-            nome = ?,
-            logo_url = ?,
-            modulos = ?,
-            ativo = ?,
-            supabase_url = ?,
-            supabase_anon_key = ?
+nome = ?,
+    logo_url = ?,
+    modulos = ?,
+    ativo = ?,
+    supabase_url = ?,
+    supabase_anon_key = ?
         WHERE id = ?
-    `);
+            `);
 
     // Ensure modulos is stringified for SQLite
     const modulosString = typeof store.modulos === 'string' ? store.modulos : JSON.stringify(store.modulos);
@@ -2155,10 +2299,10 @@ export async function updateStore(store) {
                 supabase_url: store.supabase_url,
                 supabase_anon_key: store.supabase_anon_key
             }).eq('id', store.id);
-            console.log(`✅ [Supabase] Loja '${store.nome}' atualizada na nuvem.`);
+            console.log(`✅[Supabase] Loja '${store.nome}' atualizada na nuvem.`);
         }
     } catch (e) {
-        console.error(`❌ [Supabase] Erro ao atualizar loja:`, e.message);
+        console.error(`❌[Supabase] Erro ao atualizar loja: `, e.message);
     }
 
     // Invalida o cache do cliente Supabase para esta loja
@@ -2192,7 +2336,7 @@ export async function validateCpfUnique(cpf) {
     // Verifica no banco local
     const existingLocal = db.prepare('SELECT username FROM usuarios WHERE cpf = ?').get(cleanCpf);
     if (existingLocal) {
-        return { valid: false, message: `CPF já cadastrado para: ${existingLocal.username}` };
+        return { valid: false, message: `CPF já cadastrado para: ${existingLocal.username} ` };
     }
 
     // Verifica no Supabase
@@ -2205,7 +2349,7 @@ export async function validateCpfUnique(cpf) {
             .single();
 
         if (data) {
-            return { valid: false, message: `CPF já cadastrado: ${data.username}` };
+            return { valid: false, message: `CPF já cadastrado: ${data.username} ` };
         }
     }
 
@@ -2225,7 +2369,7 @@ export async function createStoreWithAdmin(loja, admin) {
 
         // 2. Gerar IDs
         const lojaId = loja.id || toPerfectSlug(loja.nome);
-        const adminUsername = `admin_${lojaId}`;
+        const adminUsername = `admin_${lojaId} `;
         const cleanCpf = admin.cpf ? admin.cpf.replace(/\D/g, '') : null;
 
         // 3. Hash da senha
@@ -2241,17 +2385,17 @@ export async function createStoreWithAdmin(loja, admin) {
 
             db.prepare(`
                 INSERT INTO lojas(id, nome, endereco, logo_url, slug, modulos, ativo)
-                VALUES(?, ?, ?, ?, ?, ?, 1)
-            `).run(lojaId, loja.nome, loja.endereco || '', loja.logo_url || '', lojaId, modulosJson);
+VALUES(?, ?, ?, ?, ?, ?, 1)
+    `).run(lojaId, loja.nome, loja.endereco || '', loja.logo_url || '', lojaId, modulosJson);
 
             // 4.2 Criar usuário ADM
             db.prepare(`
                 INSERT INTO usuarios(
-                    username, loja_id, password, role,
-                    nome_completo, cpf, email,
-                    reset_password, ativo, created_by
-                )
-                VALUES(?, ?, ?, 'admin', ?, ?, ?, 1, 1, 'developer')
+        username, loja_id, password, role,
+        nome_completo, cpf, email,
+        reset_password, ativo, created_by
+    )
+VALUES(?, ?, ?, 'admin', ?, ?, ?, 1, 1, 'developer')
             `).run(adminUsername, lojaId, hashedPassword, admin.nome_completo, cleanCpf, admin.email || '');
 
             return { lojaId, adminUsername };
@@ -2293,7 +2437,7 @@ export async function createStoreWithAdmin(loja, admin) {
 
     } catch (err) {
         console.error('[createStoreWithAdmin] Erro:', err);
-        throw new Error(`Erro ao criar loja: ${err.message}`);
+        throw new Error(`Erro ao criar loja: ${err.message} `);
     }
 }
 
@@ -2330,7 +2474,7 @@ export async function uploadLogo(lojaId, base64Data) {
 
         // Gerar nome único
         const fileName = `${lojaId}_${Date.now()}.png`;
-        const filePath = `logos/${fileName}`;
+        const filePath = `logos / ${fileName} `;
 
         // Upload para Supabase Storage
         const { error } = await client.storage
@@ -2354,7 +2498,7 @@ export async function uploadLogo(lojaId, base64Data) {
 
     } catch (err) {
         console.error('[uploadLogo] Erro:', err);
-        throw new Error(`Erro ao fazer upload: ${err.message}`);
+        throw new Error(`Erro ao fazer upload: ${err.message} `);
     }
 }
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const SDRCalendar = ({ selectedDate, onSelectDate, onAddNote, isOpen, onClose }) => {
+const VexCalendar = ({ selectedDate, onSelectDate, onAddNote, isOpen, onClose, eventDays = [], pendingDays = [] }) => {
     const [viewDate, setViewDate] = useState(new Date(selectedDate));
 
     // Sync view with selection when opening
@@ -113,6 +113,16 @@ const SDRCalendar = ({ selectedDate, onSelectDate, onAddNote, isOpen, onClose })
                             `}
                         >
                             {day}
+
+                            {/* Event Indicators */}
+                            <div className="absolute bottom-1 flex gap-0.5 justify-center">
+                                {pendingDays.includes(date.toISOString().split('T')[0]) && (
+                                    <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-black' : 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.8)]'}`} />
+                                )}
+                                {eventDays.includes(date.toISOString().split('T')[0]) && (
+                                    <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-black' : 'bg-cyan-500 shadow-[0_0_5px_cyan]'}`} />
+                                )}
+                            </div>
                         </button>
                     );
                 })}
@@ -133,4 +143,4 @@ const SDRCalendar = ({ selectedDate, onSelectDate, onAddNote, isOpen, onClose })
     );
 };
 
-export default SDRCalendar;
+export default VexCalendar;

@@ -17,10 +17,9 @@ const Shell = ({ children, user, onLogout }) => {
     const { currentLoja } = useLoja();
 
     const location = useLocation();
-    const isAdmin = user.role === 'admin' || user.role === 'master' || user.role === 'developer';
+    const isAdmin = user?.role === 'admin' || user?.role === 'master' || user?.role === 'developer';
     const navigate = useNavigate();
 
-    const [updateStatus, setUpdateStatus] = useState({ available: false, progress: 0, ready: false });
     const [unseenCount, setUnseenCount] = useState(0); // Estado para o contador do Zap
     const [appVersion, setAppVersion] = useState('...');
 
@@ -56,28 +55,15 @@ const Shell = ({ children, user, onLogout }) => {
 
             const syncHandler = (e, { loading }) => setIsSyncing(loading);
 
-            const notifyHandler = (e) => {
-                const { message, type = 'info', duration = 4000 } = e.detail;
+            const notifyHandler = (e, detail) => {
+                const messageObj = detail?.detail || detail; // Handle both IPC and CustomEvent patterns
+                const { message, type = 'info', duration = 4000 } = messageObj;
                 const id = Date.now();
                 setNotifications(prev => [...prev, { id, message, type }]);
                 setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), duration);
             };
 
-            const updateAvail = () => setUpdateStatus(prev => ({ ...prev, available: true }));
-            const updateProg = (e, percent) => setUpdateStatus(prev => ({ ...prev, progress: percent }));
-            const updateReady = () => setUpdateStatus(prev => ({ ...prev, ready: true, available: false }));
-
-            ipcRenderer.on('sync-status', syncHandler);
-            ipcRenderer.on('update-available', updateAvail);
-            ipcRenderer.on('update-progress', updateProg);
-            ipcRenderer.on('update-downloaded', updateReady);
-
-            // Bridge IPC notifications to DOM listener
-            const ipcNotifyHandler = (e, data) => {
-                window.dispatchEvent(new CustomEvent('show-notification', { detail: data }));
-            };
-            ipcRenderer.on('show-notification', ipcNotifyHandler);
-
+            ipcRenderer.on('show-notification', notifyHandler);
             window.addEventListener('show-notification', notifyHandler);
 
             return () => {
@@ -85,42 +71,48 @@ const Shell = ({ children, user, onLogout }) => {
                 ipcRenderer.removeListener('update-available', updateAvail);
                 ipcRenderer.removeListener('update-progress', updateProg);
                 ipcRenderer.removeListener('update-downloaded', updateReady);
-                ipcRenderer.removeListener('show-notification', ipcNotifyHandler);
+                ipcRenderer.removeAllListeners('show-notification');
                 window.removeEventListener('show-notification', notifyHandler);
             };
         } catch (err) { console.error(err); }
     }, []);
 
-    const handleInstallUpdate = () => {
-        const { ipcRenderer } = window.require('electron');
-        ipcRenderer.invoke('install-update');
-    };
 
     const hasPermission = (path) => {
         // Developer has absolute access
         if (user.role === 'developer') return true;
 
         // Master access by default
-        if (user.role === 'master') return true;
+        if (user.role === 'master' || user.role === 'admin') return true;
 
-        if (!user.permissions) return true;
+        if (!user.permissions || user.permissions === '[]') return false;
 
         let perms = [];
         try {
             perms = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions;
         } catch (e) { perms = []; }
 
+        if (typeof perms === 'string') {
+            try { perms = JSON.parse(perms); } catch (e) { }
+        }
+        if (typeof perms === 'string') {
+            try { perms = JSON.parse(perms); } catch (e) { }
+        }
+
         if (!Array.isArray(perms)) return false;
 
         // Restrição de loja para usuários não-developers (Segurança redundante)
-        if (user.role !== 'developer' && user.loja_id && currentLoja?.id !== user.loja_id) {
-            return false;
+        if (user.role !== 'developer' && user.loja_id && currentLoja?.id) {
+            if (user.loja_id.toLowerCase() !== currentLoja.id.toLowerCase()) {
+                console.log(`🚫 [Shell] Bloqueio por Loja ID: User(${user.loja_id}) !== Current(${currentLoja.id})`);
+                return false;
+            }
         }
 
-        // Root and common paths are always allowed
-        if (path === '/' || path === '/diario') return true;
+        const isRootPath = path === '/' || path === '/diario';
+        const permsMatch = perms.includes(path);
 
-        return perms.includes(path);
+        return permsMatch || isRootPath;
     };
 
     const navItems = [];
@@ -158,69 +150,39 @@ const Shell = ({ children, user, onLogout }) => {
     );
 
     const filteredNavItems = navItems.filter(item => {
-        // --- DEBUG ---
-        if (item.module === 'dashboard') {
-            const raw = currentLoja?.modulos;
-            let parsed = [];
-            try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { }
-            console.log('🐞 SHELL DEBUG:', {
-                username: user.username,
-                role: user.role,
-                perms: user.permissions,
-                modsLoja: parsed,
-                item: item.module,
-                HAS_PERM: hasPermission(item.to)
-            });
-        }
-        // -------------
-
-        // 🔓 ADMIN/MASTER DEVELOPER: No filter for Central Lojas and internal tools
-        const internalModules = ['central-lojas', 'back-to-central'];
-        if (internalModules.includes(item.module)) return true;
-
-        // 🏪 MÓDULOS DA LOJA: Verifica se o módulo está ativo no plano da loja
-        const lojaModulosRaw = currentLoja?.modulos;
-
-        // Se o desenvolvedor NÃO selecionou uma loja, ele não vê módulos operacionais (barra vazia/limpa)
-        if (user.role === 'developer' && !currentLoja) {
-            return false;
-        }
-
-        // Se não houver loja selecionada ou módulos definidos para usuários comuns, mostra (fallback)
-        if (!currentLoja || !lojaModulosRaw) return true;
-
         try {
-            // Parse dos módulos ativos (pode vir como string JSON ou array)
+            // 🔓 ADMIN/MASTER DEVELOPER: No filter for Central Lojas and internal tools
+            const internalModules = ['central-lojas', 'back-to-central'];
+            if (internalModules.includes(item.module)) return true;
+
+            // 🏪 MÓDULOS DA LOJA: Verifica se o módulo está ativo no plano da loja
+            const lojaModulosRaw = currentLoja?.modulos;
+
+            // Se o desenvolvedor NÃO selecionou uma loja, ele não vê módulos operacionais (barra vazia/limpa)
+            if (user.role === 'developer' && !currentLoja) return false;
+
+            // Se não houver loja selecionada ou módulos definidos
+            if (!currentLoja || !lojaModulosRaw) return user.role === 'developer';
+
             let enabledModules = [];
-            try {
-                let raw = lojaModulosRaw;
-                // Tenta parsear até virar objeto/array (lidando com double stringify)
-                if (typeof raw === 'string') {
-                    try { raw = JSON.parse(raw); } catch (e) { }
-                }
-                if (typeof raw === 'string') {
-                    try { raw = JSON.parse(raw); } catch (e) { }
-                }
-                if (Array.isArray(raw)) enabledModules = raw;
-            } catch (e) { console.error('Erro parse modulos:', e); }
+            let raw = lojaModulosRaw;
+            if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (e) { } }
+            if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (e) { } }
+            if (Array.isArray(raw)) enabledModules = raw;
 
-            // Módulos especiais que sempre aparecem para quem está dentro da loja (como ajuda, etc)
-            const alwaysVisible = [];
-            if (alwaysVisible.includes(item.module)) return true;
-
-            // Verifica se o módulo está ativo na loja
             const moduleEnabled = enabledModules.includes(item.module);
-            if (!moduleEnabled) return false; // Módulo não está no plano da loja
+
+            if (!moduleEnabled) return false;
 
             // 👑 DEVELOPER/MASTER: Sempre vêem tudo
-            if (user.role === 'developer' || user.role === 'master') return true;
+            if (user.role === 'developer' || user.role === 'master' || user.role === 'admin') return true;
 
             // 👤 USUÁRIO COMUM: Verifica se tem permissão individual
             return hasPermission(item.to);
 
         } catch (e) {
             console.error('Erro ao filtrar módulos:', e);
-            return false; // Em caso de erro, ESCONDE por segurança
+            return false;
         }
     });
 
@@ -253,24 +215,31 @@ const Shell = ({ children, user, onLogout }) => {
                     className="h-20 flex items-center justify-center shrink-0 bg-[#00000033] relative overflow-hidden group select-none"
                 >
                     {/* Efeito de brilho ambiente */}
-                    <div className="absolute inset-0 bg-cyan-500/5 blur-xl group-hover:bg-cyan-500/10 transition-colors duration-500" />
+                    <div className="absolute inset-0 bg-cyan-500/5 blur-xl transition-colors duration-500" />
 
                     <div className={`flex flex-col items-center justify-center transition-all duration-300 ${isSidebarHovered ? 'scale-100' : 'scale-75'}`}>
-                        {/* SDR GRANDE com corte */}
-                        <div className="relative leading-none select-none">
-                            <h1 className="text-5xl font-bold italic tracking-tighter text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)] font-rajdhani"
-                                style={{ transform: 'skewX(-6deg)' }}>
-                                SDR
-                            </h1>
-                            {/* O Corte Diagonal */}
-                            <div className="absolute top-[45%] -left-2 -right-2 h-[3px] bg-[#0f172a] -rotate-[15deg] transform border-y border-cyan-900/30 pointer-events-none" />
-                        </div>
+                        {/* Vex Final Premium - No Clipping */}
+                        <div className="relative flex flex-col items-center select-none scale-75 lg:scale-95 origin-center w-full">
+                            <div className="relative flex justify-center items-center px-4">
+                                <h1 className="text-5xl font-bold italic tracking-tighter font-rajdhani leading-none pr-3 text-center"
+                                    style={{
+                                        transform: 'skewX(-6deg)',
+                                        background: 'linear-gradient(180deg, #fff 0%, #a5f3fc 20%, #22d3ee 45%, #0ea5e9 65%, #0369a1 85%, #083344 100%)',
+                                        WebkitBackgroundClip: 'text',
+                                        WebkitTextFillColor: 'transparent',
+                                        backgroundSize: '100% 120%'
+                                    }}>
+                                    Vex
+                                </h1>
+                            </div>
 
-                        {/* IRW MOTORS */}
-                        <div className={`flex items-center gap-1 mt-1 transition-all duration-300 ${isSidebarHovered ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'} delay-75`}>
-                            <span className="text-[10px] font-bold tracking-[0.3em] text-cyan-200/70 text-center whitespace-nowrap font-rajdhani">
-                                IRW MOTORS
-                            </span>
+                            {/* Monospace CORE Subtitle (Larger & Closer) */}
+                            <div className="mt-0 flex items-center justify-center w-full">
+                                <span className="text-[9px] font-black tracking-[0.8em] text-cyan-400 font-mono uppercase opacity-90 text-center"
+                                    style={{ marginRight: '-0.8em' }}>
+                                    CORE
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -332,17 +301,17 @@ const Shell = ({ children, user, onLogout }) => {
                                 <div className={`w-9 h-9 rounded-lg flex items-center justify-center border
                                     ${isAdmin ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400' : 'bg-orange-500/10 border-orange-500/30 text-orange-400'}`}>
                                     <span className="text-lg font-black font-rajdhani">
-                                        {(user.username || 'U').charAt(0).toUpperCase()}
+                                        {(user?.username || 'U').charAt(0).toUpperCase()}
                                     </span>
                                 </div>
                             </div>
                             <div className={`pl-[var(--sidebar-width)] flex flex-col justify-center transition-all duration-200
                                 ${isSidebarHovered ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
                                 <span className="text-[13px] font-black text-white leading-none uppercase tracking-wide truncate max-w-[140px]">
-                                    {user.nome_completo || user.nome || user.username || 'SDR'}
+                                    {user?.nome_completo || user?.nome || user?.username || 'VexCORE'}
                                 </span>
                                 <span className={`text-[8px] font-black mt-1 tracking-widest uppercase opacity-40 ${isAdmin ? 'text-cyan-400' : 'text-orange-400'}`}>
-                                    {user.role || 'Acesso SDR'}
+                                    {user?.role || 'Acesso VexCORE'}
                                 </span>
                             </div>
                         </div>
@@ -410,30 +379,6 @@ const Shell = ({ children, user, onLogout }) => {
                     </AnimatePresence>
                 </div>
 
-                {/* Update Notification */}
-                <AnimatePresence>
-                    {updateStatus.available && (
-                        <motion.div
-                            initial={{ y: 50, opacity: 0 }}
-                            animate={{ y: 0, opacity: 1 }}
-                            exit={{ y: 50, opacity: 0 }}
-                            className="fixed bottom-6 right-6 bg-slate-900 border border-white/10 p-4 rounded-2xl shadow-2xl z-[9999] w-80"
-                        >
-                            <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs font-bold text-white">Atualização Disponível</span>
-                                <span className="text-[10px] font-mono text-cyan-400">{Math.round(updateStatus.progress)}%</span>
-                            </div>
-                            <div className="w-full h-1 bg-slate-700 rounded-full overflow-hidden">
-                                <div className="h-full bg-cyan-500 transition-all duration-300" style={{ width: `${updateStatus.progress}%` }} />
-                            </div>
-                            {updateStatus.ready && (
-                                <button onClick={handleInstallUpdate} className="mt-3 w-full py-2 bg-cyan-500 hover:bg-cyan-400 text-black font-bold rounded-lg text-xs  tracking-wide transition-colors">
-                                    Reiniciar Agora
-                                </button>
-                            )}
-                        </motion.div>
-                    )}
-                </AnimatePresence>
 
 
             </main>

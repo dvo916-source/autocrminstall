@@ -1,5 +1,5 @@
 /**
- * Utilitários Compartilhados - SDR Crystal
+ * Utilitários Compartilhados - VexCORE
  */
 
 /**

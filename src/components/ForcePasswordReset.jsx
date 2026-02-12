@@ -33,7 +33,7 @@ const ForcePasswordReset = ({ username, onComplete, onCancel }) => {
             });
 
             if (success) {
-                onComplete();
+                onComplete(newPassword);
             } else {
                 setError('Erro ao atualizar senha. Tente novamente.');
             }

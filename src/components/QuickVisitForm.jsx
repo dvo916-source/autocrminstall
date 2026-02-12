@@ -13,11 +13,14 @@ const TEMPERATURAS = [
 ];
 
 const FORMAS_PAGAMENTO = [
+    { value: 'A Vista', label: '💵 A Vista' },
     { value: 'Financiamento', label: '🏦 Financiamento' },
-    { value: 'À Vista', label: '💵 À Vista' },
+    { value: 'Veículo na Troca', label: '🚗 Veículo na Troca' },
+    { value: 'Troca com Troco', label: '💰 Troca com Troco' },
     { value: 'Consórcio', label: '📝 Consórcio' },
-    { value: 'Cartão', label: '💳 Crédito' },
-    { value: 'Troca com Troco', label: '💰 Troca c/ Troco' }
+    { value: 'Cartão de Crédito', label: '💳 Cartão de Crédito' },
+    { value: 'PIX', label: '📲 PIX' },
+    { value: 'Transferência Bancária', label: '🏦 Transferência Bancária' }
 ];
 
 const QuickVisitForm = ({ onClose }) => {
@@ -42,6 +45,10 @@ const QuickVisitForm = ({ onClose }) => {
 
 
 
+    const toTitleCase = (str) => {
+        return str.replace(/\b\w/g, l => l.toUpperCase());
+    };
+
     const maskPhone = (val) => {
         let v = val.replace(/\D/g, '');
         if (v.length > 11) v = v.substring(0, 11);
@@ -62,7 +69,7 @@ const QuickVisitForm = ({ onClose }) => {
 
     useEffect(() => {
         loadData();
-        const storedUser = JSON.parse(localStorage.getItem('sdr_user') || '{"username":"SDR"}');
+        const storedUser = JSON.parse(localStorage.getItem('vexcore_user') || '{"username":"VEX"}');
         setCurrentUser(storedUser);
 
         const superRoles = ['admin', 'master', 'developer', 'gerente'];
@@ -209,7 +216,7 @@ const QuickVisitForm = ({ onClose }) => {
                         placeholder="NOME DO CLIENTE"
                         className="w-full bg-black/40 border border-white/5 rounded-xl py-2.5 px-4 text-white text-[11px] font-bold outline-none focus:border-blue-500/50 transition-all placeholder:text-gray-700 shadow-inner"
                         value={formData.cliente}
-                        onChange={e => setFormData({ ...formData, cliente: e.target.value.toUpperCase() })}
+                        onChange={e => setFormData({ ...formData, cliente: toTitleCase(e.target.value) })}
                     />
                     <div className="grid grid-cols-2 gap-2">
                         <input
@@ -246,6 +253,8 @@ const QuickVisitForm = ({ onClose }) => {
                             onChange={val => setFormData({ ...formData, veiculo_interesse: val })}
                             placeholder="CARRO INTERESSE"
                             searchable
+                            creatable
+                            autoCapitalize={true}
                             className="h-9"
                         />
                     </div>
@@ -287,20 +296,20 @@ const QuickVisitForm = ({ onClose }) => {
                         <PremiumDatePicker
                             value={formData.data_agendamento}
                             onChange={val => setFormData({ ...formData, data_agendamento: val })}
-                            allowPastDates={isAdmin}
+                            allowPastDates={true}
                             className="h-9"
                         />
                     </div>
                     {isAdmin && (
                         <div className="pt-1">
                             <div className="flex items-center gap-2 text-[9px] font-black text-blue-400/50 tracking-[0.2em] uppercase mb-1">
-                                <Shield size={10} className="text-blue-500/50" /> Agendado Por (SDR)
+                                <Shield size={10} className="text-blue-500/50" /> Agendado Por
                             </div>
                             <PremiumSelect
                                 options={usuarios.map(u => ({ value: u.username, label: u.nome_completo || u.username }))}
                                 value={formData.vendedor_sdr}
                                 onChange={val => setFormData({ ...formData, vendedor_sdr: val })}
-                                placeholder="ESCOLHA O SDR"
+                                placeholder="ESCOLHA O VENDEDOR"
                                 searchable
                                 className="h-9"
                             />
@@ -309,16 +318,17 @@ const QuickVisitForm = ({ onClose }) => {
                     <PremiumSelect
                         options={FORMAS_PAGAMENTO}
                         value={formData.forma_pagamento}
-                        onChange={val => setFormData({ ...formData, forma_pagamento: val })}
-                        placeholder="PAGAMENTO"
+                        onChange={(val) => setFormData(prev => ({ ...prev, forma_pagamento: Array.isArray(val) ? val.join(', ') : val }))}
+                        placeholder="MEIOS DE PAGAMENTO"
                         className="h-9 z-[20]"
+                        multiSelect={true}
                     />
                 </div>
 
                 {/* Notas */}
                 <div className="relative z-10">
                     <div className="flex items-center gap-2 text-[9px] font-black text-gray-400/50 tracking-[0.2em] uppercase mb-1.5">
-                        <Edit2 size={10} className="text-blue-500/50" /> Notas SDR
+                        <Edit2 size={10} className="text-blue-500/50" /> Notas Internas
                     </div>
                     <textarea
                         placeholder="NEGOCIAÇÃO EM ANDAMENTO..."

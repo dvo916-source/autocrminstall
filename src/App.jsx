@@ -2,7 +2,7 @@ import React, { useState, useEffect, memo, Suspense, Component } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Shell from './components/Shell';
 import Dashboard from './pages/Dashboard';
-import HomeSDR from './pages/HomeSDR';
+import HomeVex from './pages/HomeSDR';
 import Visitas from './pages/Visitas';
 import Estoque from './pages/Estoque';
 import Portais from './pages/Portais';
@@ -20,7 +20,7 @@ import MigracaoSupabase from './pages/MigracaoSupabase';
 import { AlertCircle, RotateCcw, Database } from 'lucide-react';
 import { LojaProvider, useLoja } from './context/LojaContext';
 import StoreManagement from './pages/StoreManagement';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 
 // === ERROR BOUNDARY ===
 class ErrorBoundary extends Component {
@@ -108,7 +108,21 @@ const MainContent = ({ user, handleLogout }) => {
   const navigate = useNavigate(); // Hook para navegação
   const isAdmin = user?.role === 'admin' || user?.role === 'master' || user?.role === 'developer';
   const isWhatsappActive = location.pathname === '/whatsapp';
-  const { currentLoja } = useLoja(); // Added useLoja hook
+  const { currentLoja, lojas, switchLoja } = useLoja();
+
+  // 🔥 AUTO-SELECT STORE FOR COMMON USERS
+  useEffect(() => {
+    if (user && user.role !== 'developer' && user.loja_id && !currentLoja && lojas.length > 0) {
+      const target = lojas.find(l => l.id === user.loja_id);
+      if (target) {
+        console.log('🏪 [App] Auto-selecionando loja para o usuário:', target.nome);
+        // Usamos switchLoja sem recarregar se possível, ou apenas definimos o estado
+        // Note: switchLoja in LojaContext.jsx currently does a window.location.reload()
+        // which might be fine for the first time.
+        switchLoja(target);
+      }
+    }
+  }, [user, currentLoja, lojas, switchLoja]);
 
   useEffect(() => {
     console.log('📍 [App] Pathname atual:', location.pathname);
@@ -136,13 +150,21 @@ const MainContent = ({ user, handleLogout }) => {
     // Admins/Master have access by default unless specific permissions exist
     if (isAdmin) return true;
 
-    if (!user?.permissions) return true; // Fallback for legacy
+    if (!user?.permissions || user?.permissions === '[]') return false;
 
     let perms = [];
     try {
       perms = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions;
     } catch {
       perms = [];
+    }
+
+    // Handle double stringification
+    if (typeof perms === 'string') {
+      try { perms = JSON.parse(perms); } catch (e) { }
+    }
+    if (typeof perms === 'string') {
+      try { perms = JSON.parse(perms); } catch (e) { }
     }
 
     if (!Array.isArray(perms)) return false;
@@ -182,8 +204,8 @@ const MainContent = ({ user, handleLogout }) => {
   const AppRoutes = () => (
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
-        <Route path="/" element={<HomeSDR user={user} />} />
-        <Route path="/diario" element={<HomeSDR user={user} />} />
+        <Route path="/" element={<HomeVex user={user} />} />
+        <Route path="/diario" element={<HomeVex user={user} />} />
         <Route path="/dashboard" element={<Dashboard user={user} />} />
         <Route path="/whatsapp" element={<Whatsapp />} />
         <Route path="/estoque" element={<Estoque user={user} />} />
@@ -329,6 +351,7 @@ const useSessionValidation = (user, onLogout) => {
 function App() {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
+  const [updateStatus, setUpdateStatus] = useState({ available: false, progress: 0, ready: false, info: null });
 
   // Ativa o escalonamento proporcional via REM
   useAutoScaling();
@@ -340,27 +363,55 @@ function App() {
   });
 
   useEffect(() => {
-    const stored = localStorage.getItem('sdr_user');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        setUser(parsed);
+    const stored = localStorage.getItem('vexcore_user');
+    const { ipcRenderer } = window.require('electron');
 
-        // Se for developer, verificamos se ele já estava atendendo uma loja
-        if (parsed.role === 'developer') {
-          const activeLojaId = localStorage.getItem('active_loja_id');
-          if (!activeLojaId && window.location.hash !== '#/central-lojas') {
-            window.location.hash = '#/central-lojas';
+    const initializeUser = async () => {
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+
+          // Multi-level parse for safety
+          let finalPerms = parsed.permissions || [];
+          if (typeof finalPerms === 'string') {
+            try {
+              finalPerms = JSON.parse(finalPerms);
+              if (typeof finalPerms === 'string') finalPerms = JSON.parse(finalPerms);
+            } catch (e) { finalPerms = []; }
           }
+
+          const userToSet = { ...parsed, permissions: Array.isArray(finalPerms) ? finalPerms : [] };
+          setUser(userToSet);
+
+          // 🛡️ VALIDAÇÃO DE STARTUP: Verifica se o usuário ainda existe no banco
+          console.log(`🛡️ [App] Validando usuário no startup: ${userToSet.username}`);
+          const freshData = await ipcRenderer.invoke('get-user', userToSet.username);
+
+          if (!freshData) {
+            console.warn('⚠️ [App] Usuário não encontrado no banco. Limpando cache...');
+            handleLogout();
+            return;
+          }
+
+          // Se for developer, verificamos se ele já estava atendendo uma loja
+          if (userToSet.role === 'developer') {
+            const activeLojaId = localStorage.getItem('active_loja_id');
+            if (!activeLojaId && window.location.hash !== '#/central-lojas') {
+              window.location.hash = '#/central-lojas';
+            }
+          }
+        } catch (e) {
+          console.error("Erro na inicialização do usuário:", e);
         }
-      } catch (e) { }
-    }
-    setInitializing(false);
+      }
+      setInitializing(false);
+    };
+
+    initializeUser();
 
     // 🔄 REALTIME PERMISSION UPDATE
-    const { ipcRenderer } = window.require('electron');
     const handleUserDataUpdate = async (event, updatedUsername) => {
-      const currentStored = JSON.parse(localStorage.getItem('sdr_user') || '{}');
+      const currentStored = JSON.parse(localStorage.getItem('vexcore_user') || '{}');
       if (updatedUsername.toLowerCase() === currentStored.username?.toLowerCase()) {
         console.log(`📡 [App] Atualizando dados para usuário logado: ${updatedUsername}`);
         try {
@@ -370,7 +421,7 @@ function App() {
               ...freshData,
               permissions: typeof freshData.permissions === 'string' ? JSON.parse(freshData.permissions) : freshData.permissions
             };
-            localStorage.setItem('sdr_user', JSON.stringify(formatted));
+            localStorage.setItem('vexcore_user', JSON.stringify(formatted));
             setUser(formatted);
           }
         } catch (err) {
@@ -380,15 +431,49 @@ function App() {
     };
 
     ipcRenderer.on('user-data-updated', handleUserDataUpdate);
-    return () => ipcRenderer.removeListener('user-data-updated', handleUserDataUpdate);
+
+    // --- GLOBAL UPDATE LISTENERS ---
+    const updateAvail = (e, info) => {
+      console.log('📡 [App] Update available:', info);
+      setUpdateStatus(prev => ({ ...prev, available: true, info }));
+    };
+    const updateProg = (e, percent) => setUpdateStatus(prev => ({ ...prev, progress: percent }));
+    const updateReady = (e, info) => {
+      console.log('📡 [App] Update downloaded:', info);
+      setUpdateStatus(prev => ({ ...prev, ready: true, info }));
+    };
+    const updateError = (e, err) => {
+      console.error('📡 [App] Update error:', err);
+      // Opcional: mostrar erro ou apenas logar
+    };
+
+    ipcRenderer.on('update-available', updateAvail);
+    ipcRenderer.on('update-progress', updateProg);
+    ipcRenderer.on('update-downloaded', updateReady);
+    ipcRenderer.on('update-error', updateError);
+
+    return () => {
+      ipcRenderer.removeListener('user-data-updated', handleUserDataUpdate);
+      ipcRenderer.removeListener('update-available', updateAvail);
+      ipcRenderer.removeListener('update-progress', updateProg);
+      ipcRenderer.removeListener('update-downloaded', updateReady);
+      ipcRenderer.removeListener('update-error', updateError);
+    };
   }, []);
 
   const handleLogin = (userData) => {
+    let perms = userData.permissions || [];
+    if (typeof perms === 'string') {
+      try {
+        perms = JSON.parse(perms);
+        if (typeof perms === 'string') perms = JSON.parse(perms);
+      } catch (e) { perms = []; }
+    }
     const formattedUser = {
       ...userData,
-      permissions: typeof userData.permissions === 'string' ? JSON.parse(userData.permissions) : userData.permissions
+      permissions: Array.isArray(perms) ? perms : []
     };
-    localStorage.setItem('sdr_user', JSON.stringify(formattedUser));
+    localStorage.setItem('vexcore_user', JSON.stringify(formattedUser));
     localStorage.setItem('username', formattedUser.username);
     localStorage.setItem('userRole', formattedUser.role);
     setUser(formattedUser);
@@ -400,30 +485,81 @@ function App() {
   };
 
   const handleLogout = () => {
-    setUser(null);
+    // Limpamos o storage primeiro
     localStorage.clear();
-    // Força reload completo para resetar todos os estados
+    // Forçamos o reload sem setar user null para o React não tentar renderizar o estado intermediário
     window.location.reload();
   };
 
   if (initializing) return <div className="min-h-screen bg-[#0f172a]" />;
-
-  if (!user) {
-    return <Login onLogin={handleLogin} />;
-  }
-
-  if (user.reset_password === 1) {
-    return <ResetPassword user={user} onComplete={setUser} />;
-  }
 
   return (
     <LojaProvider>
       <ErrorBoundary>
         <HashRouter>
           <Suspense fallback={<div className="min-h-screen bg-[#0f172a]" />}>
-            <MainContent user={user} handleLogout={handleLogout} />
+            {!user ? (
+              <Login onLogin={handleLogin} />
+            ) : user.reset_password === 1 ? (
+              <ResetPassword user={user} onComplete={setUser} />
+            ) : (
+              <MainContent user={user} handleLogout={handleLogout} />
+            )}
           </Suspense>
         </HashRouter>
+
+        {/* --- GLOBAL UPDATE OVERLAY --- */}
+        <AnimatePresence>
+          {(updateStatus.available || updateStatus.ready) && (
+            <motion.div
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              className="fixed bottom-8 right-8 z-[10000] w-96 bg-slate-900/90 backdrop-blur-xl border border-white/10 p-6 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+            >
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 bg-cyan-500/20 rounded-2xl flex items-center justify-center shrink-0">
+                  <RotateCcw className={`text-cyan-400 ${!updateStatus.ready ? 'animate-spin' : ''}`} size={24} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-white font-black text-sm uppercase tracking-wider">
+                    {updateStatus.ready ? 'Atualização Pronta!' : 'Baixando Atualização...'}
+                  </h3>
+                  <p className="text-gray-400 text-[10px] font-bold mt-0.5 truncate uppercase tracking-widest">
+                    Versão {updateStatus.info?.version || '1.1.5'}
+                  </p>
+                </div>
+              </div>
+
+              {!updateStatus.ready && (
+                <div className="space-y-2">
+                  <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full bg-cyan-500"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${updateStatus.progress}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-right text-cyan-400 font-black font-mono">
+                    {Math.round(updateStatus.progress)}%
+                  </p>
+                </div>
+              )}
+
+              {updateStatus.ready && (
+                <button
+                  onClick={() => {
+                    const { ipcRenderer } = window.require('electron');
+                    ipcRenderer.invoke('install-update');
+                  }}
+                  className="w-full bg-cyan-500 hover:bg-cyan-400 py-4 rounded-2xl font-black text-black transition-all shadow-lg shadow-cyan-500/20 uppercase tracking-widest text-xs"
+                >
+                  Reiniciar e Atualizar
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </ErrorBoundary>
     </LojaProvider>
   );

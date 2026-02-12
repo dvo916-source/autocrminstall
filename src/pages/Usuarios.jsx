@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Users, Shield, Plus, Power, PowerOff, UserPlus, Trash2, Key, CheckCircle2, AlertCircle, Phone, User as UserIcon, Mail, Edit } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Users, Shield, Plus, Power, PowerOff, UserPlus, Trash2, Key, CheckCircle2, AlertCircle, Phone, User as UserIcon, Mail, Edit, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ConfirmModal from '../components/ConfirmModal';
 import PremiumSelect from '../components/PremiumSelect';
 import { useLoja } from '../context/LojaContext';
+import { ToastContainer } from '../components/Toast';
 
 const AVAILABLE_PERMISSIONS = [
     { id: '/diario', label: 'Agenda Diária (Diário)', icon: 'BookOpen' },
@@ -18,11 +20,21 @@ const AVAILABLE_PERMISSIONS = [
 ];
 
 const Usuarios = ({ user }) => {
+    const navigate = useNavigate();
     const { currentLoja } = useLoja();
     const [vendedores, setVendedores] = useState([]);
     const [usuarios, setUsuarios] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [statusMsg, setStatusMsg] = useState({ text: '', type: '' });
+    const [toasts, setToasts] = useState([]);
+
+    const addToast = useCallback((message, type = 'success') => {
+        const id = Date.now();
+        setToasts(prev => [...prev, { id, message, type }]);
+    }, []);
+
+    const removeToast = useCallback((id) => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+    }, []);
 
     // Modal Control
     const [modal, setModal] = useState({ open: false, type: '', data: null });
@@ -64,10 +76,14 @@ const Usuarios = ({ user }) => {
                 ipcRenderer.invoke('get-list-users', lojaId)
             ]);
             setVendedores(vends || []);
-            const parsedUsers = (usersList || []).map(u => ({
-                ...u,
-                permissions: typeof u.permissions === 'string' ? JSON.parse(u.permissions) : (u.permissions || [])
-            }));
+            const parsedUsers = (usersList || []).map(u => {
+                let perms = [];
+                try {
+                    perms = typeof u.permissions === 'string' ? JSON.parse(u.permissions) : (u.permissions || []);
+                    if (typeof perms === 'string') perms = JSON.parse(perms);
+                } catch (e) { perms = []; }
+                return { ...u, permissions: perms };
+            });
             setUsuarios(parsedUsers);
         } catch (err) {
             console.error("Error loading all data:", err);
@@ -115,10 +131,13 @@ const Usuarios = ({ user }) => {
             const { ipcRenderer } = window.require('electron');
             await ipcRenderer.invoke('add-item', {
                 table: 'vendedores',
-                nome: data.nome.trim().toUpperCase(),
-                sobrenome: (data.sobrenome || '').trim().toUpperCase(),
-                telefone: (data.telefone || '').trim(),
-                loja_id: currentLoja?.id
+                data: {
+                    id: Date.now().toString(),
+                    nome: data.nome.trim().toUpperCase(),
+                    sobrenome: (data.sobrenome || '').trim().toUpperCase(),
+                    telefone: (data.telefone || '').trim(),
+                    loja_id: currentLoja?.id
+                }
             });
             setNewVendedor({ nome: '', sobrenome: '', telefone: '' });
             showMsg('Consultor adicionado com sucesso!');
@@ -167,33 +186,31 @@ const Usuarios = ({ user }) => {
     const handleAddUser = async (e) => {
         e.preventDefault();
 
-        if (newUser.password.length < 6) {
-            showMsg('Senha deve ter no mínimo 6 caracteres', 'error');
-            return;
-        }
-        if (newUser.password !== confirmPassword) {
-            showMsg('Senhas não correspondem', 'error');
-            return;
-        }
+        if (!newUser.nome_completo.trim()) return addToast("Nome completo é obrigatório", "error");
+        if (!newUser.email.trim()) return addToast("Email é obrigatório", "error");
+        if (!newUser.password.trim()) return addToast("Senha é obrigatória", "error");
+        if (newUser.password.length < 6) return addToast('Senha deve ter no mínimo 6 caracteres', 'error');
+        if (newUser.password !== confirmPassword) return addToast("As senhas não conferem", "error");
 
         try {
             const { ipcRenderer } = window.require('electron');
-
-            await ipcRenderer.invoke('add-user', { ...newUser, loja_id: currentLoja?.id });
-            showMsg('Novo usuário cadastrado!');
-
-            // Reset
-            setNewUser({
-                username: '', password: '', role: 'sdr',
-                nome_completo: '', email: '', whatsapp: '', cpf: '', ativo: 1,
-                permissions: ['/', '/whatsapp', '/estoque', '/visitas', '/metas', '/diario']
+            const res = await ipcRenderer.invoke('add-user', {
+                ...newUser,
+                loja_id: currentLoja?.id || 'irw-motors-main'
             });
-            setConfirmPassword('');
-            loadAll();
+
+            if (res.success) {
+                addToast("Usuário cadastrado com sucesso!");
+                loadAll();
+                setNewUser({ username: '', password: '', role: 'sdr', nome_completo: '', email: '', whatsapp: '', cpf: '', ativo: 1, permissions: [] });
+                setConfirmPassword('');
+                setShowUserForm(false);
+            } else {
+                addToast(res.message || "Erro ao cadastrar usuário", "error");
+            }
         } catch (err) {
             console.error(err);
-            const msg = err.message ? err.message : 'Usuário já existe ou erro na rede';
-            showMsg(msg.includes('Error inviting') ? msg : 'Erro: ' + msg, 'error');
+            addToast("Falha na comunicação com o servidor", "error");
         }
     };
 
@@ -201,6 +218,10 @@ const Usuarios = ({ user }) => {
         let parsedPerms = [];
         try {
             parsedPerms = (typeof u.permissions === 'string') ? JSON.parse(u.permissions) : (u.permissions || []);
+            // Double parse for safety
+            if (typeof parsedPerms === 'string') {
+                parsedPerms = JSON.parse(parsedPerms);
+            }
         } catch (e) { parsedPerms = []; }
 
         setEditModal({
@@ -215,17 +236,17 @@ const Usuarios = ({ user }) => {
         const u = editModal.user;
 
         if (!u.email || !u.nome_completo) {
-            showMsg('Nome e Email são obrigatórios', 'error');
+            addToast('Nome e Email são obrigatórios', 'error');
             return;
         }
 
         if (u.password && u.password.length > 0) {
             if (u.password.length < 6) {
-                showMsg('A nova senha deve ter no mínimo 6 caracteres', 'error');
+                addToast('A nova senha deve ter no mínimo 6 caracteres', 'error');
                 return;
             }
             if (u.password !== confirmPassword) {
-                showMsg('As senhas não conferem', 'error');
+                addToast('As senhas não conferem', 'error');
                 return;
             }
         }
@@ -233,11 +254,11 @@ const Usuarios = ({ user }) => {
         try {
             const { ipcRenderer } = window.require('electron');
             await ipcRenderer.invoke('update-user', { ...u, loja_id: currentLoja?.id });
-            showMsg('Usuário atualizado com sucesso!');
+            addToast('Usuário atualizado com sucesso!');
             setEditModal({ open: false, user: null });
             loadAll();
         } catch (err) {
-            showMsg('Erro ao atualizar usuário', 'error');
+            addToast('Erro ao atualizar usuário', 'error');
         }
     };
 
@@ -249,26 +270,31 @@ const Usuarios = ({ user }) => {
                 ativo: !userObj.ativo,
                 loja_id: currentLoja?.id
             });
-            showMsg(userObj.ativo ? 'Usuário pausado' : 'Usuário reativado');
+            addToast(userObj.ativo ? 'Usuário pausado' : 'Usuário reativado');
             loadAll();
         } catch (err) {
-            showMsg('Erro ao alterar status', 'error');
+            addToast('Erro ao alterar status', 'error');
         }
     };
 
-    const executeDelete = async () => {
+    const handleConfirmDelete = async () => {
         const { type, data } = modal;
         try {
             const { ipcRenderer } = window.require('electron');
+            let res;
             if (type === 'vendedor') {
-                await ipcRenderer.invoke('delete-item', { table: 'vendedores', nome: data, loja_id: currentLoja?.id });
-                showMsg('Consultor removido da lista!');
-            } else if (type === 'usuario') {
-                await ipcRenderer.invoke('delete-user', data);
-                showMsg('Acesso removido com sucesso!');
+                res = await ipcRenderer.invoke('delete-item', { table: 'vendedores', nome: data, loja_id: currentLoja?.id });
+                addToast("Consultor removido");
+            } else {
+                res = await ipcRenderer.invoke('delete-user', data);
+                addToast("Usuário removido");
             }
             loadAll();
-        } catch (err) { showMsg('Erro ao excluir', 'error'); }
+            setModal({ open: false, type: '', data: null });
+        } catch (err) {
+            console.error(err);
+            addToast("Erro ao excluir", "error");
+        }
     };
 
     const isMaster = user?.role === 'master' || user?.role === 'developer';
@@ -287,7 +313,7 @@ const Usuarios = ({ user }) => {
             <ConfirmModal
                 isOpen={modal.open}
                 onClose={() => setModal({ open: false, type: '', data: null })}
-                onConfirm={executeDelete}
+                onConfirm={handleConfirmDelete}
                 title="Atenção"
                 message={
                     modal.type === 'vendedor'
@@ -302,11 +328,11 @@ const Usuarios = ({ user }) => {
                 initialUser={editModal.user}
                 onClose={() => setEditModal({ open: false, user: null })}
                 onSuccess={(msg) => {
-                    showMsg(msg);
+                    addToast(msg);
                     setEditModal({ open: false, user: null });
                     loadAll();
                 }}
-                onError={(msg) => showMsg(msg, 'error')}
+                onError={(msg) => addToast(msg, 'error')}
                 isMaster={isMaster}
                 isMasterOrAdmin={isMasterOrAdmin}
                 isMasterOrAdmin={isMasterOrAdmin}
@@ -315,21 +341,10 @@ const Usuarios = ({ user }) => {
             />
 
             <AnimatePresence>
-                {statusMsg.text && (
-                    <motion.div
-                        initial={{ opacity: 0, y: -20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        className={`fixed top-24 right-8 z-[200] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border backdrop-blur-xl ${statusMsg.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-green-500/10 border-green-500/20 text-green-400'
-                            }`}
-                    >
-                        {statusMsg.type === 'error' ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
-                        <span className="font-black  text-xs tracking-widest">{statusMsg.text}</span>
-                    </motion.div>
-                )}
+                {/* Removed statusMsg.text display as ToastContainer handles it */}
             </AnimatePresence>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 relative z-10 w-full">
 
                 {/* Gestão de Consultores (Vendedores de Salão) */}
                 <div className="space-y-6">
@@ -345,25 +360,25 @@ const Usuarios = ({ user }) => {
                     />
                 </div>
 
-                {/* Gestão de Usuários do Sistema */}
-                <div className="space-y-6">
-                    <div className="bg-[#1a2233] border border-white/10 p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden">
-                        <div className="absolute bottom-[-10px] right-[-10px] p-8 opacity-[0.03] pointer-events-none transition-all">
-                            <Shield size={120} />
-                        </div>
+                <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-                        <div className="flex justify-between items-center cursor-pointer relative z-20" onClick={() => setShowUserForm(!showUserForm)}>
-                            <div>
-                                <h2 className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-300">
-                                    USUÁRIOS DO SISTEMA
-                                </h2>
-                                <p className="text-gray-400 text-[11px] tracking-widest mt-1 uppercase">Gestão de Contas e Permissões de Login</p>
-                            </div>
-                            <button className={`p-3 rounded-xl transition-all shadow-lg border border-white/5 ${showUserForm ? 'bg-blue-500/20 text-blue-400 rotate-45' : 'bg-[#131b29] text-gray-400 hover:text-blue-400 hover:border-blue-500/30'}`}>
-                                <Plus size={20} />
-                            </button>
-                        </div>
+                {/* Gestão de Acessos */}
+                <div className="bg-[#1a2233] border border-white/10 p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden h-fit">
+                    <div className="absolute top-0 right-0 p-8 opacity-[0.03] pointer-events-none">
+                        <Shield size={120} />
+                    </div>
 
+                    <div className="flex justify-between items-center cursor-pointer relative z-20" onClick={() => setShowUserForm(!showUserForm)}>
+                        <div>
+                            <h2 className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-300">GESTÃO DE ACESSOS</h2>
+                            <p className="text-gray-400 text-[11px] tracking-widest mt-1 uppercase">Acessos Administrativos e de Vendas</p>
+                        </div>
+                        <button className={`p-3 rounded-xl transition-all shadow-lg border border-white/5 ${showUserForm ? 'bg-blue-500/20 text-blue-400 rotate-45' : 'bg-[#131b29] text-gray-400 hover:text-blue-400 hover:border-blue-500/30'}`}>
+                            <Plus size={20} />
+                        </button>
+                    </div>
+
+                    <div className="relative">
                         <AnimatePresence>
                             {showUserForm && (
                                 <motion.div
@@ -372,7 +387,7 @@ const Usuarios = ({ user }) => {
                                     exit={{ height: 0, opacity: 0 }}
                                     className="overflow-hidden relative z-10"
                                 >
-                                    <form onSubmit={handleAddUser} className="space-y-3 mt-8 pt-8 border-t border-white/5">
+                                    <form onSubmit={handleAddUser} noValidate className="space-y-3 mt-8 pt-8 border-t border-white/5">
                                         <div className="relative group">
                                             <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-blue-400 transition-colors" size={16} />
                                             <input
@@ -452,7 +467,7 @@ const Usuarios = ({ user }) => {
                                             <PremiumSelect
                                                 className="flex-1"
                                                 options={[
-                                                    { value: 'sdr', label: 'PERFIL VENDEDOR (SDR)' },
+                                                    { value: 'sdr', label: 'PERFIL VENDEDOR' },
                                                     ...(isMasterOrAdmin ? [{ value: 'admin', label: 'PERFIL ADMINISTRADOR' }] : []),
                                                     ...(isMaster ? [{ value: 'gerente', label: 'PERFIL GERENTE' }] : [])
                                                 ]}
@@ -532,8 +547,9 @@ const Usuarios = ({ user }) => {
                                                     </span>
                                                 )}
                                             </p>
+                                            <p className="text-[10px] font-bold text-gray-500  tracking-[0.2em] font-rajdhani">VexCORE Executive</p>
                                             <p className="text-[11px] font-semibold text-gray-500 tracking-widest truncate uppercase">{u.email || u.username || 'SEM EMAIL'}</p>
-                                            <p className="text-[10px] font-semibold text-blue-500/60 tracking-tight uppercase">{!u.role ? 'SEM PERFIL' : (u.role === 'sdr' ? 'VENDEDOR (SDR)' : u.role.toUpperCase())} • {u.whatsapp || 'SEM WHATSAPP'}</p>
+                                            <p className="text-[10px] font-semibold text-blue-500/60 tracking-tight uppercase">{!u.role ? 'SEM PERFIL' : (u.role === 'sdr' ? 'VENDEDOR' : (u.role === 'admin' ? 'ADMIN' : u.role.toUpperCase()))} • {u.whatsapp || 'SEM WHATSAPP'}</p>
                                         </div>
                                     </div>
 
@@ -582,9 +598,14 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
 
     useEffect(() => {
         if (isOpen && initialUser) {
-            const normalizedPerms = typeof initialUser.permissions === 'string'
+            let normalizedPerms = typeof initialUser.permissions === 'string'
                 ? JSON.parse(initialUser.permissions)
                 : initialUser.permissions;
+
+            // Double parse for safety
+            if (typeof normalizedPerms === 'string') {
+                try { normalizedPerms = JSON.parse(normalizedPerms); } catch (e) { }
+            }
             setUser({ ...initialUser, permissions: normalizedPerms || [], password: '' });
             setConfirmPwd('');
         }
@@ -697,7 +718,7 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
                                     value={user.role}
                                     onChange={e => setUser({ ...user, role: e.target.value })}
                                 >
-                                    <option value="sdr" className="bg-[#1d253a]">PERFIL VENDEDOR (SDR)</option>
+                                    <option value="sdr" className="bg-[#1d253a]">PERFIL VENDEDOR</option>
                                     <option value="admin" className="bg-[#1d253a]">PERFIL ADMINISTRADOR</option>
                                     <option value="gerente" className="bg-[#1d253a]">PERFIL GERENTE</option>
                                     {user.role === 'master' && <option value="master" className="bg-[#1d253a]">PERFIL MASTER (PROPRIETÁRIO)</option>}
@@ -790,10 +811,18 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
 const ConsultoresManager = React.memo(({ vendedores, isMasterOrAdmin, handleAddVendedor, newVendedor, setNewVendedor, formatPhone, toggleVendedor, onDelete }) => {
     const [localVendedor, setLocalVendedor] = useState({ nome: '', sobrenome: '', telefone: '' });
     const [showForm, setShowForm] = useState(false);
+    const navigate = useNavigate(); // Initialized navigate
 
     useEffect(() => {
         if (newVendedor.nome === '') setLocalVendedor({ nome: '', sobrenome: '', telefone: '' });
     }, [newVendedor]);
+
+    const handleTalkToSalesman = (telefone) => {
+        if (!telefone) return;
+        const cleanPhone = telefone.replace(/\D/g, '');
+        window.dispatchEvent(new CustomEvent('whatsapp-direct-chat', { detail: cleanPhone }));
+        navigate('/whatsapp');
+    };
 
     const onSubmit = (e) => {
         e.preventDefault();
@@ -882,6 +911,15 @@ const ConsultoresManager = React.memo(({ vendedores, isMasterOrAdmin, handleAddV
                             <span className="text-[10px] text-gray-500 font-bold">{m.telefone || 'SEM TELEFONE'}</span>
                         </div>
                         <div className="flex items-center gap-1">
+                            {m.telefone && (
+                                <button
+                                    onClick={() => handleTalkToSalesman(m.telefone)}
+                                    className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-xl transition-all"
+                                    title="Conversar no WhatsApp"
+                                >
+                                    <MessageSquare size={16} />
+                                </button>
+                            )}
                             <button
                                 onClick={() => toggleVendedor(m.nome, m.ativo)}
                                 className={`p-2 rounded-xl transition-all ${m.ativo ? 'text-red-400 hover:bg-red-500/10' : 'text-green-400 hover:bg-green-500/10'}`}

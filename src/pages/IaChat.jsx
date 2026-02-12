@@ -144,7 +144,7 @@ const IaChat = () => {
                     <HubCard
                         to="/crm-ia"
                         icon={Bot}
-                        title="IRW CORE"
+                        title="VexCORE"
                         subtitle="Motor neural de conversão. Gerencia leads, qualifica intenções e executa o fechamento no WhatsApp de forma autônoma."
                         tags={["Conversão", "Automação", "WhatsApp"]}
                         delay={0.1}

@@ -231,7 +231,7 @@ const StoreManagement = () => {
                         <div className="flex items-center gap-3 pl-1">
                             <div className="w-8 h-[2px] bg-blue-500/40 rounded-full" />
                             <p className="text-slate-500 font-black text-[9px] uppercase tracking-[0.4em]">
-                                Gestão Multitenant SDR Premium
+                                Gestão Multitenant VexCORE
                             </p>
                         </div>
                     </motion.div>
