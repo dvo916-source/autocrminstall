@@ -1710,9 +1710,15 @@ export async function changePassword(username, newPassword) {
 
     // ☁️ SYNC SUPABASE
     try {
-        const client = getSupabaseClient(null); // Assuming user's loja_id is not directly available here, or it's a global user operation
+        const client = getSupabaseClient(null);
         if (client) {
-            await client.from('usuarios').update({ password: hash, reset_password: 0 }).eq('username', username);
+            // 🔥 FIX: Supabase usa 'password_hash' e 'force_password_change'
+            await client.from('usuarios')
+                .update({
+                    password_hash: hash,
+                    force_password_change: false
+                })
+                .eq('username', username);
             console.log(`✅[Supabase] Senha de '${username}' atualizada na nuvem.`);
         }
     } catch (e) {
