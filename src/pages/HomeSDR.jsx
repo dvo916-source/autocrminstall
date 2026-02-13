@@ -244,11 +244,7 @@ const HomeVex = ({ user }) => {
         return username.split('@')[0];
     }, [sdrUsers]);
 
-    const changeDate = (days) => {
-        const newDate = new Date(selectedDate);
-        newDate.setDate(newDate.getDate() + days);
-        setSelectedDate(newDate);
-    };
+    // changeDate, completedTasksCount, totalTasksCount removed as they were not used
 
     // Helper for date header
     const getDateLabel = () => {
@@ -269,11 +265,6 @@ const HomeVex = ({ user }) => {
             date1.getDate() === date2.getDate();
     };
 
-    const completedTasksCount = dailyTasks.filter(task => {
-        const status = (task.status_pipeline || '').toLowerCase();
-        return status.includes('vendido') || status.includes('concluída') || status.includes('finalizado');
-    }).length;
-    const totalTasksCount = dailyTasks.length;
 
     // --- REFINED DATA PROCESSING (MOVED TO TOP LEVEL TO COMPLY WITH REACT HOOK RULES) ---
     const monthEventsData = useMemo(() => {

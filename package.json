@@ -36,11 +36,15 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "allowToChangeInstallationDirectory": false,
+      "allowElevation": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false,
       "shortcutName": "VexCORE",
-      "artifactName": "VexCORE_Setup_${version}.exe"
+      "artifactName": "VexCORE_Setup_${version}.exe",
+      "perMachine": true,
+      "runAfterFinish": true
     },
     "portable": {
       "artifactName": "VexCORE_Portable.exe"

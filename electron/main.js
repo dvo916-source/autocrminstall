@@ -244,7 +244,40 @@ function createWindow() {
     // Eventos do 'autoUpdater' para gerenciar atualizações via GitHub
     autoUpdater.logger = console;
     autoUpdater.autoDownload = true; // Garante que o download comece sozinho
-    autoUpdater.autoInstallOnAppQuit = true; // Instala ao fechar se já baixou
+    autoUpdater.autoInstallOnAppQuit = false; // DESABILITADO - Vamos controlar manualmente
+
+    let updateWindow = null;
+
+    // Função para criar janela de atualização
+    function createUpdateWindow(info) {
+        if (updateWindow) return;
+
+        updateWindow = new BrowserWindow({
+            width: 500,
+            height: 400,
+            frame: false,
+            resizable: false,
+            transparent: false,
+            alwaysOnTop: true,
+            webPreferences: {
+                nodeIntegration: true,
+                contextIsolation: false
+            }
+        });
+
+        updateWindow.loadFile(path.join(__dirname, 'UpdateWindow.html'));
+
+        updateWindow.once('ready-to-show', () => {
+            updateWindow.show();
+            if (info) {
+                updateWindow.webContents.send('update-starting', info);
+            }
+        });
+
+        updateWindow.on('closed', () => {
+            updateWindow = null;
+        });
+    }
 
     autoUpdater.on('checking-for-update', () => {
         console.log('[Updater] Verificando se há atualizações...');
@@ -253,6 +286,7 @@ function createWindow() {
     autoUpdater.on('error', (err) => {
         console.error('[Updater] Erro no processo de atualização:', err);
         if (mainWindow) mainWindow.webContents.send('update-error', err.message);
+        if (updateWindow) updateWindow.close();
     });
 
     // Quando o React termina de carregar, esperamos 3 segundos e checamos atualizações
@@ -264,16 +298,32 @@ function createWindow() {
         }, 3000);
     });
 
-    // Escuta eventos do processo de atualização para avisar o usuário no React
+    // Escuta eventos do processo de atualização
     autoUpdater.on('update-available', (info) => {
-        win.webContents.send('update-available', info); // Envia mensagem para o Front-end
+        console.log('[Updater] Atualização disponível:', info.version);
+        win.webContents.send('update-available', info); // Notifica o React
     });
+
     autoUpdater.on('download-progress', (progress) => {
-        win.webContents.send('update-progress', progress.percent); // Mostra progresso do download
+        console.log(`[Updater] Download: ${Math.round(progress.percent)}%`);
+        if (updateWindow) {
+            updateWindow.webContents.send('update-progress', progress.percent);
+        }
     });
+
     autoUpdater.on('update-downloaded', (info) => {
         console.log('[Updater] Download concluído. Versão:', info.version);
-        win.webContents.send('update-downloaded', info); // Avisa que está pronto para instalar
+
+        // Mostra "Instalando..." na janela de atualização
+        if (updateWindow) {
+            updateWindow.webContents.send('update-installing', info);
+        }
+
+        // Aguarda 2 segundos para o usuário ver a mensagem, depois instala
+        setTimeout(() => {
+            console.log('[Updater] Iniciando instalação...');
+            autoUpdater.quitAndInstall(false, true);
+        }, 2000);
     });
 }
 
@@ -403,9 +453,39 @@ ipcMain.handle('set-config-meta', async (e, { visita, venda, lojaId }) => await 
 // Comandos de Sincronização e Atualização
 ipcMain.handle('sync-xml', (e, lojaId) => db.syncXml(lojaId));
 ipcMain.handle('sync-essential', async (e, lojaId) => await db.syncConfig(lojaId));
-ipcMain.handle('install-update', () => {
-    console.log('[Updater] Forçando fechamento e instalação...');
-    autoUpdater.quitAndInstall(false, true); // (isSilent, isForceRunAfter)
+ipcMain.handle('install-update', (event, info) => {
+    console.log('[Updater] Usuário confirmou atualização. Iniciando download...');
+
+    // Cria a janela de progresso
+    const updateWindow = new BrowserWindow({
+        width: 500,
+        height: 400,
+        frame: false,
+        resizable: false,
+        transparent: false,
+        alwaysOnTop: true,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false
+        }
+    });
+
+    updateWindow.loadFile(path.join(__dirname, 'UpdateWindow.html'));
+
+    updateWindow.once('ready-to-show', () => {
+        updateWindow.show();
+        if (info) {
+            updateWindow.webContents.send('update-starting', info);
+        }
+    });
+
+    // Encaminha eventos de progresso para a janela de atualização
+    autoUpdater.on('download-progress', (progress) => {
+        if (updateWindow && !updateWindow.isDestroyed()) {
+            updateWindow.webContents.send('update-progress', progress.percent);
+        }
+    });
+
     return true;
 });
 
@@ -442,11 +522,9 @@ ipcMain.handle('force-sync-estoque', async (e, lojaId) => {
 
 // Utilitários de Mídia
 ipcMain.handle('get-image-base64', async (e, url) => {
-    try {
-        const response = await fetch(url);
-        const buffer = Buffer.from(await response.arrayBuffer());
-        return `data:${response.headers.get('content-type') || 'image/jpeg'};base64,${buffer.toString('base64')}`;
-    } catch (err) { throw err; }
+    const response = await fetch(url);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return `data:${response.headers.get('content-type') || 'image/jpeg'};base64,${buffer.toString('base64')}`;
 });
 
 app.whenReady().then(createWindow);

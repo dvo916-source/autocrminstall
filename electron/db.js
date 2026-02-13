@@ -1363,7 +1363,7 @@ WHERE(username = ? OR email = ?) COLLATE NOCASE
     const localValid = userData ? bcrypt.compareSync(pass, userData.password) : false;
 
     if (!userData || !localValid) {
-        console.log(`🔍[Auth] Usuário '${identifier}' não validado localmente.Consultando Nuvem...`);
+        console.log(`🔍 [Auth] Usuário '${identifier}' não validado localmente. Consultando Nuvem...`);
         try {
             const client = getSupabaseClient(null);
             const { data: cloudUser, error } = await client
@@ -1373,57 +1373,83 @@ WHERE(username = ? OR email = ?) COLLATE NOCASE
                 .eq('ativo', true)
                 .maybeSingle();
 
-            if (!error && cloudUser) {
-                console.log(`✅[Auth] Usuário '${identifier}' encontrado na Nuvem.Validando senha...`);
-                // Valida a senha na nuvem antes de sincronizar
-                const cloudValid = bcrypt.compareSync(pass, cloudUser.password);
+            if (error) {
+                console.error('❌ [Supabase] Erro ao buscar usuário:', error.message);
+            }
 
-                if (cloudValid) {
-                    console.log(`✅[Auth] Senha correta na Nuvem.Sincronizando dados locais...`);
-                    const permsString = typeof cloudUser.permissions === 'string'
-                        ? cloudUser.permissions
-                        : JSON.stringify(cloudUser.permissions || []);
+            if (cloudUser) {
+                // COMPATIBILIDADE: Supabase usa 'password_hash', local usa 'password'
+                const cloudPass = cloudUser.password_hash || cloudUser.password;
 
-                    db.prepare(`
-                        INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id)
-VALUES(@username, @password, @role, @reset_password, @nome_completo, @email, @whatsapp, @ativo, @permissions, @loja_id)
-                        ON CONFLICT(username) DO UPDATE SET
-password = excluded.password, role = excluded.role,
-    nome_completo = excluded.nome_completo, email = excluded.email,
-    whatsapp = excluded.whatsapp, ativo = excluded.ativo,
-    reset_password = excluded.reset_password,
-    permissions = excluded.permissions,
-    loja_id = excluded.loja_id
-        `).run({
-                        username: cloudUser.username,
-                        password: cloudUser.password,
-                        role: cloudUser.role,
-                        reset_password: cloudUser.reset_password ? 1 : 0,
-                        nome_completo: cloudUser.nome_completo || '',
-                        email: cloudUser.email || '',
-                        whatsapp: cloudUser.whatsapp || '',
-                        ativo: cloudUser.ativo ? 1 : 0,
-                        permissions: permsString,
-                        loja_id: cloudUser.loja_id || null
-                    });
+                if (cloudPass && bcrypt.compareSync(pass, cloudPass)) {
+                    console.log(`✅ [Supabase] Login CLOUD bem sucedido para ${identifier}`);
 
+                    // Sincroniza o usuário para o banco local
+                    try {
+                        db.prepare(`
+                            INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id)
+                            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        `).run(
+                            cloudUser.username,
+                            cloudPass,
+                            cloudUser.role,
+                            cloudUser.force_password_change ? 1 : 0,
+                            cloudUser.nome_completo || '',
+                            cloudUser.email || '',
+                            cloudUser.whatsapp || '',
+                            cloudUser.ativo ? 1 : 0,
+                            '[]', // permissions padrão
+                            cloudUser.loja_id || DEFAULT_STORE_ID
+                        );
+                        console.log(`✅ [Auth] Usuário ${identifier} sincronizado localmente`);
+                    } catch (syncErr) {
+                        // Se já existe, atualiza
+                        try {
+                            db.prepare(`
+                                UPDATE usuarios SET 
+                                    password = ?, role = ?, reset_password = ?, 
+                                    nome_completo = ?, email = ?, whatsapp = ?, 
+                                    ativo = ?, loja_id = ?
+                                WHERE username = ?
+                            `).run(
+                                cloudPass,
+                                cloudUser.role,
+                                cloudUser.force_password_change ? 1 : 0,
+                                cloudUser.nome_completo || '',
+                                cloudUser.email || '',
+                                cloudUser.whatsapp || '',
+                                cloudUser.ativo ? 1 : 0,
+                                cloudUser.loja_id || DEFAULT_STORE_ID,
+                                cloudUser.username
+                            );
+                        } catch (e) {
+                            console.error('❌ [Auth] Erro ao atualizar usuário local:', e.message);
+                        }
+                    }
 
+                    // Busca o usuário recém-sincronizado
                     userData = db.prepare("SELECT * FROM usuarios WHERE username = ? COLLATE NOCASE").get(cloudUser.username);
                 } else {
-                    console.error(`❌[Auth] Senha inválida para usuário '${identifier}' na Nuvem.`);
+                    console.error(`❌ [Auth] Senha inválida para usuário '${identifier}' na Nuvem.`);
                 }
-            } else if (error) {
-                console.error(`❌[Auth] Erro ao consultar nuvem: `, error.message);
+            } else {
+                console.log(`⚠️ [Auth] Usuário '${identifier}' não encontrado na Nuvem.`);
             }
         } catch (e) {
-            console.error(`❌[Auth] Erro catastrófico na validação em nuvem: `, e.message);
+            console.error(`❌ [Auth] Erro catastrófico na validação em nuvem:`, e.message);
         }
     }
 
-    if (!userData) return null;
+    if (!userData) {
+        console.error(`❌ [Auth] Login falhou para ${identifier}`);
+        return null;
+    }
 
     const finalValid = bcrypt.compareSync(pass, userData.password);
-    if (!finalValid) return null;
+    if (!finalValid) {
+        console.error(`❌ [Auth] Senha inválida para ${identifier}`);
+        return null;
+    }
 
     const sessionId = uuidv4();
     const now = new Date().toISOString();
@@ -1698,36 +1724,36 @@ export async function deleteScript(id, userRole, username = null, lojaId = DEFAU
 export function getAgendamentosPorUsuario(lojaId = DEFAULT_STORE_ID) {
     const currentMonth = new Date().getMonth() + 1;
     return db.prepare(`
-        SELECT 
+            SELECT
             u.username as nome,
-            u.nome_completo,
-            u.role,
-            u.ativo,
-            (SELECT COUNT(*) 
+                u.nome_completo,
+                u.role,
+                u.ativo,
+                (SELECT COUNT(*) 
              FROM visitas v 
              WHERE v.vendedor_sdr = u.username 
                AND v.loja_id = ?
-               AND v.mes = ?) as total,
-            (SELECT COUNT(*) 
+                AND v.mes = ?) as total,
+                    (SELECT COUNT(*) 
              FROM visitas v 
              WHERE v.vendedor_sdr = u.username 
                AND v.loja_id = ?
-               AND v.mes = ?
-               AND (LOWER(v.status_pipeline) IN ('venda concluída', 'vendido') OR LOWER(v.status) IN ('venda concluída', 'vendido'))) as sales_month
+                AND v.mes = ?
+                    AND(LOWER(v.status_pipeline) IN('venda concluída', 'vendido') OR LOWER(v.status) IN('venda concluída', 'vendido'))) as sales_month
         FROM usuarios u
         WHERE u.role IN('sdr', 'vendedor', 'admin') 
           AND u.username != 'diego' COLLATE NOCASE
           AND u.loja_id = ?
-        ORDER BY total DESC
-    `).all(lojaId, currentMonth, lojaId, currentMonth, lojaId);
+                ORDER BY total DESC
+                    `).all(lojaId, currentMonth, lojaId, currentMonth, lojaId);
 }
 
 export function getAgendamentosDetalhes(username = null, lojaId = DEFAULT_STORE_ID) {
     try {
         let query = `
-SELECT * FROM visitas 
+            SELECT * FROM visitas 
             WHERE loja_id = ?
-        `;
+                `;
         const params = [lojaId];
 
         if (username) {
@@ -1749,12 +1775,12 @@ export function getTemperatureStats(lojaId = DEFAULT_STORE_ID) {
         const today = new Date().toISOString().split('T')[0];
         const stats = db.prepare(`
             SELECT
-SUM(CASE WHEN temperatura = 'Quente' THEN 1 ELSE 0 END) as quente,
-    SUM(CASE WHEN temperatura = 'Morno' THEN 1 ELSE 0 END) as morno,
-    SUM(CASE WHEN temperatura = 'Frio' THEN 1 ELSE 0 END) as frio
+            SUM(CASE WHEN temperatura = 'Quente' THEN 1 ELSE 0 END) as quente,
+                SUM(CASE WHEN temperatura = 'Morno' THEN 1 ELSE 0 END) as morno,
+                SUM(CASE WHEN temperatura = 'Frio' THEN 1 ELSE 0 END) as frio
             FROM visitas
             WHERE substr(data_agendamento, 1, 10) = ? AND loja_id = ?
-    `).get(today, lojaId);
+                `).get(today, lojaId);
 
         return {
             quente: stats.quente || 0,
@@ -1878,11 +1904,11 @@ export function enableRealtimeSync() {
 
                         db.prepare(`
                             INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id)
-VALUES(@username, @password, @role, @reset_password, @nome_completo, @email, @whatsapp, @ativo, @permissions, @loja_id)
+            VALUES(@username, @password, @role, @reset_password, @nome_completo, @email, @whatsapp, @ativo, @permissions, @loja_id)
                             ON CONFLICT(username) DO UPDATE SET
-password = excluded.password, role = excluded.role, reset_password = excluded.reset_password,
-    nome_completo = excluded.nome_completo, email = excluded.email, whatsapp = excluded.whatsapp, ativo = excluded.ativo, permissions = excluded.permissions, loja_id = excluded.loja_id
-        `).run({
+            password = excluded.password, role = excluded.role, reset_password = excluded.reset_password,
+                nome_completo = excluded.nome_completo, email = excluded.email, whatsapp = excluded.whatsapp, ativo = excluded.ativo, permissions = excluded.permissions, loja_id = excluded.loja_id
+                    `).run({
                             username: newRec.username,
                             password: newRec.password,
                             role: newRec.role,
@@ -1919,10 +1945,10 @@ password = excluded.password, role = excluded.role, reset_password = excluded.re
                     } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
                         db.prepare(`
                             INSERT INTO vendedores(nome, sobrenome, telefone, ativo, loja_id)
-VALUES(@nome, @sobrenome, @telefone, @ativo, @loja_id)
+            VALUES(@nome, @sobrenome, @telefone, @ativo, @loja_id)
                             ON CONFLICT(nome, loja_id) DO UPDATE SET
-sobrenome = excluded.sobrenome, telefone = excluded.telefone, ativo = excluded.ativo
-    `).run({
+            sobrenome = excluded.sobrenome, telefone = excluded.telefone, ativo = excluded.ativo
+                `).run({
                             nome: newRec.nome,
                             sobrenome: newRec.sobrenome,
                             telefone: newRec.telefone,
@@ -1948,11 +1974,11 @@ sobrenome = excluded.sobrenome, telefone = excluded.telefone, ativo = excluded.a
                     } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
                         db.prepare(`
                             INSERT INTO scripts(id, titulo, mensagem, is_system, link, username, ordem, loja_id)
-VALUES(@id, @titulo, @mensagem, @is_system, @link, @username, @ordem, @loja_id)
+            VALUES(@id, @titulo, @mensagem, @is_system, @link, @username, @ordem, @loja_id)
                             ON CONFLICT(id) DO UPDATE SET
-titulo = excluded.titulo, mensagem = excluded.mensagem,
-    is_system = excluded.is_system, link = excluded.link, username = excluded.username, ordem = excluded.ordem, loja_id = excluded.loja_id
-        `).run({
+            titulo = excluded.titulo, mensagem = excluded.mensagem,
+                is_system = excluded.is_system, link = excluded.link, username = excluded.username, ordem = excluded.ordem, loja_id = excluded.loja_id
+                    `).run({
                             ...newRec,
                             is_system: newRec.is_system ? 1 : 0,
                             loja_id: newRec.loja_id
@@ -1974,11 +2000,11 @@ titulo = excluded.titulo, mensagem = excluded.mensagem,
                     if (newRec) {
                         db.prepare(`
                             INSERT INTO estoque(id, nome, foto, fotos, link, km, cambio, ano, valor, ativo, loja_id)
-VALUES(@id, @nome, @foto, @fotos, @link, @km, @cambio, @ano, @valor, @ativo, @loja_id)
+            VALUES(@id, @nome, @foto, @fotos, @link, @km, @cambio, @ano, @valor, @ativo, @loja_id)
                             ON CONFLICT(id) DO UPDATE SET
-nome = excluded.nome, foto = excluded.foto, fotos = excluded.fotos, link = excluded.link,
-    km = excluded.km, cambio = excluded.cambio, ano = excluded.ano, valor = excluded.valor, ativo = excluded.ativo, loja_id = excluded.loja_id
-        `).run({
+            nome = excluded.nome, foto = excluded.foto, fotos = excluded.fotos, link = excluded.link,
+                km = excluded.km, cambio = excluded.cambio, ano = excluded.ano, valor = excluded.valor, ativo = excluded.ativo, loja_id = excluded.loja_id
+                    `).run({
                             ...newRec,
                             fotos: typeof newRec.fotos === 'string' ? newRec.fotos : JSON.stringify(newRec.fotos),
                             ativo: newRec.ativo ? 1 : 0,
@@ -2005,24 +2031,24 @@ nome = excluded.nome, foto = excluded.foto, fotos = excluded.fotos, link = exclu
                     } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
                         db.prepare(`
                             INSERT INTO visitas(
-            id, datahora, mes, cliente, telefone, portal,
-            veiculo_interesse, veiculo_troca, vendedor, vendedor_sdr, negociacao, status,
-            data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline, valor_proposta, cpf_cliente, historico_log, loja_id
-        )
-VALUES(
-    @id, @datahora, @mes, @cliente, @telefone, @portal,
-    @veiculo_interesse, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao, @status,
-    @data_agendamento, @temperatura, @motivo_perda, @forma_pagamento, @status_pipeline, @valor_proposta, @cpf_cliente, @historico_log, @loja_id
-)
+                        id, datahora, mes, cliente, telefone, portal,
+                        veiculo_interesse, veiculo_troca, vendedor, vendedor_sdr, negociacao, status,
+                        data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline, valor_proposta, cpf_cliente, historico_log, loja_id
+                    )
+            VALUES(
+                @id, @datahora, @mes, @cliente, @telefone, @portal,
+                @veiculo_interesse, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao, @status,
+                @data_agendamento, @temperatura, @motivo_perda, @forma_pagamento, @status_pipeline, @valor_proposta, @cpf_cliente, @historico_log, @loja_id
+            )
                             ON CONFLICT(id) DO UPDATE SET
-datahora = excluded.datahora, mes = excluded.mes, cliente = excluded.cliente, telefone = excluded.telefone,
-    portal = excluded.portal, veiculo_interesse = excluded.veiculo_interesse, veiculo_troca = excluded.veiculo_troca,
-    vendedor = excluded.vendedor, vendedor_sdr = excluded.vendedor_sdr, negociacao = excluded.negociacao,
-    status = excluded.status, data_agendamento = excluded.data_agendamento, temperatura = excluded.temperatura,
-    motivo_perda = excluded.motivo_perda, forma_pagamento = excluded.forma_pagamento,
-    status_pipeline = excluded.status_pipeline, valor_proposta = excluded.valor_proposta,
-    cpf_cliente = excluded.cpf_cliente, historico_log = excluded.historico_log, loja_id = excluded.loja_id
-        `).run(newRec);
+            datahora = excluded.datahora, mes = excluded.mes, cliente = excluded.cliente, telefone = excluded.telefone,
+                portal = excluded.portal, veiculo_interesse = excluded.veiculo_interesse, veiculo_troca = excluded.veiculo_troca,
+                vendedor = excluded.vendedor, vendedor_sdr = excluded.vendedor_sdr, negociacao = excluded.negociacao,
+                status = excluded.status, data_agendamento = excluded.data_agendamento, temperatura = excluded.temperatura,
+                motivo_perda = excluded.motivo_perda, forma_pagamento = excluded.forma_pagamento,
+                status_pipeline = excluded.status_pipeline, valor_proposta = excluded.valor_proposta,
+                cpf_cliente = excluded.cpf_cliente, historico_log = excluded.historico_log, loja_id = excluded.loja_id
+                    `).run(newRec);
                     }
                     BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'visitas'));
                 } catch (e) { console.error("Erro Realtime Visitas:", e); }
@@ -2042,7 +2068,7 @@ datahora = excluded.datahora, mes = excluded.mes, cliente = excluded.cliente, te
                         db.prepare(`
                             INSERT INTO crm_settings(key, value, updated_at, loja_id) VALUES(@key, @value, @updated_at, @loja_id)
                             ON CONFLICT(key, loja_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-    `).run(newRec);
+                `).run(newRec);
                     }
                 } else if (eventType === 'DELETE' && oldRec) {
                     db.prepare("DELETE FROM crm_settings WHERE key = ?").run(oldRec.key);
@@ -2138,19 +2164,19 @@ export function getSdrPerformance(lojaId = DEFAULT_STORE_ID) {
             const visitas = db.prepare(`
                 SELECT COUNT(*) as count FROM visitas
                 WHERE vendedor_sdr = ?
-    AND(status_pipeline = 'Agendado' OR status_pipeline = 'Visita Realizada' OR status_pipeline = 'Vendido' OR status_pipeline = 'Proposta')
+                AND(status_pipeline = 'Agendado' OR status_pipeline = 'Visita Realizada' OR status_pipeline = 'Vendido' OR status_pipeline = 'Proposta')
                 AND data_agendamento BETWEEN ? AND ?
-    AND loja_id = ?
-        `).get(u.username, weekIsoStart, weekIsoEnd, lojaId).count;
+                AND loja_id = ?
+                    `).get(u.username, weekIsoStart, weekIsoEnd, lojaId).count;
 
             // Meta Mensal: VENDAS (status_pipeline = 'Vendido') no mês corrente
             const vendas = db.prepare(`
                 SELECT COUNT(*) as count FROM visitas
                 WHERE vendedor_sdr = ?
-    AND status_pipeline = 'Vendido'
+                AND status_pipeline = 'Vendido'
                 AND data_agendamento BETWEEN ? AND ?
-    AND loja_id = ?
-        `).get(u.username, monthIsoStart, monthIsoEnd, lojaId).count;
+                AND loja_id = ?
+                    `).get(u.username, monthIsoStart, monthIsoEnd, lojaId).count;
 
             performance.push({
                 username: u.username,
@@ -2187,7 +2213,7 @@ export async function saveSettingsBatch(settings, lojaId = DEFAULT_STORE_ID) {
         const stmt = db.prepare(`
             INSERT INTO crm_settings(key, value, category, updated_at, loja_id) VALUES(@key, @value, @category, @updated_at, @loja_id)
             ON CONFLICT(key, loja_id) DO UPDATE SET value = excluded.value, category = excluded.category, updated_at = excluded.updated_at
-    `);
+                `);
 
         const insertMany = db.transaction((items) => {
             for (const item of items) {
@@ -2260,8 +2286,8 @@ export function addStore(store) {
     const modulos = store.modulos || JSON.stringify(['dashboard', 'diario', 'whatsapp', 'estoque', 'visitas', 'metas', 'portais', 'ia-chat', 'usuarios']);
     const stmt = db.prepare(`
         INSERT INTO lojas(id, nome, logo_url, slug, modulos, ativo)
-VALUES(?, ?, ?, ?, ?, 1)
-    `);
+            VALUES(?, ?, ?, ?, ?, 1)
+                `);
     const result = stmt.run(id, store.nome, store.logo_url, id, modulos);
     return { ...result, id };
 }
@@ -2269,14 +2295,14 @@ VALUES(?, ?, ?, ?, ?, 1)
 export async function updateStore(store) {
     const stmt = db.prepare(`
         UPDATE lojas SET
-nome = ?,
-    logo_url = ?,
-    modulos = ?,
-    ativo = ?,
-    supabase_url = ?,
-    supabase_anon_key = ?
-        WHERE id = ?
-            `);
+            nome = ?,
+                logo_url = ?,
+                modulos = ?,
+                ativo = ?,
+                supabase_url = ?,
+                supabase_anon_key = ?
+                    WHERE id = ?
+                        `);
 
     // Ensure modulos is stringified for SQLite
     const modulosString = typeof store.modulos === 'string' ? store.modulos : JSON.stringify(store.modulos);
@@ -2389,17 +2415,17 @@ export async function createStoreWithAdmin(loja, admin) {
 
             db.prepare(`
                 INSERT INTO lojas(id, nome, endereco, logo_url, slug, modulos, ativo)
-VALUES(?, ?, ?, ?, ?, ?, 1)
-    `).run(lojaId, loja.nome, loja.endereco || '', loja.logo_url || '', lojaId, modulosJson);
+            VALUES(?, ?, ?, ?, ?, ?, 1)
+                `).run(lojaId, loja.nome, loja.endereco || '', loja.logo_url || '', lojaId, modulosJson);
 
             // 4.2 Criar usuário ADM
             db.prepare(`
                 INSERT INTO usuarios(
-        username, loja_id, password, role,
-        nome_completo, cpf, email,
-        reset_password, ativo, created_by
-    )
-VALUES(?, ?, ?, 'admin', ?, ?, ?, 1, 1, 'developer')
+                    username, loja_id, password, role,
+                    nome_completo, cpf, email,
+                    reset_password, ativo, created_by
+                )
+            VALUES(?, ?, ?, 'admin', ?, ?, ?, 1, 1, 'developer')
             `).run(adminUsername, lojaId, hashedPassword, admin.nome_completo, cleanCpf, admin.email || '');
 
             return { lojaId, adminUsername };

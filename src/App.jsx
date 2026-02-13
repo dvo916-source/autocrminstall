@@ -21,6 +21,7 @@ import { AlertCircle, RotateCcw, Database } from 'lucide-react';
 import { LojaProvider, useLoja } from './context/LojaContext';
 import StoreManagement from './pages/StoreManagement';
 import { AnimatePresence, motion } from 'framer-motion';
+import UpdateModal from './components/UpdateModal';
 
 // === ERROR BOUNDARY ===
 class ErrorBoundary extends Component {
@@ -352,6 +353,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
   const [updateStatus, setUpdateStatus] = useState({ available: false, progress: 0, ready: false, info: null });
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   // Ativa o escalonamento proporcional via REM
   useAutoScaling();
@@ -436,6 +438,7 @@ function App() {
     const updateAvail = (e, info) => {
       console.log('📡 [App] Update available:', info);
       setUpdateStatus(prev => ({ ...prev, available: true, info }));
+      setShowUpdateModal(true); // Mostra o modal
     };
     const updateProg = (e, percent) => setUpdateStatus(prev => ({ ...prev, progress: percent }));
     const updateReady = (e, info) => {
@@ -508,58 +511,18 @@ function App() {
           </Suspense>
         </HashRouter>
 
-        {/* --- GLOBAL UPDATE OVERLAY --- */}
-        <AnimatePresence>
-          {(updateStatus.available || updateStatus.ready) && (
-            <motion.div
-              initial={{ opacity: 0, y: 100 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 100 }}
-              className="fixed bottom-8 right-8 z-[10000] w-96 bg-slate-900/90 backdrop-blur-xl border border-white/10 p-6 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
-            >
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 bg-cyan-500/20 rounded-2xl flex items-center justify-center shrink-0">
-                  <RotateCcw className={`text-cyan-400 ${!updateStatus.ready ? 'animate-spin' : ''}`} size={24} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-white font-black text-sm uppercase tracking-wider">
-                    {updateStatus.ready ? 'Atualização Pronta!' : 'Baixando Atualização...'}
-                  </h3>
-                  <p className="text-gray-400 text-[10px] font-bold mt-0.5 truncate uppercase tracking-widest">
-                    Versão {updateStatus.info?.version || '1.1.5'}
-                  </p>
-                </div>
-              </div>
-
-              {!updateStatus.ready && (
-                <div className="space-y-2">
-                  <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                    <motion.div
-                      className="h-full bg-cyan-500"
-                      initial={{ width: 0 }}
-                      animate={{ width: `${updateStatus.progress}%` }}
-                    />
-                  </div>
-                  <p className="text-[10px] text-right text-cyan-400 font-black font-mono">
-                    {Math.round(updateStatus.progress)}%
-                  </p>
-                </div>
-              )}
-
-              {updateStatus.ready && (
-                <button
-                  onClick={() => {
-                    const { ipcRenderer } = window.require('electron');
-                    ipcRenderer.invoke('install-update');
-                  }}
-                  className="w-full bg-cyan-500 hover:bg-cyan-400 py-4 rounded-2xl font-black text-black transition-all shadow-lg shadow-cyan-500/20 uppercase tracking-widest text-xs"
-                >
-                  Reiniciar e Atualizar
-                </button>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* --- UPDATE MODAL --- */}
+        {showUpdateModal && updateStatus.info && (
+          <UpdateModal
+            updateInfo={updateStatus.info}
+            onInstall={() => {
+              const { ipcRenderer } = window.require('electron');
+              setShowUpdateModal(false);
+              ipcRenderer.invoke('install-update', updateStatus.info);
+            }}
+            onDismiss={() => setShowUpdateModal(false)}
+          />
+        )}
       </ErrorBoundary>
     </LojaProvider>
   );

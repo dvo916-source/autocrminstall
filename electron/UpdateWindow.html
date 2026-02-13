@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atualizando VexCORE</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .update-container {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            width: 500px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+            color: white;
+            font-weight: bold;
+        }
+
+        h1 {
+            color: #2d3748;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .status {
+            color: #718096;
+            font-size: 16px;
+            margin-bottom: 30px;
+        }
+
+        .progress-container {
+            background: #e2e8f0;
+            border-radius: 10px;
+            height: 12px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+
+        .progress-bar {
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+
+        .progress-text {
+            color: #4a5568;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .spinner {
+            display: none;
+            width: 40px;
+            height: 40px;
+            margin: 20px auto;
+            border: 4px solid #e2e8f0;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .installing .spinner {
+            display: block;
+        }
+
+        .version-info {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            color: #a0aec0;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="update-container">
+        <div class="logo">V</div>
+        <h1 id="title">Atualizando VexCORE</h1>
+        <p class="status" id="status">Preparando atualização...</p>
+        
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <p class="progress-text" id="progressText">0%</p>
+        
+        <div class="spinner"></div>
+        
+        <div class="version-info" id="versionInfo"></div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        // Atualiza o progresso do download
+        ipcRenderer.on('update-progress', (event, percent) => {
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            const status = document.getElementById('status');
+            
+            const rounded = Math.round(percent);
+            progressBar.style.width = rounded + '%';
+            progressText.textContent = rounded + '%';
+            status.textContent = 'Baixando atualização...';
+        });
+
+        // Quando o download termina
+        ipcRenderer.on('update-installing', (event, info) => {
+            const status = document.getElementById('status');
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            const container = document.querySelector('.update-container');
+            
+            progressBar.style.width = '100%';
+            progressText.textContent = '100%';
+            status.textContent = 'Instalando atualização...';
+            container.classList.add('installing');
+            
+            if (info && info.version) {
+                document.getElementById('versionInfo').textContent = 
+                    `Instalando versão ${info.version}`;
+            }
+        });
+
+        // Mensagem inicial
+        ipcRenderer.on('update-starting', (event, info) => {
+            const versionInfo = document.getElementById('versionInfo');
+            if (info && info.version) {
+                versionInfo.textContent = `Nova versão: ${info.version}`;
+            }
+        });
+    </script>
+</body>
+</html>

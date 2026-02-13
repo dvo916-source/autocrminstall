@@ -1,10 +1,10 @@
 @echo off
-title GERAR INSTALADOR v1.1.4 (NSIS)
-color 0A
+title GERAR INSTALADOR v1.1.10 (NSIS)
+color 0B
 
 echo ===========================================
-echo       GERADOR DE INSTALADOR SDR IRW
-echo           Versao: 1.1.4
+echo       GERADOR DE INSTALADOR VexCORE
+echo           Versao: 1.1.10
 echo ===========================================
 echo.
 echo Este script vai:
@@ -31,7 +31,7 @@ echo       SUCESSO! INSTALADOR GERADO.
 echo ===========================================
 echo.
 echo O arquivo para subir no GitHub Release esta em:
-echo   %CD%\dist\SDR_IRW_Motors_Setup_1.1.4.exe
+echo   %CD%\dist\VexCORE_Setup_1.1.10.exe
 echo.
 explorer "%CD%\dist"
 pause
