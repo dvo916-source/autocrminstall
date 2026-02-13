@@ -519,6 +519,20 @@ ipcMain.handle('force-sync-estoque', async (e, lojaId) => {
     }
 });
 
+// 📤 UPLOAD DE DADOS LOCAIS PARA SUPABASE (MIGRAÇÃO)
+ipcMain.handle('upload-data-to-supabase', async (e) => {
+    try {
+        console.log('📤 [Upload] Iniciando upload de dados locais para Supabase...');
+        const { uploadAllDataToSupabase } = await import('./uploadData.js');
+        const result = await uploadAllDataToSupabase(db.getDbInstance());
+        return result;
+    } catch (err) {
+        console.error('❌ [Upload] Erro:', err);
+        return { success: false, error: err.message };
+    }
+});
+
+
 
 // Utilitários de Mídia
 ipcMain.handle('get-image-base64', async (e, url) => {

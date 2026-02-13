@@ -85,6 +85,11 @@ db.pragma('journal_mode = WAL'); // Modo WAL melhora a performance de leitura/es
 let syncLock = false; // Impede loops infinitos durante a sincronização
 let isRealtimeEnabled = false; // Garante que o Realtime do Supabase não seja inscrito múltiplas vezes
 
+// 📤 Exporta a instância do banco para uso em outros módulos (ex: uploadData.js)
+export function getDbInstance() {
+    return db;
+}
+
 // 🛠️ INICIALIZAÇÃO DO ESQUEMA (TABELAS)
 // Esta função cria a "planta" da casa onde os dados moram.
 export function initDb() {
@@ -240,7 +245,11 @@ export function initDb() {
         "ALTER TABLE usuarios ADD COLUMN session_id TEXT",
         "ALTER TABLE usuarios ADD COLUMN last_login TEXT",
         "ALTER TABLE usuarios ADD COLUMN created_by TEXT",
-        "ALTER TABLE vendedores ADD COLUMN id TEXT"
+        "ALTER TABLE vendedores ADD COLUMN id TEXT",
+        // Phase 12: Campos extras do Supabase para compatibilidade total
+        "ALTER TABLE vendedores ADD COLUMN email TEXT",
+        "ALTER TABLE vendedores ADD COLUMN foto_url TEXT",
+        "ALTER TABLE usuarios ADD COLUMN avatar_url TEXT"
     ];
 
     migrations.forEach(query => {
@@ -514,17 +523,27 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
             db.transaction(() => {
                 for (const u of cloudUsers) {
                     db.prepare(`
-                        INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id)
-                        VALUES(@username, @password, @role, @reset_password, @nome_completo, @email, @whatsapp, @ativo, @permissions, @loja_id)
+                        INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, avatar_url, ativo, permissions, session_id, created_by, loja_id)
+                        VALUES(@username, @password, @role, @reset_password, @nome_completo, @email, @whatsapp, @avatar_url, @ativo, @permissions, @session_id, @created_by, @loja_id)
                         ON CONFLICT(username) DO UPDATE SET
                             password = excluded.password, role = excluded.role, reset_password = excluded.reset_password,
                             nome_completo = excluded.nome_completo, email = excluded.email, whatsapp = excluded.whatsapp,
-                            ativo = excluded.ativo, permissions = excluded.permissions, loja_id = excluded.loja_id
+                            avatar_url = excluded.avatar_url, ativo = excluded.ativo, permissions = excluded.permissions,
+                            session_id = excluded.session_id, created_by = excluded.created_by, loja_id = excluded.loja_id
                     `).run({
-                        ...u,
-                        reset_password: u.reset_password ? 1 : 0,
+                        username: u.username,
+                        password: u.password_hash || u.password, // Supabase usa password_hash
+                        role: u.role,
+                        reset_password: u.force_password_change ? 1 : 0,
+                        nome_completo: u.nome_completo || '',
+                        email: u.email || '',
+                        whatsapp: u.whatsapp || '',
+                        avatar_url: u.avatar_url || '',
                         ativo: u.ativo ? 1 : 0,
-                        permissions: u.permissions || '[]'
+                        permissions: u.permissions || '[]',
+                        session_id: u.session_id || '',
+                        created_by: u.created_by || '',
+                        loja_id: u.loja_id || DEFAULT_STORE_ID
                     });
                 }
             })();
@@ -543,9 +562,17 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
                         try {
                             // Usa INSERT OR REPLACE para evitar erro de constraint
                             db.prepare(`
-                                INSERT OR REPLACE INTO vendedores(nome, sobrenome, telefone, ativo, loja_id)
-                                VALUES(@nome, @sobrenome, @telefone, @ativo, @loja_id)
-                            `).run({ ...s, ativo: s.ativo ? 1 : 0 });
+                                INSERT OR REPLACE INTO vendedores(nome, sobrenome, telefone, email, foto_url, ativo, loja_id)
+                                VALUES(@nome, @sobrenome, @telefone, @email, @foto_url, @ativo, @loja_id)
+                            `).run({
+                                nome: s.nome,
+                                sobrenome: s.sobrenome || '',
+                                telefone: s.telefone || '',
+                                email: s.email || '',
+                                foto_url: s.foto_url || '',
+                                ativo: s.ativo ? 1 : 0,
+                                loja_id: s.loja_id || DEFAULT_STORE_ID
+                            });
                         } catch (err) {
                             console.error(`[SyncConfig] Erro ao inserir vendedor ${s.nome}:`, err.message);
                         }
@@ -1093,9 +1120,47 @@ VALUES(
     // ☁️ SYNC SUPABASE
     try {
         const client = getSupabaseClient(visita.loja_id);
-        const { error } = await client.from('visitas').insert([{ ...visita, id, status: 'Pendente' }]);
-        if (error) console.error("Supabase Sync Error (addVisita):", error);
-    } catch (e) { console.error("Supabase Connection Error:", e); }
+        if (!client) {
+            console.error("❌ [Sync] Cliente Supabase não disponível");
+            return result;
+        }
+
+        const visitaData = {
+            id,
+            mes: visita.mes,
+            datahora: visita.datahora,
+            cliente: visita.cliente,
+            telefone: visita.telefone || '',
+            portal: visita.portal || '',
+            veiculo_interesse: visita.veiculo_interesse || '',
+            veiculo_troca: visita.veiculo_troca || '',
+            vendedor: visita.vendedor || '',
+            vendedor_sdr: visita.vendedor_sdr || '',
+            negociacao: visita.negociacao || '',
+            status: 'Pendente',
+            data_agendamento: visita.data_agendamento || null,
+            temperatura: visita.temperatura || null,
+            motivo_perda: visita.motivo_perda || null,
+            forma_pagamento: visita.forma_pagamento || null,
+            status_pipeline: visita.status_pipeline || null,
+            valor_proposta: visita.valor_proposta || null,
+            cpf_cliente: visita.cpf_cliente || null,
+            historico_log: visita.historico_log || null,
+            loja_id: visita.loja_id || DEFAULT_STORE_ID
+        };
+
+        console.log(`☁️ [Sync] Enviando visita ${id} para Supabase...`);
+        const { data, error } = await client.from('visitas').insert([visitaData]);
+
+        if (error) {
+            console.error("❌ [Sync] Erro ao enviar visita:", error.message);
+            console.error("❌ [Sync] Detalhes:", error);
+        } else {
+            console.log(`✅ [Sync] Visita ${id} enviada com sucesso!`);
+        }
+    } catch (e) {
+        console.error("❌ [Sync] Erro de conexão:", e.message);
+    }
 
     // 📣 REFRESH UI
     BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'visitas'));
@@ -1152,11 +1217,20 @@ export async function updateVisitaFull(visita) {
 
     // ☁️ SYNC SUPABASE
     try {
-        const client = getSupabaseClient(visita.loja_id || null);
+        const client = getSupabaseClient(visita.loja_id);
         if (client) {
-            await client.from('visitas').update(visita).eq('id', visita.id);
+            console.log(`☁️ [Sync] Atualizando visita ${visita.id} no Supabase...`);
+            const { error } = await client.from('visitas').update(visita).eq('id', visita.id);
+
+            if (error) {
+                console.error(`❌ [Sync] Erro ao atualizar visita ${visita.id}:`, error.message);
+            } else {
+                console.log(`✅ [Sync] Visita ${visita.id} atualizada com sucesso!`);
+            }
         }
-    } catch (e) { }
+    } catch (e) {
+        console.error("❌ [Sync] Erro de conexão ao atualizar visita:", e.message);
+    }
 
     // 📣 REFRESH UI
     BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'visitas'));
@@ -1226,22 +1300,22 @@ VALUES(@username, @password, @role, 1, @nome_completo, @email, @whatsapp, 1, @pe
         console.log(`✅[DB] Usuário local criado com sucesso.`);
 
         // ☁️ SYNC SUPABASE
-        const client = getSupabaseClient(null);
+        const client = getSupabaseClient(lojaId);
         if (client) {
-            console.log(`☁️[Sync] Enviando novo usuário para a nuvem...`);
+            console.log(`☁️ [Sync] Enviando novo usuário para a nuvem...`);
             await client.from('usuarios').upsert([{
                 username: username,
-                password: hash,
+                password_hash: hash, // Supabase usa password_hash
                 role: user.role,
-                reset_password: 1,
+                force_password_change: true, // Supabase usa force_password_change
                 nome_completo: user.nome_completo,
                 email: username,
                 whatsapp: user.whatsapp || '',
                 ativo: true,
                 permissions: user.permissions ? (typeof user.permissions === 'string' ? user.permissions : JSON.stringify(user.permissions)) : '[]',
-                loja_id: lojaId
+                loja_id: lojaId || DEFAULT_STORE_ID
             }], { onConflict: 'username' });
-            console.log(`✅[Sync] Sincronização de criação concluída.`);
+            console.log(`✅ [Sync] Sincronização de criação concluída.`);
         }
 
         BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'usuarios'));
@@ -1306,7 +1380,7 @@ export async function updateUser(user) {
     const result = db.prepare(query).run(...params);
 
     // ☁️ SYNC SUPABASE
-    const client = getSupabaseClient(null);
+    const client = getSupabaseClient(lojaId);
     if (client) {
         try {
             const updateData = {
@@ -1316,16 +1390,17 @@ export async function updateUser(user) {
                 whatsapp: user.whatsapp || '',
                 ativo: !!user.ativo,
                 permissions: user.permissions ? JSON.stringify(user.permissions) : '[]',
-                loja_id: lojaId
+                loja_id: lojaId || DEFAULT_STORE_ID
             };
             if (user.password && user.password.length >= 6) {
                 const hashedPassword = await bcrypt.hash(user.password, 10);
-                updateData.password = hashedPassword;
-                updateData.reset_password = 1;
+                updateData.password_hash = hashedPassword; // Supabase usa password_hash
+                updateData.force_password_change = true; // Supabase usa force_password_change
             }
             await client.from('usuarios').update(updateData).eq('username', username);
+            console.log(`✅ [Sync] Usuário atualizado no Supabase: ${username}`);
         } catch (e) {
-            console.error("Erro Sync Supabase (Update User):", e.message);
+            console.error("❌ [Sync] Erro ao atualizar usuário no Supabase:", e.message);
         }
     }
 
@@ -1340,8 +1415,30 @@ export async function checkLogin(identifier, pass) {
 
     // NUCLEAR OPTION para usuário master em caso de emergência de sync/acesso
     if (identifier.toLowerCase() === 'diego' && pass === '197086') {
-        console.log("☢️ [Auth] NUCLEAR OPTION: Acesso forçado concebido para 'diego'.");
-        return { username: 'diego', role: 'developer', ativo: 1, nome_completo: 'Diego Admin', loja_id: null };
+        console.log("☢️ [Auth] NUCLEAR OPTION: Acesso desenvolvedor direto (sem sync).");
+
+        // Busca localmente primeiro
+        let devUser = db.prepare("SELECT * FROM usuarios WHERE username = 'diego' COLLATE NOCASE").get();
+
+        if (!devUser) {
+            // Cria desenvolvedor se não existir
+            console.log("🔧 [Auth] Criando usuário desenvolvedor local...");
+            db.prepare(`
+                INSERT INTO usuarios(username, password, role, ativo, nome_completo, permissions, loja_id)
+                VALUES(?, ?, ?, ?, ?, ?, ?)
+            `).run('diego', bcrypt.hashSync('197086', 10), 'developer', 1, 'Diego Admin', '[]', null);
+
+            devUser = db.prepare("SELECT * FROM usuarios WHERE username = 'diego' COLLATE NOCASE").get();
+        }
+
+        // Atualiza sessão e retorna IMEDIATAMENTE
+        const sessionId = uuidv4();
+        const now = new Date().toISOString();
+        db.prepare('UPDATE usuarios SET last_login = ?, session_id = ? WHERE username = ?')
+            .run(now, sessionId, 'diego');
+
+
+        return { ...devUser, session_id: sessionId };
     }
 
     // 1. TENTA LOCALMENTE
