@@ -1424,9 +1424,9 @@ export async function checkLogin(identifier, pass) {
             // Cria desenvolvedor se não existir
             console.log("🔧 [Auth] Criando usuário desenvolvedor local...");
             db.prepare(`
-                INSERT INTO usuarios(username, password, role, ativo, nome_completo, permissions, loja_id)
-                VALUES(?, ?, ?, ?, ?, ?, ?)
-            `).run('diego', bcrypt.hashSync('197086', 10), 'developer', 1, 'Diego Admin', '[]', null);
+                INSERT INTO usuarios(username, password, role, ativo, nome_completo, email, whatsapp, avatar_url, permissions, loja_id)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run('diego', bcrypt.hashSync('197086', 10), 'developer', 1, 'Diego Admin', 'diego@admin.com', '', '', '[]', null);
 
             devUser = db.prepare("SELECT * FROM usuarios WHERE username = 'diego' COLLATE NOCASE").get();
         }
@@ -1484,8 +1484,8 @@ WHERE(username = ? OR email = ?) COLLATE NOCASE
                     // Sincroniza o usuário para o banco local
                     try {
                         db.prepare(`
-                            INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id)
-                            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, avatar_url, ativo, permissions, loja_id)
+                            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         `).run(
                             cloudUser.username,
                             cloudPass,
@@ -1494,11 +1494,12 @@ WHERE(username = ? OR email = ?) COLLATE NOCASE
                             cloudUser.nome_completo || '',
                             cloudUser.email || '',
                             cloudUser.whatsapp || '',
+                            cloudUser.avatar_url || '',
                             cloudUser.ativo ? 1 : 0,
-                            '[]', // permissions padrão
+                            cloudUser.permissions || '[]', // 🔥 FIX: Usa permissões do Supabase
                             cloudUser.loja_id || DEFAULT_STORE_ID
                         );
-                        console.log(`✅ [Auth] Usuário ${identifier} sincronizado localmente`);
+                        console.log(`✅ [Auth] Usuário ${identifier} sincronizado localmente com permissões`);
                     } catch (syncErr) {
                         // Se já existe, atualiza
                         try {
@@ -1506,7 +1507,7 @@ WHERE(username = ? OR email = ?) COLLATE NOCASE
                                 UPDATE usuarios SET 
                                     password = ?, role = ?, reset_password = ?, 
                                     nome_completo = ?, email = ?, whatsapp = ?, 
-                                    ativo = ?, loja_id = ?
+                                    avatar_url = ?, ativo = ?, permissions = ?, loja_id = ?
                                 WHERE username = ?
                             `).run(
                                 cloudPass,
@@ -1515,12 +1516,15 @@ WHERE(username = ? OR email = ?) COLLATE NOCASE
                                 cloudUser.nome_completo || '',
                                 cloudUser.email || '',
                                 cloudUser.whatsapp || '',
+                                cloudUser.avatar_url || '',
                                 cloudUser.ativo ? 1 : 0,
+                                cloudUser.permissions || '[]', // 🔥 FIX: Atualiza permissões do Supabase
                                 cloudUser.loja_id || DEFAULT_STORE_ID,
                                 cloudUser.username
                             );
-                        } catch (e) {
-                            console.error('❌ [Auth] Erro ao atualizar usuário local:', e.message);
+                            console.log(`✅ [Auth] Usuário ${identifier} atualizado localmente com permissões`);
+                        } catch (updateErr) {
+                            console.error(`❌ [Auth] Erro ao atualizar usuário:`, updateErr);
                         }
                     }
 

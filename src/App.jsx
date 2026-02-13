@@ -160,19 +160,13 @@ const MainContent = ({ user, handleLogout }) => {
       perms = [];
     }
 
-    // Handle double stringification
-    if (typeof perms === 'string') {
-      try { perms = JSON.parse(perms); } catch (e) { }
-    }
-    if (typeof perms === 'string') {
-      try { perms = JSON.parse(perms); } catch (e) { }
-    }
-
-    if (!Array.isArray(perms)) return false;
-
-    // Restrição de loja para usuários não-developers
-    if (user?.role !== 'developer' && user?.loja_id && currentLoja?.id !== user?.loja_id) {
-      return false;
+    // Garantir que perms seja um array (pode vir nulo ou objeto se estiver corrompido)
+    if (!Array.isArray(perms)) {
+      if (typeof perms === 'object' && perms !== null) {
+        perms = Object.values(perms);
+      } else {
+        perms = [];
+      }
     }
 
     // Check if path is in permissions or if the path is the root (which everyone has)
@@ -438,7 +432,7 @@ function App() {
     const updateAvail = (e, info) => {
       console.log('📡 [App] Update available:', info);
       setUpdateStatus(prev => ({ ...prev, available: true, info }));
-      setShowUpdateModal(true); // Mostra o modal
+      setShowUpdateModal(true);
     };
     const updateProg = (e, percent) => setUpdateStatus(prev => ({ ...prev, progress: percent }));
     const updateReady = (e, info) => {
@@ -447,7 +441,6 @@ function App() {
     };
     const updateError = (e, err) => {
       console.error('📡 [App] Update error:', err);
-      // Opcional: mostrar erro ou apenas logar
     };
 
     ipcRenderer.on('update-available', updateAvail);
