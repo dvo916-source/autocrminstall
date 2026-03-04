@@ -606,6 +606,44 @@ function ensureDefaultStore() {
     }
 }
 
+export async function syncAllStoresFromCloud() {
+    try {
+        const client = getSupabaseClient(null);
+        console.log('☁️ [Sync] Puxando todas as lojas da nuvem (Admin Rescue)...');
+        const { data: cloudLojas, error } = await client.from('lojas').select('*');
+        if (error) throw error;
+
+        if (cloudLojas) {
+            db.transaction(() => {
+                for (const cloudLoja of cloudLojas) {
+                    db.prepare(`
+                        INSERT INTO lojas(id, nome, endereco, logo_url, slug, modulos, ativo)
+                        VALUES(?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                        nome = excluded.nome, endereco = excluded.endereco, logo_url = excluded.logo_url,
+                        slug = excluded.slug, modulos = excluded.modulos, ativo = excluded.ativo
+                    `).run(
+                        cloudLoja.id,
+                        cloudLoja.nome,
+                        cloudLoja.endereco || '',
+                        cloudLoja.logo_url || '',
+                        cloudLoja.slug || cloudLoja.id,
+                        cloudLoja.modulos || '[]',
+                        cloudLoja.ativo ? 1 : 0
+                    );
+                }
+            })();
+            // Notifica a interface para recarregar
+            BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'lojas'));
+            return { success: true, count: cloudLojas.length };
+        }
+        return { success: false, error: 'Nenhuma loja encontrada.' };
+    } catch (err) {
+        console.error('[Sync] Erro ao baixar todas as lojas:', err);
+        return { success: false, error: err.message };
+    }
+}
+
 export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
     if (!lojaId) lojaId = DEFAULT_STORE_ID;
     console.log(`☁️ [SyncConfig] Iniciando sincronização para loja: ${lojaId}...`);

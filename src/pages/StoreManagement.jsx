@@ -275,15 +275,41 @@ const StoreManagement = () => {
                                 className="w-full md:w-72 bg-slate-900/50 border border-white/5 rounded-2xl pl-12 pr-4 py-3 text-[10px] font-black tracking-widest text-white focus:border-blue-500/30 focus:bg-slate-900/80 transition-all outline-none placeholder:text-slate-700"
                             />
                         </div>
-                        <motion.button
-                            whileHover={{ scale: 1.02, y: -2 }}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={() => setIsAdding(true)}
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-2xl font-black text-[10px] tracking-[0.2em] flex items-center gap-3 transition-all shadow-xl shadow-blue-900/20"
-                        >
-                            <Plus size={16} strokeWidth={4} />
-                            CADASTRAR LOJA
-                        </motion.button>
+                        <div className="flex items-center gap-2">
+                            <motion.button
+                                whileHover={{ scale: 1.02, y: -2 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={async () => {
+                                    setLoading(true);
+                                    try {
+                                        const res = await ipcRenderer.invoke('sync-all-stores');
+                                        if (res.success) {
+                                            await refreshLojas();
+                                        } else {
+                                            alert("Erro ao sincronizar lojas: " + res.error);
+                                        }
+                                    } catch (err) {
+                                        console.error(err);
+                                    } finally {
+                                        setLoading(false);
+                                    }
+                                }}
+                                disabled={loading}
+                                className="bg-purple-600/20 hover:bg-purple-500/40 border border-purple-500/50 text-purple-400 px-5 py-3 rounded-2xl font-black text-[10px] tracking-[0.2em] flex items-center gap-2 transition-all shadow-xl shadow-purple-900/10 disabled:opacity-50"
+                            >
+                                {loading ? <Loader2 size={16} className="animate-spin" /> : <Database size={16} strokeWidth={3} />}
+                                SYNC NUVEM
+                            </motion.button>
+                            <motion.button
+                                whileHover={{ scale: 1.02, y: -2 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => setIsAdding(true)}
+                                className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-2xl font-black text-[10px] tracking-[0.2em] flex items-center gap-3 transition-all shadow-xl shadow-blue-900/20"
+                            >
+                                <Plus size={16} strokeWidth={4} />
+                                CADASTRAR LOJA
+                            </motion.button>
+                        </div>
                     </div>
                 </header>
 

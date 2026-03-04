@@ -477,8 +477,12 @@ function App() {
   };
 
   const handleLogout = () => {
-    // Limpamos o storage primeiro
+    // Preservamos a loja ativa para que o backend saiba de qual ambiente baixar os dados
+    const activeLojaId = localStorage.getItem('active_loja_id');
     localStorage.clear();
+    if (activeLojaId) {
+      localStorage.setItem('active_loja_id', activeLojaId);
+    }
     // Forçamos o reload sem setar user null para o React não tentar renderizar o estado intermediário
     window.location.reload();
   };

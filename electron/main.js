@@ -397,8 +397,16 @@ ipcMain.handle('login', async (e, { username, password }) => {
     const user = await db.checkLogin(username, password);
     if (user && user.loja_id) {
         console.log(`🚀 [Main] Login detectado para loja ${user.loja_id}. Forçando sincronização imediata...`);
-        // Dispara sync em background mas não bloqueia o login
-        db.syncXml(user.loja_id).catch(err => console.error('[LoginSync] Erro:', err));
+        try {
+            // Aguarda a sincronização da loja para garantir que a loja exista no banco local ANTES do React carregar
+            // Isso previne que a Raianny seja deslogada ou bloqueada de ver seus módulos!
+            await db.syncConfig(user.loja_id);
+        } catch (err) {
+            console.error('[LoginSync] Erro crítico no syncConfig durante o login:', err);
+        }
+
+        // Dispara sync em background do resto (XML, etc) mas não bloqueia o login
+        db.syncXml(user.loja_id).catch(err => console.error('[LoginSync] Erro no syncXml:', err));
     }
     return user;
 });
@@ -443,6 +451,7 @@ ipcMain.handle('validate-cpf', async (e, cpf) => await db.validateCpfUnique(cpf)
 ipcMain.handle('create-store-with-admin', async (e, { loja, admin }) => await db.createStoreWithAdmin(loja, admin));
 ipcMain.handle('update-store', async (e, store) => await db.updateStore(store));
 ipcMain.handle('delete-store', async (e, id) => await db.deleteStore(id));
+ipcMain.handle('sync-all-stores', async () => await db.syncAllStoresFromCloud());
 
 // CRUD Genérico (Tabelas: estoque, portais, vendedores, etc)
 ipcMain.handle('get-list', async (e, { table, lojaId }) => await db.getList(table, lojaId));
