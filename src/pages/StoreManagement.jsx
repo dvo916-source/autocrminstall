@@ -1,6 +1,6 @@
 // --- PÁGINA DE GESTÃO DE UNIDADES (CENTRAL DE LOJAS) ---
 // Esta página lida com a criação, edição e exclusão de lojas no sistema multitenant.
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLoja } from '../context/LojaContext';
 import {
@@ -14,17 +14,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 const { ipcRenderer } = window.require('electron');
 import ConnectionStatus from '../components/ConnectionStatus';
 
-// Módulos que podem ser ativados para cada loja individualmente
+// Módulos que podem ser ativados para cada loja individualmente (Ordem Alfabética)
 const AVAILABLE_MODULES = [
-    { id: 'diario', label: 'Meu Diário' },
-    { id: 'whatsapp', label: 'WhatsApp' },
-    { id: 'estoque', label: 'Tabela/Estoque' },
-    { id: 'visitas', label: 'Visitas' },
-    { id: 'metas', label: 'Metas' },
-    { id: 'portais', label: 'Portais' },
-    { id: 'crm', label: 'CRM / Rodízio' },
-    { id: 'ia-chat', label: 'IA Chat' },
-    { id: 'usuarios', label: 'Usuários' },
+    { id: 'crm', label: 'CRM KAMBAM (EM DESENVOLVIMENTO)' },
+    { id: 'ia-agente', label: 'IA AGENTE (EM DESENVOLVIMENTO)' },
+    { id: 'ia-chat', label: 'IA CHAT (EM DESENVOLVIMENTO)' },
+    { id: 'metas', label: 'METAS' },
+    { id: 'diario', label: 'MEU DIÁRIO' },
+    { id: 'portais', label: 'PORTAIS' },
+    { id: 'estoque', label: 'TABELA VIRTUAL' },
+    { id: 'usuarios', label: 'USUÁRIOS' },
+    { id: 'visitas', label: 'VISITAS' },
+    { id: 'whatsapp', label: 'WHATSAPP' },
 ];
 
 const StoreManagement = () => {
@@ -39,13 +40,14 @@ const StoreManagement = () => {
     const [configStore, setConfigStore] = useState(null); // Loja que está sendo configurada
     const [editingId, setEditingId] = useState(null); // ID da loja em edição inline
     const [editForm, setEditForm] = useState({ nome: '', logo_url: '' }); // Formulário de edição rápida
+    const [emptyStoreAlert, setEmptyStoreAlert] = useState(null); // Modal de loja vazia
 
     // Dados para a NOVA loja (Wizard)
     const [newStore, setNewStore] = useState({
         nome: '',
         endereco: '',
         logo_url: '',
-        modulos: ['diario', 'whatsapp', 'estoque', 'visitas', 'metas', 'portais', 'ia-chat', 'usuarios']
+        modulos: ['crm', 'diario', 'estoque', 'ia-chat', 'metas', 'portais', 'usuarios', 'visitas', 'whatsapp']
     });
 
     // Dados para o PRIMEIRO Administrador da nova loja
@@ -58,6 +60,31 @@ const StoreManagement = () => {
 
     const [cpfError, setCpfError] = useState(''); // Mensagem de erro de CPF ja existente
     const [loading, setLoading] = useState(false); // Estado de "carregando" (spinner)
+
+    // 🧠 Navegação Inteligente + Validação
+    const handleAcessarLoja = useCallback((lojaDestino) => {
+        let mods = [];
+        try {
+            mods = typeof lojaDestino.modulos === 'string' ? JSON.parse(lojaDestino.modulos || '[]') : (lojaDestino.modulos || []);
+        } catch (e) { mods = []; }
+
+        // Ignora módulos ocultos legados (ex: 'dashboard') que não estão mais na lista de módulos disponíveis
+        const validMods = mods.filter(m => AVAILABLE_MODULES.some(av => av.id === m));
+
+        if (!validMods || validMods.length === 0) {
+            setEmptyStoreAlert(lojaDestino);
+            return;
+        }
+
+        const priorityMap = ['diario', 'whatsapp', 'estoque', 'visitas', 'metas', 'portais', 'ia-chat', 'usuarios', 'crm', 'ia-agente'];
+        const firstMod = priorityMap.find(m => validMods.includes(m)) || '';
+        const targetPath = firstMod ? `/${firstMod}` : '/';
+
+        console.log(`🚀 [Central] Acessando ${lojaDestino.nome}. Módulos Válidos: ${validMods.length} | Primeiro módulo: ${firstMod || 'nenhum'} -> Path: ${targetPath}`);
+
+        switchLoja(lojaDestino);
+        navigate(targetPath);
+    }, [navigate, switchLoja]);
     const [searchTerm, setSearchTerm] = useState(''); // Texto da busca
 
     // 🔍 FILTRAGEM DINÂMICA
@@ -427,9 +454,7 @@ const StoreManagement = () => {
                                         {currentLoja?.id === loja.id ? (
                                             <>
                                                 <button
-                                                    onClick={() => {
-                                                        navigate('/');
-                                                    }}
+                                                    onClick={() => handleAcessarLoja(loja)}
                                                     className="flex-[4] relative group/btn flex items-center justify-center gap-3 py-4 rounded-2xl font-black text-[11px] tracking-[0.2em] transition-all bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20"
                                                 >
                                                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -446,24 +471,7 @@ const StoreManagement = () => {
                                         ) : (
                                             <>
                                                 <button
-                                                    onClick={() => {
-                                                        // 🧠 Navegação Inteligente: Identifica o primeiro módulo disponível
-                                                        let mods = [];
-                                                        try {
-                                                            mods = typeof loja.modulos === 'string' ? JSON.parse(loja.modulos || '[]') : (loja.modulos || []);
-                                                        } catch (e) { mods = []; }
-
-                                                        // Lista de prioridade/mapeamento de paths
-                                                        const priorityMap = ['diario', 'whatsapp', 'estoque', 'visitas', 'metas', 'portais', 'ia-chat', 'usuarios'];
-                                                        const firstMod = priorityMap.find(m => mods.includes(m)) || '';
-
-                                                        const targetPath = firstMod ? `/${firstMod}` : '/';
-
-                                                        console.log(`🚀 [Central] Acessando ${loja.nome}. Primeiro módulo: ${firstMod || 'nenhum'} -> Path: ${targetPath}`);
-
-                                                        switchLoja(loja);
-                                                        navigate(targetPath);
-                                                    }}
+                                                    onClick={() => handleAcessarLoja(loja)}
                                                     className="flex-[5] relative group/btn flex items-center justify-center gap-3 py-4 rounded-2xl font-black text-[11px] tracking-[0.2em] transition-all duration-700 overflow-hidden bg-white text-black hover:bg-blue-600 hover:text-white hover:scale-[1.02] shadow-[0_15px_30px_-10px_rgba(255,255,255,0.1)] active:scale-95"
                                                 >
                                                     <div className="absolute inset-0 bg-blue-600 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-700" />
@@ -516,6 +524,55 @@ const StoreManagement = () => {
             </div >
 
             {/* Modal de Configuração de Módulos - ESCALA REDUZIDA */}
+            < AnimatePresence >
+                {emptyStoreAlert && (
+                    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6">
+                        <motion.div
+                            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                            onClick={() => setEmptyStoreAlert(null)}
+                            className="absolute inset-0 bg-[#020617]/90 backdrop-blur-xl"
+                        />
+                        <motion.div
+                            initial={{ scale: 0.95, opacity: 0, y: 30 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ scale: 0.95, opacity: 0, y: 30 }}
+                            className="relative w-full max-w-md bg-slate-900 border border-red-500/20 p-8 rounded-[3rem] shadow-[0_0_50px_rgba(239,68,68,0.15)] text-center overflow-hidden"
+                        >
+                            <div className="absolute top-0 right-0 p-8 opacity-[0.03]">
+                                <Store size={120} />
+                            </div>
+                            <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <Zap size={32} className="text-red-400" />
+                            </div>
+
+                            <h3 className="text-2xl font-black text-white italic tracking-tighter uppercase mb-2">LOJA <span className="text-red-400">SEM MÓDULOS</span></h3>
+                            <p className="text-slate-500 text-[10px] uppercase font-black tracking-[0.2em] mb-8 leading-relaxed">
+                                A loja <span className="text-white">{emptyStoreAlert.nome}</span> não possui nenhum módulo ativo no momento.
+                            </p>
+
+                            <div className="flex gap-3 relative z-10">
+                                <button
+                                    onClick={() => setEmptyStoreAlert(null)}
+                                    className="flex-1 py-4 font-black text-slate-500 hover:text-white transition-all uppercase text-[10px] tracking-[0.3em]"
+                                >
+                                    CANCELAR
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const lojaToConfig = emptyStoreAlert;
+                                        setEmptyStoreAlert(null);
+                                        setConfigStore(lojaToConfig);
+                                    }}
+                                    className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-black text-[10px] tracking-[0.2em] transition-all"
+                                >
+                                    ADICIONAR MÓDULO
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
             < AnimatePresence >
                 {configStore && (
                     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6">

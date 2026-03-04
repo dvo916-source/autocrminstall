@@ -264,6 +264,9 @@ const Shell = ({ children, user, onLogout }) => {
     // 🔒 Bloqueio de Expansão (Sidebar Fixa) para Developers sem loja ativa
     const isSidebarLocked = user.role === 'developer' && !currentLoja;
 
+    // 🔥 Controle de Instância do WhatsApp: Só renderiza se a loja tem permissão pro módulo whatsapp
+    const hasWhatsappModule = filteredNavItems.some(item => item.module === 'whatsapp');
+
     return (
         // MESTRE FLEXBOX
         <div className="flex h-screen w-screen bg-[#0f172a] text-white overflow-hidden font-inter selection:bg-cyan-500/30">
@@ -440,11 +443,13 @@ const Shell = ({ children, user, onLogout }) => {
             {/* CONTEÚDO PRINCIPAL (Flex 1) */}
             <main className={`flex-grow min-w-0 h-full relative z-0 flex overflow-hidden transition-colors duration-500 ${location.pathname === '/whatsapp' ? 'bg-transparent' : 'flex-col bg-[#0f172a]'}`}>
 
-                {/* SERVIÇO WHATSAPP "ALWAYS ON" */}
-                <WhatsappService
-                    isVisible={location.pathname === '/whatsapp'}
-                    isActive={location.pathname === '/whatsapp'}
-                />
+                {/* SERVIÇO WHATSAPP "ALWAYS ON" (Apenas se o módulo estiver ativo) */}
+                {hasWhatsappModule && (
+                    <WhatsappService
+                        isVisible={location.pathname === '/whatsapp'}
+                        isActive={location.pathname === '/whatsapp'}
+                    />
+                )}
 
                 <div
                     className={`flex-grow flex flex-col relative w-full h-full ${location.pathname === '/whatsapp' ? 'p-0 pointer-events-none' : 'overflow-y-auto custom-scrollbar'}`}

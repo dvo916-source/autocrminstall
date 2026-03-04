@@ -2340,6 +2340,34 @@ export function enableRealtimeSync(lojaId = null) {
         )
         .on(
             'postgres_changes',
+            { event: '*', schema: 'public', table: 'lojas' },
+            async (payload) => {
+                if (syncLock) return;
+                console.log('⚡ [Realtime] Loja Alterada:', payload.eventType);
+
+                const { new: newRec, old: oldRec, eventType } = payload;
+                try {
+                    if (eventType === 'DELETE' && oldRec) {
+                        db.prepare("DELETE FROM lojas WHERE id = ?").run(oldRec.id);
+                    } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
+                        // Certifica-se de que modulos sejam salvos como string no banco local
+                        const modulosString = typeof newRec.modulos === 'string' ? newRec.modulos : JSON.stringify(newRec.modulos || []);
+
+                        db.prepare(`
+                            INSERT INTO lojas(id, nome, endereco, logo_url, slug, modulos, ativo)
+                            VALUES(?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(id) DO UPDATE SET
+                                nome = excluded.nome, endereco = excluded.endereco, logo_url = excluded.logo_url,
+                                slug = excluded.slug, modulos = excluded.modulos, ativo = excluded.ativo
+                        `).run(newRec.id, newRec.nome, newRec.endereco || '', newRec.logo_url || '', newRec.slug || newRec.id, modulosString, newRec.ativo ? 1 : 0);
+                    }
+                    // Avisa a UI para recarregar as lojas e configurações ativas
+                    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'lojas'));
+                } catch (e) { console.error("Erro Realtime Lojas:", e); }
+            }
+        )
+        .on(
+            'postgres_changes',
             { event: '*', schema: 'public', table: 'vendedores' },
             async (payload) => {
                 if (syncLock) return;

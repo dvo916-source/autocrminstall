@@ -359,6 +359,18 @@ function App() {
             console.warn('⚠️ [App] Usuário não encontrado no banco. Limpando cache...');
             handleLogout();
             return;
+          } else {
+            // Update initial state with fresh data from database
+            let finalPerms = freshData.permissions || [];
+            if (typeof finalPerms === 'string') {
+              try {
+                finalPerms = JSON.parse(finalPerms);
+                if (typeof finalPerms === 'string') finalPerms = JSON.parse(finalPerms);
+              } catch (e) { finalPerms = []; }
+            }
+            const formatted = { ...freshData, permissions: Array.isArray(finalPerms) ? finalPerms : [] };
+            localStorage.setItem('vexcore_user', JSON.stringify(formatted));
+            setUser(formatted);
           }
 
           // Se for developer, verificamos se ele já estava atendendo uma loja
@@ -400,6 +412,17 @@ function App() {
 
     ipcRenderer.on('user-data-updated', handleUserDataUpdate);
 
+    // 🔄 TRIGGERED WHEN FULL-SYNC COMPLETES
+    const handleRefreshData = (e, table) => {
+      if (table === 'all' || table === 'usuarios') {
+        const currentUser = JSON.parse(localStorage.getItem('vexcore_user') || '{}');
+        if (currentUser.username) {
+          handleUserDataUpdate(null, currentUser.username);
+        }
+      }
+    };
+    ipcRenderer.on('refresh-data', handleRefreshData);
+
     // --- GLOBAL UPDATE LISTENERS ---
     const updateAvail = (e, info) => {
       console.log('📡 [App] Update available:', info);
@@ -422,6 +445,7 @@ function App() {
 
     return () => {
       ipcRenderer.removeListener('user-data-updated', handleUserDataUpdate);
+      ipcRenderer.removeListener('refresh-data', handleRefreshData);
       ipcRenderer.removeListener('update-available', updateAvail);
       ipcRenderer.removeListener('update-progress', updateProg);
       ipcRenderer.removeListener('update-downloaded', updateReady);

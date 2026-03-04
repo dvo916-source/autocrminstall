@@ -70,9 +70,22 @@ export const LojaProvider = ({ children }) => {
         // Não damos reload aqui para permitir navegação fluida de volta à central
     };
 
-    // Carrega os dados assim que o Provider nasce
+    // Carrega os dados assim que o Provider nasce e escuta atualizações realtime
     useEffect(() => {
         loadLojas();
+
+        const handleRefresh = (e, table) => {
+            if (table === 'lojas' || table === 'all') {
+                console.log(`🔄 [LojaContext] Sincronizando lojas devido a mudança realtime em: ${table}`);
+                loadLojas();
+            }
+        };
+
+        ipcRenderer.on('refresh-data', handleRefresh);
+
+        return () => {
+            ipcRenderer.removeListener('refresh-data', handleRefresh);
+        };
     }, []);
 
     // Disponibilizamos os dados e funções para todos os filhos
