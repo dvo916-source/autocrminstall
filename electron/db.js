@@ -1615,7 +1615,7 @@ export async function updateUser(user) {
     const username = (user.username || user.email).toLowerCase();
     const lojaId = user.loja_id || null;
 
-    let query = "UPDATE usuarios SET role = ?, nome_completo = ?, email = ?, whatsapp = ?, ativo = ?, permissions = ?, loja_id = ?";
+    let query = "UPDATE usuarios SET role = ?, nome_completo = ?, email = ?, whatsapp = ?, ativo = ?, permissions = ?, loja_id = ?, cpf = ?";
     let params = [
         user.role,
         user.nome_completo,
@@ -1623,7 +1623,8 @@ export async function updateUser(user) {
         user.whatsapp || '',
         user.ativo ? 1 : 0,
         user.permissions ? JSON.stringify(user.permissions) : '[]',
-        lojaId
+        lojaId,
+        user.cpf || null
     ];
 
     if (user.password && user.password.length >= 6) {
@@ -1647,8 +1648,9 @@ export async function updateUser(user) {
                 email: user.email.toLowerCase(),
                 whatsapp: user.whatsapp || '',
                 ativo: !!user.ativo,
-                permissions: user.permissions ? JSON.stringify(user.permissions) : '[]',
-                loja_id: lojaId || DEFAULT_STORE_ID
+                permissions: user.permissions ? (typeof user.permissions === 'string' ? user.permissions : JSON.stringify(user.permissions)) : '[]',
+                loja_id: lojaId || DEFAULT_STORE_ID,
+                cpf: user.cpf || null
             };
             if (user.password && user.password.length >= 6) {
                 const hashedPassword = await bcrypt.hash(user.password, 10);
@@ -2310,22 +2312,38 @@ export function enableRealtimeSync(lojaId = null) {
                         if (newRec.username === 'diego' || newRec.username === 'admin') return;
 
                         db.prepare(`
-                            INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id)
-            VALUES(@username, @password, @role, @reset_password, @nome_completo, @email, @whatsapp, @ativo, @permissions, @loja_id)
+                            INSERT INTO usuarios(
+                                username, password, role, reset_password, nome_completo, email, 
+                                whatsapp, ativo, permissions, loja_id, cpf, em_fila, 
+                                ultima_atribuicao, leads_recebidos_total, portais_permitidos
+                            )
+                            VALUES(
+                                @username, @password, @role, @reset_password, @nome_completo, @email, 
+                                @whatsapp, @ativo, @permissions, @loja_id, @cpf, @em_fila, 
+                                @ultima_atribuicao, @leads_recebidos_total, @portais_permitidos
+                            )
                             ON CONFLICT(username) DO UPDATE SET
-            password = excluded.password, role = excluded.role, reset_password = excluded.reset_password,
-                nome_completo = excluded.nome_completo, email = excluded.email, whatsapp = excluded.whatsapp, ativo = excluded.ativo, permissions = excluded.permissions, loja_id = excluded.loja_id
+                                password = excluded.password, role = excluded.role, reset_password = excluded.reset_password,
+                                nome_completo = excluded.nome_completo, email = excluded.email, whatsapp = excluded.whatsapp, 
+                                ativo = excluded.ativo, permissions = excluded.permissions, loja_id = excluded.loja_id, 
+                                cpf = excluded.cpf, em_fila = excluded.em_fila, ultima_atribuicao = excluded.ultima_atribuicao,
+                                leads_recebidos_total = excluded.leads_recebidos_total, portais_permitidos = excluded.portais_permitidos
                     `).run({
                             username: newRec.username,
-                            password: newRec.password,
+                            password: newRec.password_hash || newRec.password,
                             role: newRec.role,
-                            reset_password: newRec.reset_password ? 1 : 0,
+                            reset_password: newRec.force_password_change ? 1 : (newRec.reset_password ? 1 : 0),
                             nome_completo: newRec.nome_completo || '',
                             email: newRec.email || '',
                             whatsapp: newRec.whatsapp || '',
                             ativo: newRec.ativo ? 1 : 0,
                             permissions: typeof newRec.permissions === 'string' ? newRec.permissions : JSON.stringify(newRec.permissions || []),
-                            loja_id: newRec.loja_id
+                            loja_id: newRec.loja_id,
+                            cpf: newRec.cpf || null,
+                            em_fila: newRec.em_fila ? 1 : 0,
+                            ultima_atribuicao: newRec.ultima_atribuicao || null,
+                            leads_recebidos_total: newRec.leads_recebidos_total || 0,
+                            portais_permitidos: typeof newRec.portais_permitidos === 'string' ? newRec.portais_permitidos : JSON.stringify(newRec.portais_permitidos || [])
                         });
 
                         // 📢 AVISA O FRONTEND SE FOR O USUÁRIO LOGADO
