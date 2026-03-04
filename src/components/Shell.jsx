@@ -224,35 +224,39 @@ const Shell = ({ children, user, onLogout }) => {
 
     const filteredNavItems = navItems.filter(item => {
         try {
-            // 🔓 ADMIN/MASTER DEVELOPER: No filter for Central Lojas and internal tools
+            // 🔓 INTERNAL TOOLS: No filter for Central Lojas
             const internalModules = ['central-lojas', 'back-to-central'];
             if (internalModules.includes(item.module)) return true;
 
+            // 👑 DEVELOPER: Acesso absoluto para suporte (Vê tudo se tiver loja ou central)
+            if (user.role === 'developer') {
+                if (!currentLoja && item.module !== 'central-lojas') return false;
+                return true;
+            }
+
+            // 🏪 BLOQUEIO TOTAL: Se a loja estiver desativada (ex: inadimplência total)
+            if (currentLoja && currentLoja.ativo === 0) {
+                return item.module === 'diario'; // Só permite ver o diário/avisos
+            }
+
             // 🏪 MÓDULOS DA LOJA: Verifica se o módulo está ativo no plano da loja
             const lojaModulosRaw = currentLoja?.modulos;
-
-            // Se o desenvolvedor NÃO selecionou uma loja, ele não vê módulos operacionais (barra vazia/limpa)
-            if (user.role === 'developer' && !currentLoja) return false;
-
-            // Se não houver loja selecionada ou módulos definidos
-            if (!currentLoja || !lojaModulosRaw) return user.role === 'developer';
+            if (!currentLoja || !lojaModulosRaw) return false;
 
             let enabledModules = [];
             let raw = lojaModulosRaw;
             if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (e) { } }
-            if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (e) { } }
             if (Array.isArray(raw)) enabledModules = raw;
-            if (enabledModules === null) enabledModules = [];
-            if (enabledModules === null) enabledModules = [];
 
             const moduleEnabled = enabledModules.includes(item.module);
 
+            // Se o módulo não está no plano da loja, NINGUÉM (exceto dev) vê.
             if (!moduleEnabled) return false;
 
-            // 👑 DEVELOPER/MASTER: Sempre vêem tudo
-            if (user.role === 'developer' || user.role === 'master' || user.role === 'admin') return true;
+            // 👑 MASTER/ADMIN: Vêem todos os módulos que a LOJA tem permissão
+            if (user.role === 'master' || user.role === 'admin') return true;
 
-            // 👤 USUÁRIO COMUM: Verifica se tem permissão individual
+            // 👤 USUÁRIO COMUM (Vendedor/SDR): Verifica se tem permissão individual DENTRO dos módulos da loja
             return hasPermission(item.to);
 
         } catch (e) {

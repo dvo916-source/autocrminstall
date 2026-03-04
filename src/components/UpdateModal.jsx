@@ -33,11 +33,12 @@ export default function UpdateModal({ updateInfo, onInstall, onDismiss }) {
                     </p>
 
                     {updateInfo.releaseNotes && (
-                        <div className="bg-black/30 rounded-xl p-4 mb-4">
-                            <p className="text-xs text-gray-400 font-semibold mb-2">Novidades:</p>
-                            <p className="text-xs text-gray-300 leading-relaxed">
-                                {updateInfo.releaseNotes}
-                            </p>
+                        <div className="bg-black/30 rounded-xl p-4 mb-4 max-h-48 overflow-y-auto custom-scrollbar border border-white/5">
+                            <p className="text-[10px] text-cyan-500/50 font-bold uppercase tracking-wider mb-3">Novidades da Versão</p>
+                            <div
+                                className="text-xs text-gray-300 leading-relaxed release-notes-container"
+                                dangerouslySetInnerHTML={{ __html: updateInfo.releaseNotes }}
+                            />
                         </div>
                     )}
 

@@ -99,6 +99,16 @@ function markVisitaSaved(id) {
     setTimeout(() => recentlySavedVisitas.delete(String(id)), 30000);
 }
 
+// 🛒 RETORNA O ID DA LOJA ATIVA (Usado pelo Heartbeat do main.js)
+export function getActiveStoreId() {
+    try {
+        const row = db.prepare("SELECT loja_id FROM usuarios WHERE username != 'diego' ORDER BY rowid LIMIT 1").get();
+        return row?.loja_id || DEFAULT_STORE_ID;
+    } catch (e) {
+        return DEFAULT_STORE_ID;
+    }
+}
+
 // 📤 Exporta a instância do banco para uso em outros módulos (ex: uploadData.js)
 export function getDbInstance() {
     return db;
@@ -382,17 +392,41 @@ export function initDb() {
     } catch (e) { }
     ensureDefaultStore();
     ensureDevUser();
-
-    // === MIGRAÇÃO: todos os registros existentes = lançados manualmente = vieram à loja ===
-    try {
-        const needsMigration = db.prepare("SELECT COUNT(*) as n FROM visitas WHERE visitou_loja = 0 OR visitou_loja IS NULL").get();
-        if (needsMigration?.n > 0) {
-            db.prepare("UPDATE visitas SET visitou_loja = 1 WHERE visitou_loja = 0 OR visitou_loja IS NULL").run();
-            console.log(`✅ [DB Migration] visitou_loja: ${needsMigration.n} registros existentes marcados como visitados.`);
-        }
-    } catch (e) { /* coluna pode ainda não existir em banco muito antigo */ }
+    // 📡 RESET LÓGICO (v1.1.21+) - Garante integridade de licenciamento no BOOT
+    checkVersionAndReset();
 
     console.log("✅ [DB] Banco de dados pronto e verificado.");
+}
+
+// --- RESET LOGICO PARA VERSOES CRITICAS ---
+export function checkVersionAndReset() {
+    try {
+        const currentInternalVersion = "1.1.21";
+        const row = db.prepare("SELECT valor FROM config WHERE chave = 'internal_db_version' AND loja_id = 'SYSTEM'").get();
+        const lastVersion = row ? row.valor : "0.0.0";
+
+        if (lastVersion !== currentInternalVersion) {
+            console.log(`📡 [Reset Lógico] Detectada nova versão (${currentInternalVersion}). Realizando limpeza seletiva...`);
+
+            // 🛡️ LIMPA USUÁRIOS (Preserva as credenciais básicas por segurança, mas o sync vai sobrescrever tudo)
+            db.prepare("DELETE FROM usuarios WHERE username NOT IN ('diego', 'admin')").run();
+
+            // 🛡️ LIMPA TABELA DE LOJAS para garantir que os módulos venham do Supabase
+            db.prepare("DELETE FROM lojas").run();
+
+            // 🛡️ LIMPA CRM_SETTINGS para forçar prompts novos
+            db.prepare("DELETE FROM crm_settings").run();
+
+            // Atualiza a flag de versão (Global)
+            db.prepare("INSERT OR REPLACE INTO config (chave, loja_id, valor) VALUES (?, ?, ?)").run('internal_db_version', 'SYSTEM', currentInternalVersion);
+
+            console.log(`✅ [Reset Lógico] Tabelas críticas limpas. O próximo syncConfig será MANDATÓRIO.`);
+            return true;
+        }
+    } catch (e) {
+        console.error("Erro no Reset Lógico:", e.message);
+    }
+    return false;
 }
 
 // --- UTIL ---
@@ -408,6 +442,9 @@ export function toPerfectSlug(text) {
 
 export async function syncXml(lojaId = DEFAULT_STORE_ID) {
     if (!lojaId) lojaId = DEFAULT_STORE_ID;
+
+    // 🔥 Lógica de Reset para V1.1.21 (Garante integridade de licenciamento)
+    checkVersionAndReset();
 
     // 🔥 SYNC CONFIG FIRST (PULL FROM CLOUD)
     await syncConfig(lojaId);
@@ -583,27 +620,42 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
             db.transaction(() => {
                 for (const u of cloudUsers) {
                     db.prepare(`
-                        INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, avatar_url, ativo, permissions, session_id, created_by, loja_id)
-                        VALUES(@username, @password, @role, @reset_password, @nome_completo, @email, @whatsapp, @avatar_url, @ativo, @permissions, @session_id, @created_by, @loja_id)
+                        INSERT INTO usuarios(
+                            username, password, role, reset_password, nome_completo, email,
+                            whatsapp, avatar_url, ativo, permissions, session_id, created_by,
+                            loja_id, cpf, em_fila, ultima_atribuicao, leads_recebidos_total, portais_permitidos
+                        )
+                        VALUES(
+                            @username, @password, @role, @reset_password, @nome_completo, @email,
+                            @whatsapp, @avatar_url, @ativo, @permissions, @session_id, @created_by,
+                            @loja_id, @cpf, @em_fila, @ultima_atribuicao, @leads_rece_total, @portais
+                        )
                         ON CONFLICT(username) DO UPDATE SET
                             password = excluded.password, role = excluded.role, reset_password = excluded.reset_password,
                             nome_completo = excluded.nome_completo, email = excluded.email, whatsapp = excluded.whatsapp,
                             avatar_url = excluded.avatar_url, ativo = excluded.ativo, permissions = excluded.permissions,
-                            session_id = excluded.session_id, created_by = excluded.created_by, loja_id = excluded.loja_id
+                            session_id = excluded.session_id, created_by = excluded.created_by, loja_id = excluded.loja_id,
+                            cpf = excluded.cpf, em_fila = excluded.em_fila, ultima_atribuicao = excluded.ultima_atribuicao,
+                            leads_recebidos_total = excluded.leads_recebidos_total, portais_permitidos = excluded.portais_permitidos
                     `).run({
                         username: u.username,
-                        password: u.password_hash || u.password, // Supabase usa password_hash
+                        password: u.password_hash || u.password,
                         role: u.role,
-                        reset_password: u.force_password_change ? 1 : 0,
+                        reset_password: u.force_password_change ? 1 : (u.reset_password ? 1 : 0),
                         nome_completo: u.nome_completo || '',
                         email: u.email || '',
                         whatsapp: u.whatsapp || '',
                         avatar_url: u.avatar_url || '',
-                        ativo: u.ativo ? 1 : 0,
-                        permissions: u.permissions || '[]',
+                        ativo: (u.ativo === true || u.ativo === 1) ? 1 : 0,
+                        permissions: typeof u.permissions === 'string' ? u.permissions : JSON.stringify(u.permissions || []),
                         session_id: u.session_id || '',
                         created_by: u.created_by || '',
-                        loja_id: u.loja_id || DEFAULT_STORE_ID
+                        loja_id: u.loja_id || DEFAULT_STORE_ID,
+                        cpf: u.cpf || null,
+                        em_fila: u.em_fila ? 1 : 0,
+                        ultima_atribuicao: u.ultima_atribuicao || null,
+                        leads_rece_total: u.leads_recebidos_total || 0,
+                        portais: typeof u.portais_permitidos === 'string' ? u.portais_permitidos : JSON.stringify(u.portais_permitidos || [])
                     });
                 }
             })();
@@ -611,7 +663,32 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
             BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'usuarios'));
         }
 
-        // 2. Vendedores
+        // 2. LOJA (Sincroniza status e módulos ativos)
+        try {
+            const { data: cloudLoja, error: lErr } = await client.from('lojas').select('*').eq('id', lojaId).single();
+            if (cloudLoja) {
+                db.prepare(`
+                    INSERT INTO lojas(id, nome, endereco, logo_url, slug, modulos, ativo)
+                    VALUES(?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                    nome = excluded.nome, endereco = excluded.endereco, logo_url = excluded.logo_url,
+                        slug = excluded.slug, modulos = excluded.modulos, ativo = excluded.ativo
+                            `).run(
+                    cloudLoja.id,
+                    cloudLoja.nome,
+                    cloudLoja.endereco || '',
+                    cloudLoja.logo_url || '',
+                    cloudLoja.slug || cloudLoja.id,
+                    cloudLoja.modulos || '[]',
+                    cloudLoja.ativo ? 1 : 0
+                );
+                console.log(`✅[SyncConfig] Status da loja ${lojaId} atualizado(Ativo: ${cloudLoja.ativo}, Módulos: ${cloudLoja.modulos})`);
+            }
+        } catch (err) {
+            console.error('[SyncConfig] Erro Loja:', err.message);
+        }
+
+        // 3. Vendedores
         try {
             const { data: cloudSellers, error: sErr } = await client.from('vendedores').select('*').eq('loja_id', lojaId);
             if (sErr) {
@@ -623,8 +700,8 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
                             // Usa INSERT OR REPLACE para evitar erro de constraint
                             db.prepare(`
                                 INSERT OR REPLACE INTO vendedores(nome, sobrenome, telefone, email, foto_url, ativo, loja_id)
-                                VALUES(@nome, @sobrenome, @telefone, @email, @foto_url, @ativo, @loja_id)
-                            `).run({
+                    VALUES(@nome, @sobrenome, @telefone, @email, @foto_url, @ativo, @loja_id)
+                        `).run({
                                 nome: s.nome,
                                 sobrenome: s.sobrenome || '',
                                 telefone: s.telefone || '',
@@ -634,7 +711,7 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
                                 loja_id: s.loja_id || DEFAULT_STORE_ID
                             });
                         } catch (err) {
-                            console.error(`[SyncConfig] Erro ao inserir vendedor ${s.nome}:`, err.message);
+                            console.error(`[SyncConfig] Erro ao inserir vendedor ${s.nome}: `, err.message);
                         }
                     }
                 })();
@@ -643,7 +720,7 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
             }
         } catch (err) {
             console.error('[SyncConfig] Erro Vendedores:', err.message);
-            stats.errors.push(`Vendedores: ${err.message}`);
+            stats.errors.push(`Vendedores: ${err.message} `);
         }
 
         // 3. Scripts
@@ -658,10 +735,10 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
                             // Usa INSERT OR REPLACE para evitar erro de constraint
                             db.prepare(`
                                 INSERT OR REPLACE INTO scripts(id, titulo, mensagem, is_system, link, username, ordem, loja_id)
-                                VALUES(@id, @titulo, @mensagem, @is_system, @link, @username, @ordem, @loja_id)
-                            `).run({ ...s, is_system: s.is_system ? 1 : 0 });
+                    VALUES(@id, @titulo, @mensagem, @is_system, @link, @username, @ordem, @loja_id)
+                        `).run({ ...s, is_system: s.is_system ? 1 : 0 });
                         } catch (err) {
-                            console.error(`[SyncConfig] Erro ao inserir script ${s.id}:`, err.message);
+                            console.error(`[SyncConfig] Erro ao inserir script ${s.id}: `, err.message);
                         }
                     }
                 })();
@@ -670,7 +747,7 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
             }
         } catch (err) {
             console.error('[SyncConfig] Erro Scripts:', err.message);
-            stats.errors.push(`Scripts: ${err.message}`);
+            stats.errors.push(`Scripts: ${err.message} `);
         }
 
         // 4. Visitas (Recent Pull)
@@ -692,12 +769,12 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
                             // IMPORTANTE: inclui visitou_loja e nao_compareceu para não resetar ao sincronizar
                             db.prepare(`
                     INSERT INTO visitas(
-                        id, datahora, mes, cliente, telefone, portal,
-                        veiculo_interesse, veiculo_troca, vendedor, vendedor_sdr, negociacao, status,
-                        data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline,
-                        valor_proposta, cpf_cliente, historico_log, loja_id,
-                        visitou_loja, nao_compareceu
-                    )
+                            id, datahora, mes, cliente, telefone, portal,
+                            veiculo_interesse, veiculo_troca, vendedor, vendedor_sdr, negociacao, status,
+                            data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline,
+                            valor_proposta, cpf_cliente, historico_log, loja_id,
+                            visitou_loja, nao_compareceu
+                        )
                     VALUES(
                         @id, @datahora, @mes, @cliente, @telefone, @portal,
                         @veiculo_interesse, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao, @status,
@@ -706,30 +783,30 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
                         @visitou_loja, @nao_compareceu
                     )
                     ON CONFLICT(id) DO UPDATE SET
-                        datahora         = excluded.datahora,
-                        mes              = excluded.mes,
-                        cliente          = excluded.cliente,
-                        telefone         = excluded.telefone,
-                        portal           = excluded.portal,
-                        veiculo_interesse= excluded.veiculo_interesse,
-                        veiculo_troca    = excluded.veiculo_troca,
-                        vendedor         = excluded.vendedor,
-                        vendedor_sdr     = excluded.vendedor_sdr,
-                        negociacao       = excluded.negociacao,
-                        status           = excluded.status,
+                    datahora = excluded.datahora,
+                        mes = excluded.mes,
+                        cliente = excluded.cliente,
+                        telefone = excluded.telefone,
+                        portal = excluded.portal,
+                        veiculo_interesse = excluded.veiculo_interesse,
+                        veiculo_troca = excluded.veiculo_troca,
+                        vendedor = excluded.vendedor,
+                        vendedor_sdr = excluded.vendedor_sdr,
+                        negociacao = excluded.negociacao,
+                        status = excluded.status,
                         data_agendamento = excluded.data_agendamento,
-                        temperatura      = excluded.temperatura,
-                        motivo_perda     = excluded.motivo_perda,
-                        forma_pagamento  = excluded.forma_pagamento,
-                        status_pipeline  = excluded.status_pipeline,
-                        valor_proposta   = excluded.valor_proposta,
-                        cpf_cliente      = excluded.cpf_cliente,
-                        historico_log    = excluded.historico_log,
-                        loja_id          = excluded.loja_id,
-                        -- Só atualiza visitou_loja se o valor da nuvem for 1 (alguém confirmou lá)
-                        -- Nunca deixa a nuvem "apagar" um SIM local com NULL ou 0
-                        visitou_loja     = MAX(COALESCE(visitas.visitou_loja, 0), COALESCE(excluded.visitou_loja, 0)),
-                        nao_compareceu   = COALESCE(excluded.nao_compareceu, visitas.nao_compareceu, 0)
+                        temperatura = excluded.temperatura,
+                        motivo_perda = excluded.motivo_perda,
+                        forma_pagamento = excluded.forma_pagamento,
+                        status_pipeline = excluded.status_pipeline,
+                        valor_proposta = excluded.valor_proposta,
+                        cpf_cliente = excluded.cpf_cliente,
+                        historico_log = excluded.historico_log,
+                        loja_id = excluded.loja_id,
+                        --Só atualiza visitou_loja se o valor da nuvem for 1(alguém confirmou lá)
+                        --Nunca deixa a nuvem "apagar" um SIM local com NULL ou 0
+                    visitou_loja = MAX(COALESCE(visitas.visitou_loja, 0), COALESCE(excluded.visitou_loja, 0)),
+                        nao_compareceu = COALESCE(excluded.nao_compareceu, visitas.nao_compareceu, 0)
                             `).run({
                                 ...v,
                                 visitou_loja: v.visitou_loja ? 1 : 0,
@@ -737,7 +814,7 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
                             });
 
                         } catch (err) {
-                            console.error(`[SyncConfig] Erro ao inserir visita ${v.id}:`, err.message);
+                            console.error(`[SyncConfig] Erro ao inserir visita ${v.id}: `, err.message);
                         }
                     }
                 })();
@@ -745,7 +822,7 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
             }
         } catch (err) {
             console.error('[SyncConfig] Erro Visitas:', err.message);
-            stats.errors.push(`Visitas: ${err.message}`);
+            stats.errors.push(`Visitas: ${err.message} `);
         }
 
         // 5. Portais
@@ -759,10 +836,10 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
                         try {
                             db.prepare(`
                                 INSERT OR REPLACE INTO portais(nome, link, ativo, loja_id)
-                                VALUES(@nome, @link, @ativo, @loja_id)
-                            `).run({ ...p, ativo: p.ativo ? 1 : 0 });
+                    VALUES(@nome, @link, @ativo, @loja_id)
+                        `).run({ ...p, ativo: p.ativo ? 1 : 0 });
                         } catch (err) {
-                            console.error(`[SyncConfig] Erro ao inserir portal ${p.nome}:`, err.message);
+                            console.error(`[SyncConfig] Erro ao inserir portal ${p.nome}: `, err.message);
                         }
                     }
                 })();
@@ -771,7 +848,7 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
                 // Se a nuvem estiver vazia, vamos tentar subir os locais (Upstream Sync)
                 const localPortals = db.prepare("SELECT * FROM portais WHERE loja_id = ?").all(lojaId);
                 if (localPortals.length > 0) {
-                    console.log(`⬆️ [SyncConfig] Subindo ${localPortals.length} portais locais para a nuvem...`);
+                    console.log(`⬆️[SyncConfig] Subindo ${localPortals.length} portais locais para a nuvem...`);
                     await safeSupabaseUpsert('portais', localPortals, lojaId, { onConflict: 'nome,loja_id' });
                 }
             }
@@ -792,7 +869,7 @@ export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
             console.error('[SyncConfig] Erro Config:', err.message);
         }
 
-        console.log(`✅ [SyncConfig] Completo para loja ${lojaId}:`, stats);
+        console.log(`✅[SyncConfig] Completo para loja ${lojaId}: `, stats);
         return { success: true, stats };
     } catch (e) {
         console.error("❌ [SyncConfig] Erro Geral:", e.message);
@@ -815,7 +892,7 @@ function ensureDevUser() {
             db.prepare(`
                 INSERT INTO usuarios(username, password, role, reset_password, ativo, nome_completo)
                 VALUES(?, ?, ?, ?, ?, ?)
-            `).run(DevEmail, hash, 'developer', 1, 1, 'Diego Admin');
+                    `).run(DevEmail, hash, 'developer', 1, 1, 'Diego Admin');
             console.log('✅ [Security] Usuário desenvolvedor criado (senha padrão definida)');
         } else {
             // 🔄 Atualização: Mantém a senha atual do usuário!
@@ -843,7 +920,7 @@ function ensurePortals() {
             insertPortal.run(p, DEFAULT_STORE_ID);
         });
 
-        console.log(`🌱 [SEED] Verificação de portais concluída.`);
+        console.log(`🌱[SEED] Verificação de portais concluída.`);
     } catch (e) {
         console.error("Erro ao garantir portais:", e.message);
     }

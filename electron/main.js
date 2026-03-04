@@ -471,6 +471,20 @@ ipcMain.handle('get-visits-by-vehicle', async (e, { name, lojaId }) => db.getVis
 // Comandos de Sincronização e Atualização
 ipcMain.handle('sync-xml', (e, lojaId) => db.syncXml(lojaId));
 ipcMain.handle('sync-essential', async (e, lojaId) => await db.syncConfig(lojaId));
+
+// 🔥 HEARTBEAT DE LICENCIAMENTO (A cada 30 minutos)
+// Garante que se o Diego desativar um módulo ou loja no Supabase, o PC local bloqueie em até 30 min.
+setInterval(async () => {
+    try {
+        const activeLojaId = db.getActiveStoreId(); // Função que vou garantir que existe ou criar
+        if (activeLojaId) {
+            console.log(`💓 [Heartbeat] Revalidando licença para loja: ${activeLojaId}`);
+            await db.syncConfig(activeLojaId);
+        }
+    } catch (e) {
+        console.error('❌ [Heartbeat] Erro na revalidação automática:', e.message);
+    }
+}, 30 * 60 * 1000);
 ipcMain.handle('install-update', (event, info) => {
     console.log('[Updater] Usuário confirmou atualização. Iniciando download...');
 
