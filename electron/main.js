@@ -2,7 +2,7 @@
 import 'dotenv/config';
 
 // --- IMPORTAÇÕES CORE DO ELECTRON ---
-import { app, BrowserWindow, ipcMain, Notification } from 'electron';
+import { app, BrowserWindow, ipcMain, Notification, dialog, shell } from 'electron';
 
 // autoUpdater gerencia as atualizações automáticas via GitHub
 import pkg from 'electron-updater';
@@ -392,6 +392,7 @@ ipcMain.on('show-native-notification', (event, { title, body, icon, id, clientNa
 // --- COMUNICAÇÃO IPC (INTER-PROCESS COMMUNICATION) ---
 
 // Autenticação e Usuários
+ipcMain.handle('update-user-field', async (e, { userId, field, value }) => await db.updateUserField(userId, field, value));
 ipcMain.handle('login', async (e, { username, password }) => {
     const user = await db.checkLogin(username, password);
     if (user && user.loja_id) {
@@ -402,6 +403,16 @@ ipcMain.handle('login', async (e, { username, password }) => {
     return user;
 });
 ipcMain.handle('get-user', async (e, username) => await db.getUserByUsername(username));
+ipcMain.handle('full-cloud-sync', async (event, lojaId) => {
+    try {
+        const { fullCloudSync } = await import('./db.js');
+        return await fullCloudSync(lojaId);
+    } catch (e) {
+        console.error('Error in full-cloud-sync handler:', e);
+        throw e;
+    }
+});
+
 ipcMain.handle('get-app-version', () => app.getVersion());
 ipcMain.handle('get-user-data-path', () => app.getPath('userData'));
 ipcMain.handle('change-password', async (e, { username, newPassword }) => await db.changePassword(username, newPassword));
@@ -420,6 +431,9 @@ ipcMain.handle('validate-session', async (e, { username, sessionId }) => {
 ipcMain.handle('get-visitas-secure', (e, { role, username, lojaId }) => db.getVisitas(role, username, lojaId));
 ipcMain.handle('add-visita', async (e, v) => await db.addVisita(v));
 ipcMain.handle('update-visita-status', async (e, { id, status, pipeline }) => await db.updateVisitaStatusQuick({ id, status, pipeline }));
+ipcMain.handle('update-visita-sdr', async (e, { id, sdr, lojaId }) => await db.updateVisitaSdrQuick({ id, sdr, lojaId }));
+ipcMain.handle('update-visita-visitou-loja', async (e, { id, valor, lojaId }) => await db.updateVisitaVisitouLoja({ id, valor, lojaId }));
+ipcMain.handle('update-visita-nao-compareceu', async (e, { id, valor, lojaId }) => await db.updateVisitaNaoCompareceu({ id, valor, lojaId }));
 ipcMain.handle('delete-visita', async (e, { id, lojaId }) => await db.deleteVisita(id, lojaId));
 ipcMain.handle('update-visita-full', async (e, v) => await db.updateVisitaFull(v));
 
@@ -449,6 +463,10 @@ ipcMain.handle('get-competition', async (e, lojaId) => await db.getCompetitionDa
 ipcMain.handle('get-config-meta', async (e, lojaId) => await db.getConfigMeta(lojaId));
 ipcMain.handle('get-sdr-performance', async (e, lojaId) => await db.getSdrPerformance(lojaId));
 ipcMain.handle('set-config-meta', async (e, { visita, venda, lojaId }) => await db.setConfigMeta(visita, venda, lojaId));
+
+// Estatísticas de Veículos (Estoque Digital)
+ipcMain.handle('get-vehicles-stats', async (e, lojaId) => db.getVehiclesStats(lojaId));
+ipcMain.handle('get-visits-by-vehicle', async (e, { name, lojaId }) => db.getVisitsByVehicle(name, lojaId));
 
 // Comandos de Sincronização e Atualização
 ipcMain.handle('sync-xml', (e, lojaId) => db.syncXml(lojaId));
@@ -539,6 +557,32 @@ ipcMain.handle('get-image-base64', async (e, url) => {
     const response = await fetch(url);
     const buffer = Buffer.from(await response.arrayBuffer());
     return `data:${response.headers.get('content-type') || 'image/jpeg'};base64,${buffer.toString('base64')}`;
+});
+
+// 📄 SALVAR PDF (abre diálogo de salvar nativo do SO)
+ipcMain.handle('save-pdf', async (e, { base64Data, defaultFileName }) => {
+    try {
+        const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+            title: 'Salvar Relatório PDF',
+            defaultPath: defaultFileName || 'relatorio.pdf',
+            filters: [{ name: 'PDF', extensions: ['pdf'] }],
+            properties: ['showOverwriteConfirmation']
+        });
+
+        if (canceled || !filePath) return { success: false, canceled: true };
+
+        // Converte base64 em buffer e salva
+        const buffer = Buffer.from(base64Data, 'base64');
+        await fs.writeFile(filePath, buffer);
+
+        // Abre a pasta onde o arquivo foi salvo
+        shell.showItemInFolder(filePath);
+
+        return { success: true, filePath };
+    } catch (err) {
+        console.error('Erro ao salvar PDF:', err);
+        return { success: false, error: err.message };
+    }
 });
 
 app.whenReady().then(createWindow);

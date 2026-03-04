@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { useUI } from '../context/UIContext';
 import { motion } from 'framer-motion';
 import { Lock, User, ChevronRight, AlertCircle, Mail, CheckCircle, ArrowLeft, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -6,6 +7,7 @@ import ForcePasswordReset from '../components/ForcePasswordReset';
 import { ToastContainer } from '../components/Toast';
 
 const Login = ({ onLogin }) => {
+    const { performanceMode } = useUI();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -104,18 +106,26 @@ const Login = ({ onLogin }) => {
         <div className="fixed inset-0 flex items-center justify-center z-[100] bg-[#01091e] overflow-hidden selection:bg-cyan-500/30 selection:text-cyan-200">
             <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-            <div className="absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] bg-blue-600/5 rounded-full blur-[120px] animate-[pulse_8s_ease-in-out_infinite]" />
-            <div className="absolute top-[20%] right-[0%] w-[50vw] h-[50vw] bg-cyan-500/5 rounded-full blur-[100px] animate-[pulse_10s_ease-in-out_infinite_reverse]" />
+            {/* Brilhos de Fundo - Ocultos em Performance */}
+            {!performanceMode && (
+                <>
+                    <div className="absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] bg-blue-600/5 rounded-full blur-[120px] animate-[pulse_8s_ease-in-out_infinite]" />
+                    <div className="absolute top-[20%] right-[0%] w-[50vw] h-[50vw] bg-cyan-500/5 rounded-full blur-[100px] animate-[pulse_10s_ease-in-out_infinite_reverse]" />
+                </>
+            )}
 
             <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 30 }}
+                initial={performanceMode ? false : { opacity: 0, scale: 0.95, y: 30 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
                 className="relative w-full max-w-[420px] mx-4"
             >
-                <div className="absolute -inset-[1px] rounded-[2.5rem] overflow-hidden z-0">
-                    <div className="absolute inset-[-100%] bg-[conic-gradient(from_90deg_at_50%_50%,transparent_0%,transparent_50%,#22d3ee_100%)] animate-[spin_4s_linear_infinite]" />
-                </div>
+                {/* Borda Animada - Oculta em Performance */}
+                {!performanceMode && (
+                    <div className="absolute -inset-[1px] rounded-[2.5rem] overflow-hidden z-0">
+                        <div className="absolute inset-[-100%] bg-[conic-gradient(from_90deg_at_50%_50%,transparent_0%,transparent_50%,#22d3ee_100%)] animate-[spin_4s_linear_infinite]" />
+                    </div>
+                )}
 
                 <div className="relative z-10 bg-[#01091e] rounded-[2.5rem] m-[1px] p-8 md:p-10 shadow-2xl overflow-hidden">
                     <div className="absolute inset-0 rounded-[2.5rem] border border-white/5 pointer-events-none" />
@@ -139,10 +149,14 @@ const Login = ({ onLogin }) => {
                                         <h1 className="text-8xl md:text-9xl font-black italic tracking-tighter font-rajdhani leading-none relative z-10 pr-6 text-center"
                                             style={{
                                                 transform: 'skewX(-6deg)',
-                                                background: 'linear-gradient(180deg, #fff 0%, #a5f3fc 20%, #22d3ee 45%, #0ea5e9 65%, #0369a1 85%, #083344 100%)',
-                                                WebkitBackgroundClip: 'text',
-                                                WebkitTextFillColor: 'transparent',
-                                                backgroundSize: '100% 120%'
+                                                ...(performanceMode ? {
+                                                    color: '#fff'
+                                                } : {
+                                                    background: 'linear-gradient(180deg, #fff 0%, #a5f3fc 20%, #22d3ee 45%, #0ea5e9 65%, #0369a1 85%, #083344 100%)',
+                                                    WebkitBackgroundClip: 'text',
+                                                    WebkitTextFillColor: 'transparent',
+                                                    backgroundSize: '100% 120%'
+                                                })
                                             }}>
                                             Vex
                                         </h1>

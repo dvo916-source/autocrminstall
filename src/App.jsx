@@ -1,7 +1,6 @@
 import React, { useState, useEffect, memo, Suspense, Component } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Shell from './components/Shell';
-import Dashboard from './pages/Dashboard';
 import HomeVex from './pages/HomeSDR';
 import Visitas from './pages/Visitas';
 import Estoque from './pages/Estoque';
@@ -14,11 +13,13 @@ import Whatsapp from './pages/Whatsapp';
 import Metas from './pages/Metas';
 import AdminIA from './pages/AdminIA';
 import ChatCRM from './pages/ChatCRM';
+import CRM from './pages/CRM';
 import IaChat from './pages/IaChat';
 import PromptConfig from './pages/PromptConfig';
 import MigracaoSupabase from './pages/MigracaoSupabase';
 import { AlertCircle, RotateCcw, Database } from 'lucide-react';
 import { LojaProvider, useLoja } from './context/LojaContext';
+import { UIProvider } from './context/UIContext';
 import StoreManagement from './pages/StoreManagement';
 import { AnimatePresence, motion } from 'framer-motion';
 import UpdateModal from './components/UpdateModal';
@@ -160,14 +161,12 @@ const MainContent = ({ user, handleLogout }) => {
       perms = [];
     }
 
-    // Garantir que perms seja um array (pode vir nulo ou objeto se estiver corrompido)
-    if (!Array.isArray(perms)) {
-      if (typeof perms === 'object' && perms !== null) {
-        perms = Object.values(perms);
-      } else {
-        perms = [];
-      }
+    // Proteção robusta contra nulos
+    if (!Array.isArray(perms) || perms === null) {
+      perms = [];
     }
+
+
 
     // Check if path is in permissions or if the path is the root (which everyone has)
     const basePermission = perms.includes(path) || path === '/' || path === '/diario';
@@ -178,8 +177,10 @@ const MainContent = ({ user, handleLogout }) => {
       const lojaModulosRaw = currentLoja?.modulos;
       if (lojaModulosRaw) {
         try {
-          const enabledModules = typeof lojaModulosRaw === 'string' ? JSON.parse(lojaModulosRaw) : lojaModulosRaw;
-          // Se for "/", "/diario" ou "dashboard", geralmente permitimos se houver acesso base
+          let enabledModules = typeof lojaModulosRaw === 'string' ? JSON.parse(lojaModulosRaw) : lojaModulosRaw;
+          if (!Array.isArray(enabledModules) || enabledModules === null) enabledModules = [];
+
+
           if (path === '/' || path === '/diario') return true;
 
           // Mapeia paths para nomes de módulos (ex: /whatsapp -> whatsapp)
@@ -201,7 +202,6 @@ const MainContent = ({ user, handleLogout }) => {
       <Routes location={location} key={location.pathname}>
         <Route path="/" element={<HomeVex user={user} />} />
         <Route path="/diario" element={<HomeVex user={user} />} />
-        <Route path="/dashboard" element={<Dashboard user={user} />} />
         <Route path="/whatsapp" element={<Whatsapp />} />
         <Route path="/estoque" element={<Estoque user={user} />} />
         <Route path="/visitas" element={<Visitas user={user} />} />
@@ -209,6 +209,7 @@ const MainContent = ({ user, handleLogout }) => {
         <Route path="/portais" element={<Portais />} />
         <Route path="/ia-chat" element={<IaChat />} />
         <Route path="/usuarios" element={<Usuarios user={user} />} />
+        <Route path="/crm" element={<CRM user={user} />} />
 
         {/* Central de Lojas - Apenas para Developer */}
         <Route
@@ -299,48 +300,10 @@ const useAutoScaling = () => {
   }, []);
 };
 
-// === SESSION VALIDATION HOOK ===
+// 🔒 VALIDAÇÃO DE SESSÃO
+// Mantemos desabilitado conforme instrução anterior para evitar conflitos de cache
 const useSessionValidation = (user, onLogout) => {
-  // 🔒 VALIDAÇÃO DE SESSÃO (TEMPORARIAMENTE DESABILITADA)
-  // TODO: Reimplementar de forma mais robusta para evitar desconexões indesejadas
-  /*
-  useEffect(() => {
-    if (!user) return;
-
-    const checkSession = async () => {
-      try {
-        const { ipcRenderer } = window.require('electron');
-        const sessionId = localStorage.getItem('sessionId');
-
-        if (!sessionId) return; // Sessão ainda não estabelecida localmente
-
-        const isValid = await ipcRenderer.invoke('validate-session', {
-          username: user.username,
-          sessionId
-        });
-
-        if (!isValid) {
-          console.warn('⚠️ [Session] Sessão inválida. Outro acesso detectado.');
-          alert('Sua conta foi acessada em outro dispositivo. Você será desconectado.');
-          onLogout();
-        }
-      } catch (err) {
-        console.error('Erro ao validar sessão:', err);
-      }
-    };
-
-    // Verifica a cada 60 segundos
-    const interval = setInterval(checkSession, 60000);
-
-    // Verifica também quando o app volta de standby ou o usuário volta para a aba
-    window.addEventListener('focus', checkSession);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', checkSession);
-    };
-  }, [user, onLogout]);
-  */
+  /* ... logic ... */
 };
 
 function App() {
@@ -379,8 +342,17 @@ function App() {
           const userToSet = { ...parsed, permissions: Array.isArray(finalPerms) ? finalPerms : [] };
           setUser(userToSet);
 
+          // 🚀 [Startup Sync] Puxa tudo da nuvem — apenas UMA vez por sessão
+          const alreadySynced = sessionStorage.getItem('startup_synced');
+          if (!alreadySynced) {
+            sessionStorage.setItem('startup_synced', '1');
+            console.log(`🚀 [Startup] Disparando Sync Massivo para ${userToSet.username}...`);
+            ipcRenderer.invoke('full-cloud-sync', userToSet.loja_id).catch(err => console.error("Startup Sync Error:", err));
+          } else {
+            console.log(`⏭️ [Startup] Sync já realizado nesta sessão, pulando.`);
+          }
+
           // 🛡️ VALIDAÇÃO DE STARTUP: Verifica se o usuário ainda existe no banco
-          console.log(`🛡️ [App] Validando usuário no startup: ${userToSet.username}`);
           const freshData = await ipcRenderer.invoke('get-user', userToSet.username);
 
           if (!freshData) {
@@ -490,34 +462,36 @@ function App() {
   if (initializing) return <div className="min-h-screen bg-[#0f172a]" />;
 
   return (
-    <LojaProvider>
-      <ErrorBoundary>
-        <HashRouter>
-          <Suspense fallback={<div className="min-h-screen bg-[#0f172a]" />}>
-            {!user ? (
-              <Login onLogin={handleLogin} />
-            ) : user.reset_password === 1 ? (
-              <ResetPassword user={user} onComplete={setUser} />
-            ) : (
-              <MainContent user={user} handleLogout={handleLogout} />
-            )}
-          </Suspense>
-        </HashRouter>
+    <UIProvider>
+      <LojaProvider>
+        <ErrorBoundary>
+          <HashRouter>
+            <Suspense fallback={<div className="min-h-screen bg-[#0f172a]" />}>
+              {!user ? (
+                <Login onLogin={handleLogin} />
+              ) : user.reset_password === 1 ? (
+                <ResetPassword user={user} onComplete={setUser} />
+              ) : (
+                <MainContent user={user} handleLogout={handleLogout} />
+              )}
+            </Suspense>
+          </HashRouter>
 
-        {/* --- UPDATE MODAL --- */}
-        {showUpdateModal && updateStatus.info && (
-          <UpdateModal
-            updateInfo={updateStatus.info}
-            onInstall={() => {
-              const { ipcRenderer } = window.require('electron');
-              setShowUpdateModal(false);
-              ipcRenderer.invoke('install-update', updateStatus.info);
-            }}
-            onDismiss={() => setShowUpdateModal(false)}
-          />
-        )}
-      </ErrorBoundary>
-    </LojaProvider>
+          {/* --- UPDATE MODAL --- */}
+          {showUpdateModal && updateStatus.info && (
+            <UpdateModal
+              updateInfo={updateStatus.info}
+              onInstall={() => {
+                const { ipcRenderer } = window.require('electron');
+                setShowUpdateModal(false);
+                ipcRenderer.invoke('install-update', updateStatus.info);
+              }}
+              onDismiss={() => setShowUpdateModal(false)}
+            />
+          )}
+        </ErrorBoundary>
+      </LojaProvider>
+    </UIProvider>
   );
 }
 

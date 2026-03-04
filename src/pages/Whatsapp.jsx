@@ -1,5 +1,6 @@
-import { MessageSquare, ListCheck, Plus, Trash2, Send, Star, X, Car, Search, ExternalLink, Image as ImageIcon, Edit2, GripVertical, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Calendar, Gauge, CircleDollarSign, Filter } from 'lucide-react';
+import { MessageSquare, Smartphone, ListCheck, Plus, Trash2, Send, Star, X, Car, Search, ExternalLink, Image as ImageIcon, Edit2, GripVertical, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Calendar, Gauge, CircleDollarSign, Filter } from 'lucide-react';
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { useUI } from '../context/UIContext';
 import { useLoja } from '../context/LojaContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
@@ -38,6 +39,7 @@ class ErrorBoundary extends React.Component {
 
 
 const CarCard = memo(({ car, onSendPhotos, onSendInfo, onPasteLink, loadingCar }) => {
+    const { performanceMode } = useUI();
     let fotosCount = 0;
     try {
         const parsed = JSON.parse(car.fotos || '[]');
@@ -47,16 +49,18 @@ const CarCard = memo(({ car, onSendPhotos, onSendInfo, onPasteLink, loadingCar }
     }
 
     return (
-        <div className="relative group overflow-hidden rounded-[1.5rem] border border-white/5 bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] p-1 shadow-lg hover:shadow-cyan-500/10 transition-all duration-300">
-            {/* Glow Effect on Hover */}
-            <div className="absolute inset-0 bg-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+        <div className={`relative group overflow-hidden rounded-[1.5rem] border border-white/5 bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] p-1 ${performanceMode ? '' : 'shadow-lg hover:shadow-cyan-500/10'} transition-all duration-300`}>
+            {/* Glow Effect on Hover - Oculto em Performance */}
+            {!performanceMode && (
+                <div className="absolute inset-0 bg-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+            )}
 
             <div className="relative z-10 p-3 flex flex-col gap-3">
                 {/* Header: Image & Title */}
                 <div className="flex gap-3">
                     <div className="relative w-24 h-20 rounded-xl overflow-hidden shrink-0 border border-white/10 group-hover:border-white/20 transition-colors">
                         {car.foto ? (
-                            <img src={car.foto} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" loading="lazy" />
+                            <img src={car.foto} className={`w-full h-full object-cover transition-transform duration-500 ${performanceMode ? '' : 'group-hover:scale-110'}`} loading="lazy" />
                         ) : (
                             <div className="w-full h-full flex items-center justify-center text-gray-700 bg-black/40">
                                 <ImageIcon size={24} />
@@ -129,6 +133,7 @@ const CarCard = memo(({ car, onSendPhotos, onSendInfo, onPasteLink, loadingCar }
 
 const Whatsapp = () => {
     const { currentLoja } = useLoja();
+    const { performanceMode } = useUI();
     const location = useLocation();
     const navigate = useNavigate();
     const [scripts, setScripts] = useState([]);
@@ -316,14 +321,26 @@ const Whatsapp = () => {
             ipcRenderer.removeListener('refresh-data', handleRefresh);
         };
     }, [currentLoja]);
-
-
-
+    // Sincronizar estado da sidebar com componentes externos
     useEffect(() => {
         window.dispatchEvent(new CustomEvent('whatsapp-sidebar-state', {
             detail: { isOpen: isSidebarOpen, width: 420 }
         }));
     }, [isSidebarOpen]);
+
+    // ⌨️ ESCAPE KEY LISTENER para fechar modais
+    useEffect(() => {
+        const handleEsc = (e) => {
+            if (e.key === 'Escape') {
+                setIsAddModalOpen(false);
+                setIsEditModalOpen(false);
+                setIsVisitModalOpen(false);
+                setIsQuickVisitOpen(false);
+            }
+        };
+        window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, []);
 
     const loadData = async (force = false) => {
         try {
@@ -588,7 +605,7 @@ const Whatsapp = () => {
                 className="h-full w-full flex relative overflow-hidden bg-transparent"
                 initial={false}
                 animate={{ paddingRight: isSidebarOpen ? 420 : 0 }}
-                transition={{ type: "spring", stiffness: 400, damping: 35 }}
+                transition={performanceMode ? { duration: 0 } : { type: "spring", stiffness: 400, damping: 35 }}
             >
                 {/* ÁREA DE CONTROLE (Botão Toggle) */}
                 {/* ÁREA DE CONTROLE (Botão Toggle) */}
@@ -600,21 +617,21 @@ const Whatsapp = () => {
                         x: isSidebarOpen ? -420 : 0,
                     }}
                     style={{ right: 0 }}
-                    whileHover={{ width: 40, backgroundColor: "rgb(37 99 235 / 0.9)" }} // Aumenta largura no hover
-                    transition={{ type: "spring", stiffness: 400, damping: 35 }}
-                    className="fixed top-1/2 -translate-y-1/2 z-[60] w-6 h-24 bg-slate-900/90 backdrop-blur-md flex items-center justify-center rounded-l-xl border-y border-l border-blue-500/30 text-blue-400 cursor-pointer shadow-[0_0_20px_rgba(0,0,0,0.5)] hover:text-white hover:border-blue-400/50 hover:shadow-blue-500/20 transition-colors pointer-events-auto"
+                    whileHover={performanceMode ? {} : { width: 40, backgroundColor: "rgb(37 99 235 / 0.9)" }} // Aumenta largura no hover
+                    transition={performanceMode ? { duration: 0 } : { type: "spring", stiffness: 400, damping: 35 }}
+                    className="fixed top-1/2 -translate-y-1/2 z-[60] w-6 h-24 bg-slate-900/90 backdrop-blur-md flex items-center justify-center rounded-l-xl border-y border-l border-blue-500/30 text-blue-400 cursor-pointer shadow-[0_0_20px_rgba(0,0,0,0.5)] hover:text-white hover:border-blue-400/50 hover:shadow-blue-500/20 transition-colors pointer-events-auto keep-transform"
                 >
                     {isSidebarOpen ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
                 </motion.button>
 
                 {/* PAINEL LATERAL */}
-                <AnimatePresence>
+                <AnimatePresence initial={false}>
                     {isSidebarOpen && (
                         <motion.div
-                            initial={{ x: "100%" }}
+                            initial={performanceMode ? { x: 0 } : { x: "100%" }}
                             animate={{ x: 0 }}
-                            exit={{ x: "100%" }}
-                            transition={{ type: "spring", stiffness: 400, damping: 35 }}
+                            exit={performanceMode ? { x: "100%", opacity: 0 } : { x: "100%" }}
+                            transition={performanceMode ? { duration: 0 } : { type: "spring", stiffness: 400, damping: 35 }}
                             className="absolute right-0 top-0 bottom-0 w-[420px] h-full overflow-y-auto custom-scrollbar flex flex-col pr-2 pl-4 py-8 bg-[#0f172a] border-l border-white/10 z-50 shadow-2xl pointer-events-auto"
                         >
                             {/* Header */}
@@ -653,66 +670,7 @@ const Whatsapp = () => {
                                 {activeTab === 'templates' ? (
                                     <>
 
-                                        <div className="px-2 mt-2 space-y-2">
-                                            <div className="px-2">
-                                                <button
-                                                    onClick={() => setIsQuickVisitOpen(!isQuickVisitOpen)}
-                                                    className={`w-full flex items-center justify-center gap-2 text-xs py-2.5 rounded-xl transition-all border font-black tracking-widest
-                                                        ${isQuickVisitOpen
-                                                            ? 'bg-red-500/10 border-red-500/50 text-red-500 hover:bg-red-500 hover:text-white'
-                                                            : 'btn-cyber-primary'}`}
-                                                >
-                                                    {isQuickVisitOpen ? (
-                                                        <> <X size={16} /> Cancelar Agendamento </>
-                                                    ) : (
-                                                        <> <CalendarIcon size={16} strokeWidth={2.5} /> Agendar Visita </>
-                                                    )}
-                                                </button>
-                                            </div>
 
-                                            {/* Chat Direto por Número - UI Compacta */}
-                                            <div className="px-2 pt-2 border-t border-white/5 mt-2">
-                                                <div className="relative group/phone">
-                                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within/phone:text-cyan-400 transition-colors" />
-                                                    <input
-                                                        type="text"
-                                                        placeholder="DDD + Telefone (Direto)"
-                                                        value={directPhone}
-                                                        onChange={(e) => setDirectPhone(e.target.value.replace(/\D/g, '').slice(0, 13))}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === 'Enter' && directPhone.length >= 8) {
-                                                                window.dispatchEvent(new CustomEvent('whatsapp-direct-chat', { detail: directPhone }));
-                                                                window.dispatchEvent(new CustomEvent('show-notification', { detail: { message: 'Iniciando conversa...', type: 'info' } }));
-                                                                setDirectPhone('');
-                                                            }
-                                                        }}
-                                                        className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-9 pr-10 text-xs text-white placeholder:text-gray-600 focus:outline-none focus:border-cyan-500/50 focus:bg-white/10 transition-all font-mono"
-                                                    />
-                                                    <button
-                                                        onClick={() => {
-                                                            if (directPhone.length >= 8) {
-                                                                window.dispatchEvent(new CustomEvent('whatsapp-direct-chat', { detail: directPhone }));
-                                                                window.dispatchEvent(new CustomEvent('show-notification', { detail: { message: 'Iniciando conversa...', type: 'info' } }));
-                                                                setDirectPhone('');
-                                                            }
-                                                        }}
-                                                        disabled={directPhone.length < 8}
-                                                        className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500 hover:text-black transition-all disabled:opacity-0 disabled:pointer-events-none"
-                                                        title="Iniciar Conversa"
-                                                    >
-                                                        <ExternalLink size={14} />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <AnimatePresence>
-                                            {isQuickVisitOpen && (
-                                                <div className="px-4 mt-2">
-                                                    <QuickVisitForm onClose={() => setIsQuickVisitOpen(false)} />
-                                                </div>
-                                            )}
-                                        </AnimatePresence>
 
                                         <div className="space-y-2 mt-4 overflow-y-auto flex-1 pr-2 custom-scrollbar">
                                             {/* Scripts Fixos */}
@@ -751,6 +709,79 @@ const Whatsapp = () => {
                                     </>
                                 ) : (
                                     <>
+                                        {/* Chat Direto por Número - UI Premium */}
+                                        <div className="mb-4 p-4 bg-gradient-to-br from-cyan-500/10 to-blue-600/5 rounded-3xl border border-cyan-500/20 backdrop-blur-md shadow-lg shadow-cyan-900/10 relative overflow-hidden group/chatcard">
+                                            {/* Glow decorativo */}
+                                            <div className="absolute -right-4 -top-4 w-16 h-16 bg-cyan-500/20 blur-2xl rounded-full" />
+
+                                            <div className="flex items-center gap-2 mb-3 px-1 relative z-10">
+                                                <div className="p-1.5 bg-cyan-500/20 rounded-lg">
+                                                    <MessageSquare size={12} className="text-cyan-400" />
+                                                </div>
+                                                <span className="text-[10px] font-black text-cyan-200/60 tracking-[0.2em] uppercase">Conversa Rápida</span>
+                                            </div>
+
+                                            <div className="relative group/phone z-10">
+                                                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-500/50 group-focus-within/phone:text-cyan-400 transition-colors">
+                                                    <Smartphone size={14} />
+                                                </div>
+                                                <input
+                                                    type="text"
+                                                    placeholder="DDD + Telefone"
+                                                    value={directPhone}
+                                                    onChange={(e) => setDirectPhone(e.target.value.replace(/\D/g, '').slice(0, 13))}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' && directPhone.length >= 8) {
+                                                            window.dispatchEvent(new CustomEvent('whatsapp-direct-chat', { detail: directPhone }));
+                                                            window.dispatchEvent(new CustomEvent('show-notification', { detail: { message: 'Iniciando conversa...', type: 'info' } }));
+                                                            setDirectPhone('');
+                                                        }
+                                                    }}
+                                                    className="w-full bg-black/30 border border-white/10 rounded-2xl py-3 pl-10 pr-12 text-xs text-white placeholder:text-gray-500 focus:outline-none focus:border-cyan-500/50 focus:bg-black/50 transition-all font-mono font-bold tracking-widest shadow-inner"
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        if (directPhone.length >= 8) {
+                                                            window.dispatchEvent(new CustomEvent('whatsapp-direct-chat', { detail: directPhone }));
+                                                            window.dispatchEvent(new CustomEvent('show-notification', { detail: { message: 'Iniciando conversa...', type: 'info' } }));
+                                                            setDirectPhone('');
+                                                        }
+                                                    }}
+                                                    disabled={directPhone.length < 8}
+                                                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-2 rounded-xl bg-cyan-600 text-white hover:bg-cyan-500 hover:scale-105 active:scale-95 transition-all disabled:opacity-0 disabled:scale-90 shadow-lg shadow-cyan-500/20"
+                                                    title="Iniciar Conversa"
+                                                >
+                                                    <Send size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="px-2 mt-2 space-y-2 mb-4">
+                                            <div className="px-2">
+                                                <button
+                                                    onClick={() => setIsQuickVisitOpen(!isQuickVisitOpen)}
+                                                    className={`w-full flex items-center justify-center gap-2 text-xs py-2.5 rounded-xl transition-all border font-black tracking-widest
+                                                        ${isQuickVisitOpen
+                                                            ? 'bg-red-500/10 border-red-500/50 text-red-500 hover:bg-red-500 hover:text-white'
+                                                            : 'btn-cyber-primary'}`}
+                                                >
+                                                    {isQuickVisitOpen ? (
+                                                        <> <X size={16} /> Cancelar Agendamento </>
+                                                    ) : (
+                                                        <> <CalendarIcon size={16} strokeWidth={2.5} /> Agendar Visita </>
+                                                    )}
+                                                </button>
+                                            </div>
+
+                                            <AnimatePresence>
+                                                {isQuickVisitOpen && (
+                                                    <div className="px-4 mt-2">
+                                                        <QuickVisitForm onClose={() => setIsQuickVisitOpen(false)} />
+                                                    </div>
+                                                )}
+                                            </AnimatePresence>
+                                        </div>
+
                                         {/* Tab Veículos - Filtros Premium */}
                                         <div className="space-y-3 mb-6 p-4 bg-black/40 rounded-3xl border border-white/5 backdrop-blur-sm shadow-xl">
                                             <div className="flex items-center gap-2 mb-1 px-1">
@@ -808,13 +839,41 @@ const Whatsapp = () => {
                 {/* Modais */}
                 <AnimatePresence>
                     {isAddModalOpen && (
-                        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsAddModalOpen(false)} className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-sm" />
-                            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] p-8 shadow-2xl">
-                                <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black text-white tracking-tighter ">Novo Script</h3><button onClick={() => setIsAddModalOpen(false)} className="p-2 text-gray-500 hover:text-white transition-colors"><X /></button></div>
+                        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 overflow-hidden">
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                onClick={() => setIsAddModalOpen(false)}
+                                className="absolute inset-0 bg-[#0f172a]/90 backdrop-blur-sm pointer-events-auto"
+                            />
+                            <motion.div
+                                initial={{ scale: 0.9, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                className="relative z-10 w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] p-8 shadow-2xl pointer-events-auto"
+                            >
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-xl font-black text-white tracking-tighter">Novo Script</h3>
+                                    <button onClick={() => setIsAddModalOpen(false)} className="p-2 text-gray-500 hover:text-white transition-colors">
+                                        <X />
+                                    </button>
+                                </div>
                                 <form onSubmit={handleAddScript} className="space-y-4">
-                                    <input className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 font-bold text-sm" placeholder="TÍTULO DO ATALHO" value={newScript.titulo} onChange={e => setNewScript({ ...newScript, titulo: e.target.value.toUpperCase() })} required />
-                                    <textarea className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 font-medium text-sm h-32 resize-none" placeholder="MENSAGEM..." value={newScript.mensagem} onChange={e => setNewScript({ ...newScript, mensagem: e.target.value })} required />
+                                    <input
+                                        autoFocus
+                                        className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 font-bold text-sm text-white"
+                                        placeholder="TÍTULO DO ATALHO"
+                                        value={newScript.titulo}
+                                        onChange={e => setNewScript({ ...newScript, titulo: e.target.value.toUpperCase() })}
+                                        required
+                                    />
+                                    <textarea
+                                        className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 font-medium text-sm h-32 resize-none text-white"
+                                        placeholder="MENSAGEM..."
+                                        value={newScript.mensagem}
+                                        onChange={e => setNewScript({ ...newScript, mensagem: e.target.value })}
+                                        required
+                                    />
 
                                     <div className="space-y-1.5">
                                         <label className="text-[11px] font-black text-gray-400 ml-4 tracking-widest uppercase">🔗 Link (Opcional)</label>
@@ -836,14 +895,35 @@ const Whatsapp = () => {
 
                 <AnimatePresence>
                     {isEditModalOpen && editingScript && (
-                        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsEditModalOpen(false)} className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-sm" />
-                            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] p-8 shadow-2xl">
-                                <h3 className="text-xl font-black text-white mb-6 ">Editar Script</h3>
+                        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 overflow-hidden">
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                onClick={() => setIsEditModalOpen(false)}
+                                className="absolute inset-0 bg-[#0f172a]/90 backdrop-blur-sm pointer-events-auto"
+                            />
+                            <motion.div
+                                initial={{ scale: 0.9, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                className="relative z-10 w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] p-8 shadow-2xl pointer-events-auto"
+                            >
+                                <h3 className="text-xl font-black text-white mb-6">Editar Script</h3>
                                 <form onSubmit={handleUpdateScript} className="space-y-4">
-                                    <input className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 font-bold text-sm" value={editingScript.titulo} onChange={e => setEditingScript({ ...editingScript, titulo: e.target.value.toUpperCase() })} required />
-                                    <textarea className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 font-medium text-sm h-32 resize-none" value={editingScript.mensagem} onChange={e => setEditingScript({ ...editingScript, mensagem: e.target.value })} required />
-                                    <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-white  shadow-xl">Atualizar</button>
+                                    <input
+                                        autoFocus
+                                        className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 font-bold text-sm text-white outline-none focus:border-blue-500"
+                                        value={editingScript.titulo}
+                                        onChange={e => setEditingScript({ ...editingScript, titulo: e.target.value.toUpperCase() })}
+                                        required
+                                    />
+                                    <textarea
+                                        className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 font-medium text-sm h-32 resize-none text-white outline-none focus:border-blue-500"
+                                        value={editingScript.mensagem}
+                                        onChange={e => setEditingScript({ ...editingScript, mensagem: e.target.value })}
+                                        required
+                                    />
+                                    <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-white shadow-xl transition-all active:scale-95">Atualizar</button>
                                 </form>
                             </motion.div>
                         </div>

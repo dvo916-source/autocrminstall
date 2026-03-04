@@ -169,7 +169,7 @@ const Metas = () => {
     return (
         <div className="h-full flex flex-col overflow-y-auto w-full p-6 bg-[#01091e]">
             {/* Header Cyberpunk */}
-            <div className="flex justify-between items-start mb-10">
+            <div className="flex justify-between items-start pt-9 pb-8 mb-4">
                 <div>
                     <h1 className="text-4xl font-black text-white italic tracking-tight  font-rajdhani flex items-center gap-3">
                         Metas & <span className="text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.4)]">Performance</span>

@@ -7,10 +7,12 @@ import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { supabase } from '../lib/supabase';
 import { parsePrice, cleanVehicleName } from '../lib/utils';
 import { useLoja } from '../context/LojaContext';
+import { useUI } from '../context/UIContext';
 import { get, set } from 'idb-keyval'; // ⚡ Cache Local
 
 const Estoque = ({ user }) => {
     const { currentLoja } = useLoja();
+    const { performanceMode } = useUI();
     const currentUser = user || JSON.parse(localStorage.getItem('vexcore_user') || '{"username":"VEX","role":"vendedor"}');
     const navigate = useNavigate();
     const [items, setItems] = useState([]);
@@ -314,6 +316,11 @@ const Estoque = ({ user }) => {
                             {item.ano && <span className="text-[10px] text-gray-400 font-bold bg-white/5 px-1.5 py-0.5 rounded">{item.ano}</span>}
                             {item.cambio && <span className="text-[9px] text-gray-500 ">{item.cambio?.slice(0, 3)}</span>}
                         </div>
+                        {item.placa && (
+                            <span className="text-[9px] font-black tracking-widest mt-1 bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/20">
+                                {item.placa}
+                            </span>
+                        )}
                     </div>
                 </div>
             </div>
@@ -345,92 +352,137 @@ const Estoque = ({ user }) => {
             {selectedVehicle && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => setSelectedVehicle(null)}>
                     <div className="bg-[#0f172a] border border-white/10 w-full max-w-4xl max-h-[80vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <div className="relative h-48 sm:h-64 bg-black/50">
+                        {/* HEADER — IMAGE ONLY */}
+                        <div className="relative h-56 sm:h-72 bg-[#0a1224] overflow-hidden border-b border-white/5">
                             {(() => {
                                 const vehicle = items.find(i => i.nome === selectedVehicle);
                                 return vehicle?.foto ? (
                                     <>
-                                        {/* Main Image - Contained to show full car */}
-                                        <div className="absolute inset-0 bg-[#0f172a]" />
-                                        <img src={vehicle.foto} alt={selectedVehicle} className="absolute inset-0 w-full h-full object-contain z-10 p-4" />
+                                        <img src={vehicle.foto} alt={selectedVehicle} className="absolute inset-0 w-full h-full object-cover opacity-30 blur-[4px]" />
+                                        <div className="absolute inset-0 flex items-center justify-center p-8 z-20">
+                                            <img src={vehicle.foto} alt={selectedVehicle} className="max-h-full max-w-full drop-shadow-[0_20px_60px_rgba(0,0,0,0.9)] object-contain" />
+                                        </div>
                                     </>
                                 ) : (
-                                    <div className="w-full h-full flex items-center justify-center text-gray-700 bg-white/5">
-                                        <ImageIcon size={64} />
+                                    <div className="w-full h-full flex items-center justify-center text-slate-800 bg-white/5">
+                                        <ImageIcon size={64} strokeWidth={1} />
                                     </div>
                                 );
                             })()}
 
-                            <div className="absolute top-4 right-4 z-20">
-                                <button onClick={() => setSelectedVehicle(null)} className="p-2 bg-black/50 hover:bg-white/20 backdrop-blur-md rounded-full text-white transition-all border border-white/10">
-                                    <X size={20} />
+                            <div className="absolute top-5 right-5 z-40">
+                                <button onClick={() => setSelectedVehicle(null)} className="p-2.5 bg-black/40 hover:bg-white/10 backdrop-blur-xl rounded-full text-white transition-all border border-white/10 shadow-lg group">
+                                    <X size={20} className="group-hover:rotate-90 transition-transform duration-300" />
                                 </button>
                             </div>
+                        </div>
 
-                            <div className="absolute bottom-0 left-0 right-0 p-6 z-20">
-                                <h3 className="text-2xl font-bold text-white flex items-end gap-3 shadow-black drop-shadow-lg">
-                                    {cleanVehicleName(selectedVehicle)}
-                                </h3>
-                                <div className="flex items-center gap-4 mt-2">
-                                    {(() => {
-                                        const vehicle = items.find(i => i.nome === selectedVehicle);
-                                        return vehicle && (
-                                            <>
-                                                {vehicle.valor && <span className="text-green-400 font-bold bg-green-900/40 px-3 py-1 rounded-lg border border-green-500/20 backdrop-blur-sm">{vehicle.valor}</span>}
-                                                {vehicle.ano && <span className="text-gray-300 font-bold bg-white/10 px-3 py-1 rounded-lg backdrop-blur-sm">{vehicle.ano}</span>}
-                                                {vehicle.cambio && <span className="text-gray-300 bg-white/10 px-3 py-1 rounded-lg backdrop-blur-sm">{vehicle.cambio}</span>}
-                                            </>
-                                        )
-                                    })()}
-                                </div>
+                        {/* INFO SECTION — NEW: BELOW IMAGE */}
+                        <div className="px-8 py-6 bg-white/[0.02] border-b border-white/5 shadow-inner">
+                            <h3 className="text-xl sm:text-2xl font-black text-white leading-tight">
+                                {cleanVehicleName(selectedVehicle).split(' #')[0]}
+                            </h3>
+                            <div className="flex items-center gap-3 mt-4 flex-wrap">
+                                {(() => {
+                                    const vehicle = items.find(i => i.nome === selectedVehicle);
+                                    return vehicle && (
+                                        <>
+                                            {vehicle.valor && (
+                                                <span className="text-sm font-bold text-green-400 bg-green-500/10 px-4 py-1.5 rounded-xl border border-green-500/10">
+                                                    {vehicle.valor}
+                                                </span>
+                                            )}
+                                            {vehicle.ano && (
+                                                <span className="text-sm font-semibold text-slate-300 bg-white/5 px-4 py-1.5 rounded-xl border border-white/5">
+                                                    {vehicle.ano}
+                                                </span>
+                                            )}
+                                            {vehicle.placa && (
+                                                <span
+                                                    className="text-[11px] font-black uppercase px-3 py-1.5 rounded-md shadow-xl"
+                                                    style={{
+                                                        background: '#f0f0e8',
+                                                        color: '#111827',
+                                                        border: '1.5px solid #1e3a5f',
+                                                        letterSpacing: '0.15em'
+                                                    }}
+                                                >
+                                                    {vehicle.placa}
+                                                </span>
+                                            )}
+                                        </>
+                                    )
+                                })()}
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-auto custom-scrollbar p-6">
+                        {/* LIST SECTION */}
+                        <div className="flex-1 overflow-auto custom-scrollbar p-6 bg-[#0a1224]">
                             {loadingVisits ? (
-                                <div className="flex justify-center items-center h-40">
-                                    <RefreshCw className="animate-spin text-cyan-500" size={32} />
+                                <div className="flex flex-col items-center justify-center h-60 gap-4">
+                                    <RefreshCw className="animate-spin text-cyan-500" size={40} strokeWidth={1.5} />
+                                    <span className="text-sm font-semibold text-slate-500 animate-pulse uppercase tracking-[0.2em]">Buscando Histórico...</span>
                                 </div>
                             ) : vehicleVisits.length === 0 ? (
-                                <div className="text-center py-10 opacity-50">
-                                    <p className="text-lg font-medium">Nenhuma visita agendada para este veículo.</p>
+                                <div className="flex flex-col items-center justify-center h-60 opacity-20 select-none">
+                                    <Car size={64} strokeWidth={1} className="mb-4 text-slate-400" />
+                                    <p className="text-lg font-black italic tracking-tighter text-slate-400 uppercase">Nenhuma visita registrada</p>
                                 </div>
                             ) : (
-                                <table className="w-full text-left border-collapse">
-                                    <thead>
-                                        <tr className="border-b border-white/10 text-xs text-gray-400  tracking-wider">
-                                            <th className="pb-3 pl-2">Data</th>
-                                            <th className="pb-3">Cliente</th>
-                                            <th className="pb-3">Vendedor</th>
-                                            <th className="pb-3">Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="text-sm">
-                                        {vehicleVisits.map(v => (
-                                            <tr key={v.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                                                <td className="py-3 pl-2 font-medium text-white">
-                                                    {v.data_agendamento ? new Date(v.data_agendamento).toLocaleDateString() : v.datahora}
-                                                </td>
-                                                <td className="py-3 text-gray-300 font-medium">
-                                                    {v.cliente} <span className="text-xs text-gray-500 block">{v.telefone}</span>
-                                                </td>
-                                                <td className="py-3 text-gray-300">{v.vendedor || 'Indefinido'}</td>
-                                                <td className="py-3">
-                                                    <span className={`px-2 py-1 rounded-md text-[10px] font-bold  ${v.status === 'Vendido' ? 'bg-green-500/20 text-green-400' :
-                                                        v.status === 'Perdido' ? 'bg-red-500/20 text-red-400' :
-                                                            'bg-yellow-500/20 text-yellow-400'
-                                                        }`}>
-                                                        {v.status}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                <div className="space-y-3">
+                                    <div className="grid grid-cols-4 px-3 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">
+                                        <div className="pl-1">Chegada</div>
+                                        <div>Cliente / Lead</div>
+                                        <div>Atendimento</div>
+                                        <div className="text-right pr-2">Status</div>
+                                    </div>
+                                    {vehicleVisits.map(v => (
+                                        <div key={v.id} className="grid grid-cols-4 items-center p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] hover:border-cyan-500/30 transition-all group">
+                                            <div className="flex flex-col gap-1">
+                                                <div className="text-xs font-bold text-slate-200">
+                                                    {v.data_agendamento ? new Date(v.data_agendamento).toLocaleDateString() : v.datahora?.split(' ')[0]}
+                                                </div>
+                                                <div className="text-[10px] text-slate-500 font-medium">
+                                                    {v.datahora?.split(' ')[1] || '08:00'}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div className="text-sm font-bold text-white group-hover:text-cyan-400 transition-colors truncate">
+                                                    {v.cliente}
+                                                </div>
+                                                <div className="text-[11px] text-slate-500 font-medium">
+                                                    {v.telefone}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div className="text-xs font-semibold text-slate-300">
+                                                    {v.vendedor || 'Pátio'}
+                                                </div>
+                                                <div className="text-[10px] text-slate-600 font-medium uppercase mt-0.5">Vendedor</div>
+                                            </div>
+                                            <div className="flex justify-end">
+                                                <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black tracking-widest uppercase border flex items-center justify-center min-w-[100px]
+                                                    ${v.status === 'Vendido' ? 'bg-green-500/10 border-green-500/30 text-green-400' :
+                                                        v.status === 'Perdido' ? 'bg-red-500/10 border-red-500/30 text-red-400' :
+                                                            'bg-amber-500/10 border-amber-500/30 text-amber-400'}`}>
+                                                    {v.status || 'Em Aberto'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             )}
                         </div>
-                        <div className="p-4 bg-white/5 border-t border-white/10 text-right">
-                            <span className="text-xs text-gray-500 font-medium mr-2">Total de Agendamentos: {vehicleVisits.length}</span>
+
+                        {/* FOOTER */}
+                        <div className="px-8 py-5 bg-black/40 border-t border-white/[0.05] flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
+                                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Base de Leads IRW</span>
+                            </div>
+                            <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">
+                                Total: <span className="text-white ml-1">{vehicleVisits.length} registros</span>
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -497,47 +549,43 @@ const Estoque = ({ user }) => {
                 </div>
             )}
 
-            {/* HEADER - NEW STANDARD */}
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-2 shrink-0 px-1">
-                <div>
-                    <h1 className="text-4xl font-black text-white italic tracking-tight  font-rajdhani flex items-center gap-3">
-                        Estoque <span className="text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.3)]">Digital</span>
-                        <Car size={32} className="text-cyan-500" />
+            {/* HEADER & SEARCH BAR - UNIFIED & ALIGNED */}
+            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 mb-6 shrink-0 px-1 pt-9 pb-8">
+                <div className="flex flex-col">
+                    <h1 className="text-3xl sm:text-4xl font-black text-white italic tracking-tighter flex items-center gap-3 leading-none">
+                        Tabela <span className="text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.3)]">Digital</span>
+                        <Car size={32} className="text-cyan-500/50" />
                     </h1>
-                    <p className="text-sm font-bold text-gray-400  tracking-widest mt-1 font-rajdhani flex items-center gap-2">
-                        <CheckCircle size={14} className="text-green-500" />
-                        Inventário em Tempo Real
+                    <p className="text-[10px] sm:text-xs font-bold text-gray-500 tracking-[0.2em] mt-2 flex items-center gap-2 uppercase">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                        Em Tempo Real
                     </p>
                 </div>
-            </div>
 
-            {/* SEARCH BAR - CLEAN & CENTERED */}
-            <div className="flex justify-center mb-6 shrink-0">
-                <div className="flex gap-3 w-full max-w-2xl bg-glass-100 p-2 rounded-2xl border border-white/5 shadow-2xl backdrop-blur-xl">
+                <div className="flex flex-1 max-w-3xl gap-3 bg-white/5 p-2 rounded-2xl border border-white/5 shadow-2xl backdrop-blur-xl">
                     <div className="flex-1 relative group">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-cyan-400 transition-colors" size={20} />
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-cyan-400 transition-colors" size={18} />
                         <input
                             type="text"
                             placeholder="Buscar veículo..."
-                            className="w-full bg-black/20 border border-white/5 rounded-xl py-3 pl-12 pr-4 text-white focus:outline-none focus:border-cyan-500/50 transition-all font-medium placeholder:text-gray-600"
+                            className="w-full bg-black/20 border border-white/5 rounded-xl py-2.5 pl-11 pr-4 text-white focus:outline-none focus:border-cyan-500/50 transition-all text-sm font-medium placeholder:text-gray-600"
                             value={search}
                             onChange={e => setSearch(e.target.value)}
                         />
                     </div>
 
-                    {/* Badge de Contagem */}
                     <div className="flex items-center justify-center px-4 bg-white/5 rounded-xl border border-white/5 text-xs font-bold text-gray-300 gap-2 whitespace-nowrap" title="Total em Estoque">
-                        <Car size={16} className="text-cyan-400" />
+                        <Car size={14} className="text-cyan-400" />
                         <span>{items.length}</span>
                     </div>
 
-                    <div className="w-48 relative group">
+                    <div className="w-40 relative group">
                         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-xs group-focus-within:text-green-400">R$</span>
                         <input
                             type="text"
                             inputMode="numeric"
-                            placeholder="Preço Máximo"
-                            className="w-full bg-black/20 border border-white/5 rounded-xl py-3 pl-10 pr-4 text-white focus:outline-none focus:border-green-500/50 transition-all font-bold text-left placeholder:text-gray-600 placeholder:font-medium"
+                            placeholder="Máximo"
+                            className="w-full bg-black/20 border border-white/5 rounded-xl py-2.5 pl-10 pr-4 text-white focus:outline-none focus:border-green-500/50 transition-all text-sm font-bold text-left placeholder:text-gray-650"
                             value={priceLimit}
                             onChange={e => {
                                 const val = e.target.value.replace(/\D/g, '');
@@ -545,13 +593,14 @@ const Estoque = ({ user }) => {
                             }}
                         />
                     </div>
+
                     <button
                         onClick={handleSync}
                         title="Forçar Atualização"
                         className={`px-4 rounded-xl border border-white/5 flex items-center justify-center transition-all ${syncing ? 'bg-cyan-500/20 text-cyan-400' : 'bg-black/20 text-gray-500 hover:text-white hover:bg-white/5'}`}
                         disabled={syncing}
                     >
-                        <RefreshCw size={20} className={syncing ? 'animate-spin' : ''} />
+                        <RefreshCw size={18} className={syncing ? 'animate-spin' : ''} />
                     </button>
                 </div>
             </div>
@@ -561,16 +610,18 @@ const Estoque = ({ user }) => {
                 {Object.keys(grouped).length > 0 ? (
                     <div className="flex flex-col gap-8 pb-20">
                         {Object.keys(grouped).sort().map(marca => (
-                            <div key={marca} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            <div key={marca} className={performanceMode ? "" : "animate-in fade-in slide-in-from-bottom-4 duration-500"}>
                                 {/* Título da Marca */}
                                 <div className="flex items-center gap-4 mb-4 ml-2">
-                                    <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500  tracking-tighter">
-                                        {marca}
-                                    </h3>
+                                    <div className="flex items-center gap-6">
+                                        <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400 tracking-tighter italic pr-2">
+                                            {marca}
+                                        </h3>
+                                        <span className="text-sm font-black text-white bg-white/10 px-2.5 py-0.5 rounded-lg border border-white/10 shadow-lg">
+                                            {grouped[marca].length}
+                                        </span>
+                                    </div>
                                     <div className="h-[1px] flex-1 bg-gradient-to-r from-white/10 to-transparent" />
-                                    <span className="text-xs font-bold text-gray-600 bg-white/5 px-2 py-1 rounded-lg border border-white/5">
-                                        {grouped[marca].length} {grouped[marca].length === 1 ? 'VEÍCULO' : 'VEÍCULOS'}
-                                    </span>
                                 </div>
 
                                 {/* Grid de Carros da Marca (Agora Lado a Lado - Max 2 a partir de LG) */}
@@ -578,17 +629,28 @@ const Estoque = ({ user }) => {
                                     {grouped[marca].map((item, index) => (
                                         <div
                                             key={item.id || `${marca}-${index}`}
-                                            className={`relative bg-[#1e293b]/50 border border-white/5 rounded-2xl flex items-center gap-6 p-3 transition-all duration-200 h-28 overflow-hidden group hover:border-cyan-500/30 ${!item.ativo && 'opacity-60 grayscale'}`}
+                                            className={`relative border rounded-2xl flex items-stretch transition-all duration-200 overflow-hidden group
+                                                ${item.ativo
+                                                    ? 'bg-[#1a2642]/60 border-white/8 hover:border-cyan-500/40 hover:bg-[#1e2d4a]/70'
+                                                    : 'bg-red-950/20 border-red-500/20 opacity-60 grayscale'
+                                                }`}
+                                            style={{ minHeight: '7.5rem' }}
                                         >
-                                            {/* Glow de Fundo no Hover */}
-                                            <div className="absolute inset-0 bg-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+                                            {/* GLOW HOVER */}
+                                            {!performanceMode && (
+                                                <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/0 via-cyan-500/3 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+                                            )}
 
-                                            {/* IMAGEM COM MÁSCARA GRADIENTE (Sutil integração) */}
-                                            <div className="w-24 sm:w-36 xl:w-44 h-full absolute left-0 top-0 bottom-0 overflow-hidden cursor-pointer" onClick={() => handleOpenReport(item.nome)}>
+                                            {/* IMAGEM */}
+                                            <div
+                                                className="relative flex-shrink-0 w-36 sm:w-44 xl:w-52 cursor-pointer overflow-hidden"
+                                                onClick={() => handleOpenReport(item.nome)}
+                                            >
                                                 {item.foto ? (
                                                     <>
                                                         <img src={item.foto} alt={item.nome} className="w-full h-full object-cover" />
-                                                        <div className="absolute inset-0 bg-[#162032] opacity-20" />
+                                                        {/* Gradiente direito: funde imagem com o card */}
+                                                        <div className="absolute inset-y-0 right-0 w-10 bg-gradient-to-r from-transparent to-[#1a2642]/90" />
                                                     </>
                                                 ) : (
                                                     <div className="w-full h-full bg-white/5 flex items-center justify-center text-gray-700">
@@ -597,72 +659,81 @@ const Estoque = ({ user }) => {
                                                 )}
                                                 {!item.ativo && (
                                                     <div className="absolute inset-0 bg-red-950/80 flex items-center justify-center">
-                                                        <span className="text-red-200 font-bold  tracking-widest text-[10px] border border-red-500/50 px-2 py-1 rounded">Vendido</span>
+                                                        <span className="text-red-200 font-bold tracking-widest text-[10px] border border-red-500/50 px-2 py-1 rounded">Vendido</span>
                                                     </div>
                                                 )}
                                             </div>
 
-                                            {/* CONTEÚDO (Com margem para não ficar em cima da imagem) */}
-                                            <div className="flex-1 flex flex-col justify-between py-0.5 min-w-0 pl-28 sm:pl-40 xl:pl-48 relative z-10">
-                                                <div className="min-w-0">
-                                                    <div className="flex justify-between items-start">
-                                                        <h4
-                                                            className="text-sm sm:text-base xl:text-lg font-bold leading-none truncate cursor-pointer hover:text-cyan-400 transition-colors text-white font-rajdhani tracking-tight drop-shadow-md pr-2"
-                                                            onClick={() => handleOpenReport(item.nome)}
-                                                            title={item.nome}
-                                                        >
-                                                            {cleanVehicleName(item.nome).split(' #')[0]}
-                                                        </h4>
-                                                    </div>
+                                            {/* CONTEÚDO PRINCIPAL */}
+                                            <div className="flex-1 flex flex-col justify-center px-5 py-4 min-w-0 gap-2">
 
-                                                    {/* SPECS BADGES - Minimalistas Tech */}
-                                                    <div className="flex flex-wrap items-center gap-1 mt-1.5">
-                                                        {item.ano && (
-                                                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 shadow-sm transition-colors group-hover:border-amber-500/30">
-                                                                <Calendar size={12} className="text-amber-500" />
-                                                                <span className="text-[11px] font-bold text-gray-300 font-rajdhani tracking-wider">
-                                                                    {item.ano}
-                                                                </span>
-                                                            </div>
-                                                        )}
-                                                        {item.km && (item.km !== 'Consulte') && (
-                                                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 shadow-sm transition-colors group-hover:border-cyan-500/30">
-                                                                <Gauge size={12} className="text-cyan-400" />
-                                                                <span className="text-[11px] font-bold text-gray-300 font-rajdhani tracking-wider">
-                                                                    {(() => {
-                                                                        const onlyDigits = item.km.toString().replace(/\D/g, '');
-                                                                        return onlyDigits ? Number(onlyDigits).toLocaleString('pt-BR') : item.km;
-                                                                    })()} KM
-                                                                </span>
-                                                            </div>
-                                                        )}
-                                                    </div>
+                                                {/* LINHA 1 — NOME */}
+                                                <h4
+                                                    className="text-[15px] sm:text-[17px] font-semibold text-white truncate cursor-pointer hover:text-cyan-400 transition-colors leading-tight"
+                                                    onClick={() => handleOpenReport(item.nome)}
+                                                    title={item.nome}
+                                                >
+                                                    {cleanVehicleName(item.nome).split(' #')[0]}
+                                                </h4>
+
+                                                {/* LINHA 2 — SPECS: Ano · KM + Placa */}
+                                                <div className="flex items-center gap-2.5">
+                                                    <span className="text-[13px] text-slate-300 font-medium leading-none">{item.ano}</span>
+                                                    {item.km && item.km !== 'Consulte' && (
+                                                        <>
+                                                            <span className="text-slate-600 leading-none select-none">·</span>
+                                                            <span className="text-[13px] text-slate-300 font-medium leading-none">
+                                                                {(() => { const d = item.km.toString().replace(/\D/g, ''); return d ? Number(d).toLocaleString('pt-BR') : item.km; })()} KM
+                                                            </span>
+                                                        </>
+                                                    )}
+                                                    {item.placa && (
+                                                        <span
+                                                            className="text-[11px] font-black uppercase px-2 py-[3px] rounded"
+                                                            style={{
+                                                                background: '#f0f0e8',
+                                                                color: '#111827',
+                                                                border: '1.5px solid #1e3a5f',
+                                                                letterSpacing: '0.15em',
+                                                                boxShadow: '0 1px 3px rgba(0,0,0,0.5)'
+                                                            }}
+                                                        >
+                                                            {item.placa}
+                                                        </span>
+                                                    )}
                                                 </div>
 
-                                                {/* BARRA DE AÇÕES INFERIOR */}
-                                                <div className="flex items-center gap-1.5 mt-2">
+                                                {/* LINHA 3 — BOTÕES */}
+                                                <div className="flex items-center gap-2">
                                                     {item.link && (
-                                                        <button onClick={() => openLink(item.link)} className="btn-cyber-secondary text-[11px] py-1.5 px-3 text-blue-400 border-blue-500/20 hover:border-blue-500/50 hover:bg-blue-500/10 transition-all">
-                                                            <ExternalLink size={13} /> <span className="hidden 2xl:inline">WEB</span>
+                                                        <button
+                                                            onClick={() => openLink(item.link)}
+                                                            className="flex items-center gap-1.5 h-7 px-3 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 hover:text-white transition-all text-[11px] font-semibold"
+                                                        >
+                                                            <ExternalLink size={11} /> WEB
                                                         </button>
                                                     )}
-                                                    <button onClick={() => handleOpenReport(item.nome)} className="btn-cyber-secondary text-[11px] py-1.5 px-3 text-purple-400 border-purple-500/20 hover:border-purple-500/50 hover:bg-purple-500/10 transition-all">
-                                                        <Car size={13} /> <span className="hidden xl:inline">{(stats[item.nome] || 0)} VIS</span>
+                                                    <button
+                                                        onClick={() => handleOpenReport(item.nome)}
+                                                        className="flex items-center gap-1.5 h-7 px-3 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 hover:text-white transition-all text-[11px] font-semibold"
+                                                    >
+                                                        <Car size={11} /> {stats[item.nome] || 0} VIS
                                                     </button>
-                                                    <button onClick={() => handleShare(item)} className="btn-cyber-secondary text-[11px] py-1.5 px-3 text-emerald-400 border-emerald-500/20 hover:border-emerald-500/50 hover:bg-emerald-500/10 transition-all">
-                                                        <MessageSquare size={13} /> <span className="hidden 2xl:inline">WHATSAPP</span>
+                                                    <button
+                                                        onClick={() => handleShare(item)}
+                                                        className="flex items-center gap-1.5 h-7 px-3 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 text-cyan-400 hover:text-white transition-all text-[11px] font-semibold"
+                                                    >
+                                                        <MessageSquare size={11} /> WHATSAPP
                                                     </button>
                                                 </div>
+
                                             </div>
 
-                                            {/* PREÇO PREMIUM (Lado Direito - Floating Clean) */}
-                                            <div className="flex flex-col items-end justify-center pl-2 sm:pl-6 min-w-[max-content] h-full pr-1 sm:pr-4">
-                                                <div className="flex flex-col items-end group-hover:scale-105 transition-transform duration-500 origin-right">
-                                                    <span className="text-base sm:text-xl xl:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-tight font-rajdhani drop-shadow-[0_0_15px_rgba(34,211,238,0.15)] leading-none">
-                                                        {item.valor || 'R$ 0,00'}
-                                                    </span>
-                                                    <span className="hidden sm:block text-[8px] text-gray-500/40 font-semibold tracking-wider mt-0.5 font-rajdhani uppercase">Venda</span>
-                                                </div>
+                                            {/* COLUNA DE PREÇO */}
+                                            <div className="flex flex-col items-end justify-center pr-6 pl-4 min-w-[120px] border-l border-white/[0.06] flex-shrink-0">
+                                                <span className="text-base sm:text-lg xl:text-xl font-bold leading-none text-green-400 whitespace-nowrap">
+                                                    {item.valor || 'R$ 0,00'}
+                                                </span>
                                             </div>
                                         </div>
                                     ))}
@@ -674,26 +745,29 @@ const Estoque = ({ user }) => {
                     !loading && (
                         <div className="h-full flex flex-col items-center justify-center text-gray-500 opacity-20">
                             <Search size={64} strokeWidth={1} className="mb-4" />
-                            <span className="text-xl font-black  tracking-tighter italic">Nenhum veículo encontrado</span>
+                            <span className="text-xl font-black tracking-tighter italic">Nenhum veículo encontrado</span>
                         </div>
                     )
                 )}
             </div>
+
+            {/* Empty state */}
             {items.length === 0 && !loading && (
                 <div className="flex-1 flex flex-col items-center justify-center p-20 text-gray-500 bg-glass-100 rounded-[3rem] border border-white/5 mt-6">
                     <Car size={64} className="opacity-10 mb-4" />
                     <p className="font-bold text-center">Nenhum veículo disponível no catálogo local.</p>
-                    <p className="text-[10px]  tracking-widest mt-2 opacity-50">Sincronização automática em andamento...</p>
+                    <p className="text-[10px] tracking-widest mt-2 opacity-50">Sincronização automática em andamento...</p>
                 </div>
             )}
 
+            {/* Loading spinner */}
             {loading && items.length === 0 && (
                 <div className="flex-1 flex items-center justify-center">
                     <div className="w-12 h-12 border-4 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin" />
                 </div>
             )}
 
-            {/* Debug Info (Visible only for Developer/Admin during diagnosis) */}
+            {/* Debug Info */}
             {(currentUser.role === 'developer' || currentUser.role === 'master') && (
                 <div className="opacity-[0.05] hover:opacity-100 transition-opacity absolute bottom-2 right-2 text-[8px] text-white flex gap-4 bg-black/50 p-2 rounded-lg pointer-events-none hover:pointer-events-auto">
                     <span>Items: {items.length}</span>

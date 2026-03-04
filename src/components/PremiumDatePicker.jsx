@@ -15,7 +15,7 @@ const TIME_SLOTS = [
     '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00'
 ];
 
-const PremiumDatePicker = ({ value, onChange, allowPastDates = false }) => {
+const PremiumDatePicker = ({ value, onChange, allowPastDates = false, className = "" }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [view, setView] = useState('date'); // 'date' | 'time'
     const [currentDate, setCurrentDate] = useState(new Date());
@@ -24,6 +24,10 @@ const PremiumDatePicker = ({ value, onChange, allowPastDates = false }) => {
     const containerRef = useRef(null);
     const [portalContainer, setPortalContainer] = useState(null);
     const [dropdownStyle, setDropdownStyle] = useState({});
+
+    // Ensure we have a default height if none is provided in className
+    const hasHeight = className.split(' ').some(c => c.startsWith('h-'));
+    const finalWrapperClass = `${className} ${hasHeight ? '' : 'h-14'}`;
 
     // Initial value parsing
     useEffect(() => {
@@ -162,12 +166,12 @@ const PremiumDatePicker = ({ value, onChange, allowPastDates = false }) => {
     };
 
     return (
-        <div className="relative w-full" ref={containerRef}>
+        <div className={`relative w-full ${finalWrapperClass}`} ref={containerRef}>
             {/* INPUT TRIGGER */}
             <div
                 onClick={() => setIsOpen(!isOpen)}
                 className={`
-                    w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-white 
+                    w-full h-full bg-white/5 border border-white/10 rounded-2xl px-5 text-white 
                     cursor-pointer flex items-center justify-between transition-all hover:bg-white/10
                     ${isOpen ? 'border-cyan-500 ring-1 ring-cyan-500/50' : ''}
                 `}

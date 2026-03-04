@@ -9,7 +9,6 @@ import { ToastContainer } from '../components/Toast';
 
 const AVAILABLE_PERMISSIONS = [
     { id: '/diario', label: 'Agenda Diária (Diário)', icon: 'BookOpen' },
-    { id: '/dashboard', label: 'Dashboard (Painel)', icon: 'BarChart3' },
     { id: '/whatsapp', label: 'WhatsApp', icon: 'MessageSquare' },
     { id: '/estoque', label: 'Tabela de Estoque', icon: 'Car' },
     { id: '/visitas', label: 'Gestão de Visitas', icon: 'Users' },

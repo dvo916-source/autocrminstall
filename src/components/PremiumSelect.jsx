@@ -11,6 +11,10 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
     const [portalContainer, setPortalContainer] = useState(null);
     const [dropdownStyle, setDropdownStyle] = useState({});
 
+    // Ensure we have a default height if none is provided in className
+    const hasHeight = className.split(' ').some(c => c.startsWith('h-'));
+    const finalWrapperClass = `${className} ${hasHeight ? '' : 'h-14'}`;
+
     const toTitleCase = (str) => {
         return str.replace(/\b\w/g, l => l.toUpperCase());
     };
@@ -208,11 +212,11 @@ const PremiumSelect = ({ options, value, onChange, placeholder = "Selecione...",
     };
 
     return (
-        <div className={`relative w-full ${className}`} ref={containerRef}>
+        <div className={`relative w-full ${finalWrapperClass}`} ref={containerRef}>
             {/* Trigger Container */}
             <div
                 onClick={handleToggle}
-                className={`w-full h-14 bg-white/5 border ${isOpen ? 'border-cyan-500/50 bg-white/10 ring-1 ring-cyan-500/30' : 'border-white/10'} rounded-2xl px-5 flex items-center justify-between cursor-pointer transition-all hover:bg-white/10 group shadow-lg`}
+                className={`w-full h-full bg-white/5 border ${isOpen ? 'border-cyan-500/50 bg-white/10 ring-1 ring-cyan-500/30' : 'border-white/10'} rounded-2xl px-5 flex items-center justify-between cursor-pointer transition-all hover:bg-white/10 group shadow-lg`}
             >
                 {(searchable || creatable) && !multiSelect ? (
                     <div className="flex items-center gap-2 flex-1 min-w-0">

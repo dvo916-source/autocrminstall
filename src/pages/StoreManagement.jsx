@@ -6,7 +6,7 @@ import { useLoja } from '../context/LojaContext';
 import {
     Plus, Store, ExternalLink, Trash2, CheckCircle2, X, LayoutGrid, Search,
     ChevronRight, ChevronLeft, Loader2, Settings, Shield, Pencil, Save,
-    MapPin, User, Lock, Image as ImageIcon, Key, Database, MessageSquare, Car, Users, Target, LogOut
+    MapPin, User, Lock, Image as ImageIcon, Key, Database, MessageSquare, Car, Users, Target, LogOut, Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -17,12 +17,12 @@ import ConnectionStatus from '../components/ConnectionStatus';
 // Módulos que podem ser ativados para cada loja individualmente
 const AVAILABLE_MODULES = [
     { id: 'diario', label: 'Meu Diário' },
-    { id: 'dashboard', label: 'Dashboard' },
     { id: 'whatsapp', label: 'WhatsApp' },
     { id: 'estoque', label: 'Tabela/Estoque' },
     { id: 'visitas', label: 'Visitas' },
     { id: 'metas', label: 'Metas' },
     { id: 'portais', label: 'Portais' },
+    { id: 'crm', label: 'CRM / Rodízio' },
     { id: 'ia-chat', label: 'IA Chat' },
     { id: 'usuarios', label: 'Usuários' },
 ];
@@ -45,7 +45,7 @@ const StoreManagement = () => {
         nome: '',
         endereco: '',
         logo_url: '',
-        modulos: ['dashboard', 'diario', 'whatsapp', 'estoque', 'visitas', 'metas', 'portais', 'ia-chat', 'usuarios']
+        modulos: ['diario', 'whatsapp', 'estoque', 'visitas', 'metas', 'portais', 'ia-chat', 'usuarios']
     });
 
     // Dados para o PRIMEIRO Administrador da nova loja
@@ -110,7 +110,7 @@ const StoreManagement = () => {
                 // Limpa os campos
                 setNewStore({
                     nome: '', endereco: '', logo_url: '',
-                    modulos: ['dashboard', 'diario', 'whatsapp', 'estoque', 'visitas', 'metas', 'portais', 'ia-chat', 'usuarios']
+                    modulos: ['diario', 'whatsapp', 'estoque', 'visitas', 'metas', 'portais', 'ia-chat', 'usuarios']
                 });
                 setNewAdmin({ nome_completo: '', cpf: '', email: '', password: '' });
                 alert(result.message);
@@ -387,7 +387,9 @@ const StoreManagement = () => {
                                                 {/* Module Indicators (Quick Look) */}
                                                 <div className="mt-6 flex flex-wrap gap-2 opacity-40 group-hover:opacity-100 transition-opacity duration-700">
                                                     {(() => {
-                                                        const mods = typeof loja.modulos === 'string' ? JSON.parse(loja.modulos || '[]') : (loja.modulos || []);
+                                                        let mods = typeof loja.modulos === 'string' ? JSON.parse(loja.modulos || '[]') : (loja.modulos || []);
+                                                        if (!Array.isArray(mods)) mods = [];
+                                                        if (!Array.isArray(mods)) mods = [];
                                                         return (
                                                             <>
                                                                 <div className={`p-1.5 rounded-lg border ${mods.includes('whatsapp') ? 'border-green-500/30 text-green-400 bg-green-500/5' : 'border-white/5 text-white/10'}`} title="WhatsApp">
@@ -445,8 +447,22 @@ const StoreManagement = () => {
                                             <>
                                                 <button
                                                     onClick={() => {
+                                                        // 🧠 Navegação Inteligente: Identifica o primeiro módulo disponível
+                                                        let mods = [];
+                                                        try {
+                                                            mods = typeof loja.modulos === 'string' ? JSON.parse(loja.modulos || '[]') : (loja.modulos || []);
+                                                        } catch (e) { mods = []; }
+
+                                                        // Lista de prioridade/mapeamento de paths
+                                                        const priorityMap = ['diario', 'whatsapp', 'estoque', 'visitas', 'metas', 'portais', 'ia-chat', 'usuarios'];
+                                                        const firstMod = priorityMap.find(m => mods.includes(m)) || '';
+
+                                                        const targetPath = firstMod ? `/${firstMod}` : '/';
+
+                                                        console.log(`🚀 [Central] Acessando ${loja.nome}. Primeiro módulo: ${firstMod || 'nenhum'} -> Path: ${targetPath}`);
+
                                                         switchLoja(loja);
-                                                        navigate('/');
+                                                        navigate(targetPath);
                                                     }}
                                                     className="flex-[5] relative group/btn flex items-center justify-center gap-3 py-4 rounded-2xl font-black text-[11px] tracking-[0.2em] transition-all duration-700 overflow-hidden bg-white text-black hover:bg-blue-600 hover:text-white hover:scale-[1.02] shadow-[0_15px_30px_-10px_rgba(255,255,255,0.1)] active:scale-95"
                                                 >
@@ -532,7 +548,8 @@ const StoreManagement = () => {
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8">
                                 {AVAILABLE_MODULES.map((mod) => {
-                                    const modulosAtuais = configStore.modulos ? (typeof configStore.modulos === 'string' ? JSON.parse(configStore.modulos) : configStore.modulos) : [];
+                                    let modulosAtuais = configStore.modulos ? (typeof configStore.modulos === 'string' ? JSON.parse(configStore.modulos) : configStore.modulos) : [];
+                                    if (!Array.isArray(modulosAtuais)) modulosAtuais = [];
                                     const isEnabled = modulosAtuais.includes(mod.id);
 
                                     return (

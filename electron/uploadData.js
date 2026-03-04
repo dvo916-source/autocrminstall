@@ -100,7 +100,7 @@ export async function uploadAllDataToSupabase(db) {
             console.log(`✅ ${scriptsData.length} scripts enviados`);
         }
 
-        // 5. VISITAS
+        // 5. VISITAS (inclui visitou_loja e nao_compareceu)
         console.log('\n📋 VISITAS');
         const visitas = db.prepare('SELECT * FROM visitas').all();
         if (visitas.length > 0) {
@@ -125,6 +125,8 @@ export async function uploadAllDataToSupabase(db) {
                 cpf_cliente: v.cpf_cliente || '',
                 historico_log: v.historico_log || '',
                 status: v.status || 'Pendente',
+                visitou_loja: v.visitou_loja === 1,     // ✅ CORRIGIDO
+                nao_compareceu: v.nao_compareceu === 1, // ✅ CORRIGIDO
                 loja_id: v.loja_id || DEFAULT_STORE_ID
             }));
 
@@ -150,7 +152,29 @@ export async function uploadAllDataToSupabase(db) {
             console.log(`✅ ${crmData.length} configurações enviadas`);
         }
 
-        // Relatório
+        // 7. NOTAS (Meu Diário) ✅ NOVO
+        console.log('\n📓 NOTAS (MEU DIÁRIO)');
+        const notas = db.prepare('SELECT * FROM notas').all();
+        if (notas.length > 0) {
+            const notasData = notas.map(n => ({
+                id: n.id,
+                sdr_username: n.sdr_username || '',
+                texto: n.texto || '',
+                data_nota: n.data_nota || null,
+                concluido: n.concluido === 1,
+                loja_id: n.loja_id || DEFAULT_STORE_ID
+            }));
+
+            const { error } = await supabase.from('notas').upsert(notasData);
+            results.notas = { success: !error, count: notasData.length, error: error?.message };
+            if (error) {
+                console.warn(`⚠️ Notas: ${error.message} (tabela pode não existir ainda no Supabase)`);
+            } else {
+                console.log(`✅ ${notasData.length} notas enviadas`);
+            }
+        }
+
+        // Relatório Final
         console.log('\n\n' + '='.repeat(80));
         console.log('📊 RESUMO DO UPLOAD');
         console.log('='.repeat(80));

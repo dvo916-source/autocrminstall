@@ -58,8 +58,7 @@ export const LojaProvider = ({ children }) => {
         } else {
             localStorage.removeItem('active_loja_id');
         }
-        // Forçamos o reload para limpar caches de componentes da loja anterior
-        window.location.reload();
+        // Reload removido para permitir navegação SPA fluida
     };
 
     // 🧹 Função para limpar a loja ativa (volta para o estado "Sem Loja Selecionada")

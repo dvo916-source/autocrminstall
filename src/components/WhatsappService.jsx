@@ -231,14 +231,82 @@ const WhatsappService = ({ isVisible, isActive }) => {
             webviewRef.current.loadURL(`https://web.whatsapp.com/send?phone=${finalPhone}`);
         };
 
+        const handleRepassLead = (e) => {
+            const { message, groupName } = e.detail;
+            if (!webviewRef.current) return;
+
+            console.log(`📢 [Service] Repassando lead para grupo: ${groupName}`);
+
+            const encodedMsg = encodeURIComponent(message);
+            const encodedGroup = encodeURIComponent(groupName);
+
+            const script = `
+                (async () => {
+                    try {
+                        const groupName = decodeURIComponent("${encodedGroup}");
+                        const msg = decodeURIComponent("${encodedMsg}");
+                        
+                        // 1. Tentar encontrar o grupo na lista lateral sem pesquisar primeiro
+                        let chat = Array.from(document.querySelectorAll('span[title]'))
+                                    .find(el => el.title === groupName || el.innerText === groupName);
+                        
+                        if (!chat) {
+                            // 2. Usar a pesquisa do WhatsApp
+                            const searchInput = document.querySelector('div[contenteditable="true"][data-tab="3"]') || 
+                                              document.querySelector('div[contenteditable="true"]');
+                            if (searchInput) {
+                                searchInput.focus();
+                                document.execCommand('insertText', false, groupName);
+                                await new Promise(r => setTimeout(r, 1500));
+                                chat = Array.from(document.querySelectorAll('span[title]'))
+                                            .find(el => el.title === groupName || el.innerText === groupName);
+                            }
+                        }
+
+                        if (chat) {
+                            chat.click();
+                            await new Promise(r => setTimeout(r, 800));
+                        }
+
+                        // 3. Colar e Enviar
+                        const input = document.querySelector('footer div[contenteditable="true"]') || 
+                                    document.querySelector('div[contenteditable="true"][data-tab="10"]');
+                        if (input) {
+                            input.focus();
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.setData('text/plain', msg);
+                            const pasteEvent = new ClipboardEvent('paste', {
+                                clipboardData: dataTransfer,
+                                bubbles: true,
+                                cancelable: true
+                            });
+                            input.dispatchEvent(pasteEvent);
+                            setTimeout(() => {
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                                // Tentar clicar no botão de enviar
+                                const sendBtn = document.querySelector('span[data-icon="send"]') || 
+                                               document.querySelector('button span[data-icon="send"]');
+                                if (sendBtn) sendBtn.click();
+                            }, 200);
+                        }
+                    } catch (e) { console.error('Erro ao repassar lead:', e); }
+                })();
+                true;
+            `;
+
+            webviewRef.current.executeJavaScript(script);
+        };
+
         window.addEventListener('whatsapp-send-text', handleSendText);
         window.addEventListener('whatsapp-request-chat-info', handleRequestChatInfo);
         window.addEventListener('whatsapp-direct-chat', handleDirectChat);
+        window.addEventListener('whatsapp-repass-lead', handleRepassLead);
 
         return () => {
             window.removeEventListener('whatsapp-send-text', handleSendText);
             window.removeEventListener('whatsapp-request-chat-info', handleRequestChatInfo);
             window.removeEventListener('whatsapp-direct-chat', handleDirectChat);
+            window.removeEventListener('whatsapp-repass-lead', handleRepassLead);
         };
     }, [isReady]);
 

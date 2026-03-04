@@ -41,11 +41,14 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
         veiculo_interesse: '', veiculo_troca: '', valor_proposta: '', forma_pagamento: '',
         vendedor_sdr: '',
         vendedor: '',
-        negociacao: '', motivo_perda: '', status_pipeline: 'Agendado'
+        negociacao: '', motivo_perda: '', status_pipeline: 'Novos Leads'
     });
 
     const toTitleCase = (str) => {
-        return str.replace(/\b\w/g, l => l.toUpperCase());
+        if (!str) return '';
+        // Capitaliza apenas a primeira letra da string ou após um espaço.
+        // Evita o erro com acentos onde \b falha (ex: NatáLia).
+        return str.replace(/(^|\s)\S/g, l => l.toUpperCase());
     };
 
     // Formatter helpers
@@ -163,7 +166,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                     vendedor: (['developer', 'admin', 'master', 'gerente'].includes(storedUser.role)) ? '' : storedUser.username,
                     negociacao: '',
                     motivo_perda: '',
-                    status_pipeline: 'Agendado'
+                    status_pipeline: 'Novos Leads'
                 });
                 setRecontatoDate('');
             }
@@ -182,6 +185,17 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
             return () => ipcRenderer.removeListener('refresh-data', handleRefresh);
         } catch (e) { }
     }, []);
+
+    // ⌨️ ESCAPE KEY LISTENER
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape' && isOpen) {
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onClose]);
 
     const loadData = async () => {
         try {
@@ -252,7 +266,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
             data_agendamento: 'Data & Hora'
         };
 
-        if (formData.status_pipeline === 'Finalizado' && !formData.motivo_perda) {
+        if ((formData.status_pipeline === 'Perdido' || formData.status_pipeline === 'Cancelado') && !formData.motivo_perda) {
             window.dispatchEvent(new CustomEvent('show-notification', {
                 detail: {
                     message: "⚠️ Informe o motivo do cancelamento/finalização.",
@@ -280,7 +294,17 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
             setLoading(true);
             const { ipcRenderer } = window.require('electron');
             let finalNegociacao = formData.negociacao;
-            if (formData.status_pipeline === 'Pendente' && recontatoDate) {
+
+            // 📝 Sugestão 3: Log Automático de Evolução
+            if (editingTask?.id && (editingTask.status_pipeline || '').toLowerCase() === 'novos leads' && formData.status_pipeline.toLowerCase() !== 'novos leads') {
+                const now = new Date().toLocaleString('pt-BR');
+                const evolutionNote = `[EVOLUÇÃO AUTOMÁTICA: Lead evoluído de Novos Leads para ${formData.status_pipeline} em ${now}]`;
+                if (!finalNegociacao || !finalNegociacao.includes(evolutionNote)) {
+                    finalNegociacao = `${evolutionNote}\n\n${finalNegociacao || ''}`.trim();
+                }
+            }
+
+            if (formData.status_pipeline === 'Recontatos' && recontatoDate) {
                 const dateLabel = new Date(recontatoDate).toLocaleString('pt-BR', {
                     day: '2-digit', month: '2-digit', year: 'numeric',
                     hour: '2-digit', minute: '2-digit'
@@ -297,7 +321,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
             const payload = {
                 ...formData,
                 id: editingTask?.id, // Garantir que o ID seja enviado para o update
-                data_agendamento: (formData.status_pipeline === 'Pendente' && recontatoDate) ? recontatoDate : formData.data_agendamento,
+                data_agendamento: (formData.status_pipeline === 'Recontatos' && recontatoDate) ? recontatoDate : formData.data_agendamento,
                 negociacao: finalNegociacao,
                 mes: new Date().getMonth() + 1,
                 datahora: formData.datahora || new Date().toISOString(),
@@ -372,7 +396,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                     {editingTask ? 'As informações do cliente foram registradas com sucesso.' : 'O cliente foi registrado com sucesso no sistema.'}
                                 </p>
 
-                                {recontatoDate && formData.status_pipeline === 'Pendente' && (
+                                {recontatoDate && formData.status_pipeline === 'Recontatos' && (
                                     <motion.div
                                         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                                         className="mb-10 px-6 py-3 bg-blue-500/10 border border-blue-500/20 rounded-2xl flex items-center gap-3 text-blue-400"
@@ -493,12 +517,16 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                         <div className="p-8 rounded-[2rem] bg-white/[0.02] border border-white/5 space-y-6">
                                             <div className="flex flex-col gap-4">
                                                 <label className="text-[11px] text-gray-400 font-black ml-1 tracking-[0.2em] uppercase">Marcar Status do Negócio</label>
-                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
                                                     {[
-                                                        { id: 'Pendente', label: 'PENDENTE', color: 'red', desc: 'Aguardando' },
-                                                        { id: 'Negociação', label: 'NEGOCIAÇÃO', color: 'blue', desc: 'Em andamento' },
-                                                        { id: 'Vendido', label: 'FECHADO', color: 'green', desc: 'Venda Concluída' },
-                                                        { id: 'Finalizado', label: 'ENCERRAR', color: 'gray', desc: 'Não Vendido' }
+                                                        { id: 'Novos Leads', label: 'NOVOS LEADS', color: 'cyan', desc: 'Portal / Entrada' },
+                                                        { id: 'Primeiro Contato', label: '1º CONTATO', color: 'blue', desc: '1º Contato Feito' },
+                                                        { id: 'Em Negociação', label: 'NEGOCIAÇÃO', color: 'amber', desc: 'Sondagem Ativa' },
+                                                        { id: 'Agendado', label: 'AGENDADO', color: 'orange', desc: 'Visita Marcada' },
+                                                        { id: 'Recontato', label: 'RECONTATO', color: 'purple', desc: 'Follow-up' },
+                                                        { id: 'Ganho', label: 'GANHO', color: 'green', desc: 'Fechamento ✓' },
+                                                        { id: 'Perdido', label: 'PERDIDO', color: 'red', desc: 'Não Fechou' },
+                                                        { id: 'Cancelado', label: 'CANCELADO', color: 'gray', desc: 'Pós-Desistência' },
                                                     ].map((s) => (
                                                         <button
                                                             key={s.id}
@@ -513,8 +541,8 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                                             `}
                                                         >
                                                             <div className={`w-2 h-2 rounded-full mb-2 ${formData.status_pipeline === s.id ? `bg-${s.color}-400 animate-pulse shadow-[0_0_10px_rgba(var(--${s.color}-rgb),0.8)]` : 'bg-gray-600'}`} />
-                                                            <span className={`text-[11px] font-black tracking-widest ${formData.status_pipeline === s.id ? `text-${s.color}-400` : 'text-gray-400'}`}>{s.label}</span>
-                                                            <span className="text-[9px] text-gray-600 font-bold uppercase mt-0.5">{s.desc}</span>
+                                                            <span className={`text-[10px] font-black tracking-widest ${formData.status_pipeline === s.id ? `text-${s.color}-400` : 'text-gray-400'}`}>{s.label}</span>
+                                                            <span className="text-[9px] text-gray-600 font-bold uppercase mt-0.5 text-center leading-tight">{s.desc}</span>
 
                                                             {formData.status_pipeline === s.id && (
                                                                 <motion.div layoutId="status-glow" className={`absolute inset-0 border-2 border-${s.color}-500/20 rounded-2xl pointer-events-none`} />
@@ -534,7 +562,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                                     />
                                                 </div>
                                                 <div>
-                                                    <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Vendedor</label>
+                                                    <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Responsável pelo Atendimento</label>
                                                     <PremiumSelect
                                                         options={vendedores.map(v => ({ value: v.nome, label: v.nome }))}
                                                         value={formData.vendedor}
@@ -565,23 +593,25 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                                 </div>
                                             </div>
 
-                                            {formData.status_pipeline === 'Finalizado' && (
+                                            {(formData.status_pipeline === 'Perdido' || formData.status_pipeline === 'Cancelado') && (
                                                 <motion.div
                                                     initial={{ opacity: 0, scale: 0.95 }}
                                                     animate={{ opacity: 1, scale: 1 }}
-                                                    className="p-6 bg-red-500/10 border border-red-500/20 rounded-2xl"
+                                                    className="p-6 border rounded-2xl bg-red-900/20 border-red-700/30"
                                                 >
-                                                    <label className="text-[11px] text-red-400 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Motivo do Fechamento (OBRIGATÓRIO)</label>
+                                                    <label className="text-[11px] text-red-400 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">
+                                                        ⚠️ Motivo {formData.status_pipeline === 'Cancelado' ? 'do Cancelamento' : 'da Perda'} (OBRIGATÓRIO)
+                                                    </label>
                                                     <textarea
                                                         className="w-full h-24 bg-black/20 border border-red-500/20 rounded-xl p-4 text-white text-sm font-bold tracking-tight outline-none focus:border-red-500/50 transition-all placeholder:text-red-900/40 resize-none"
-                                                        placeholder="Descreva por que o atendimento foi encerrado..."
+                                                        placeholder={formData.status_pipeline === 'Cancelado' ? 'Ex: Cliente fechou e depois cancelou por...' : 'Ex: Cliente desistiu por preço, encontrou outro veículo...'}
                                                         value={formData.motivo_perda}
                                                         onChange={e => setFormData({ ...formData, motivo_perda: e.target.value })}
                                                     />
                                                 </motion.div>
                                             )}
 
-                                            {formData.status_pipeline === 'Pendente' && (
+                                            {formData.status_pipeline === 'Recontatos' && (
                                                 <motion.div
                                                     initial={{ opacity: 0, scale: 0.95 }}
                                                     animate={{ opacity: 1, scale: 1 }}
@@ -628,7 +658,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
                                             <div className="flex flex-col justify-between">
                                                 {['admin', 'master', 'developer', 'gerente'].includes(currentUser?.role) && (
                                                     <div>
-                                                        <label className="text-[10px] text-blue-400 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Monitoramento VexCORE</label>
+                                                        <label className="text-[10px] text-blue-400 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Responsável pelo Agendamento</label>
                                                         <PremiumSelect
                                                             options={usuarios.map(u => ({ value: u.username, label: u.nome_completo || u.username }))}
                                                             value={formData.vendedor_sdr}

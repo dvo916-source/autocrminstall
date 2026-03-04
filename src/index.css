@@ -9,9 +9,11 @@
   --font-rajdhani: "Rajdhani", sans-serif;
 
   /* Layout Variables (Scalable via REM) */
-  --sidebar-width: 6rem;           /* Aumentado de 5rem para 6rem (96px) */
-  --sidebar-expanded-width: 17rem; /* Aumentado de 15rem para 17rem (272px) */
-  --main-padding: 2rem;
+  --sidebar-width: 6rem;
+  /* Aumentado de 5rem para 6rem (96px) */
+  --sidebar-expanded-width: 17rem;
+  /* Aumentado de 15rem para 17rem (272px) */
+  --#main-padding: 2rem;
   --header-height: 5rem;
 }
 
@@ -56,7 +58,6 @@
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
-  /* Adicionado para barra horizontal */
 }
 
 ::-webkit-scrollbar-track {
@@ -146,7 +147,6 @@ input[type=number] {
   border: 1px solid rgba(34, 211, 238, 0.4);
   font-family: "Rajdhani", sans-serif;
   font-weight: 700;
-  /* text-transform: uppercase; */
   letter-spacing: 0.15em;
   color: #22d3ee;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -196,7 +196,6 @@ input[type=number] {
   font-family: "Rajdhani", sans-serif;
   font-weight: 700;
   color: #d1d5db;
-  /* text-transform: uppercase; */
   letter-spacing: 0.1em;
   transition: all 0.3s ease;
   cursor: pointer;
@@ -223,7 +222,6 @@ input[type=number] {
   font-family: "Rajdhani", sans-serif;
   font-weight: 700;
   color: #f87171;
-  /* text-transform: uppercase; */
   letter-spacing: 0.1em;
   transition: all 0.3s ease;
   cursor: pointer;
@@ -248,7 +246,6 @@ input[type=number] {
   padding: 0.25rem 0.75rem;
   font-family: "Rajdhani", sans-serif;
   font-weight: 700;
-  /* text-transform: uppercase; */
   letter-spacing: 0.05em;
   color: #9ca3af;
   transition: all 0.2s ease;
@@ -269,7 +266,6 @@ input[type=number] {
   padding: 0.5rem 1rem;
   font-family: "Rajdhani", sans-serif;
   font-weight: 700;
-  /* text-transform: uppercase; */
   letter-spacing: 0.1em;
   font-size: 0.75rem;
   transition: all 0.3s ease;
@@ -301,4 +297,58 @@ input[type=number] {
   100% {
     transform: translateX(200%) skewX(-12deg);
   }
+}
+
+/* === PERFORMANCE MODE OVERRIDES === */
+.performance-mode * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  /* Transições instantâneas para evitar lag visual em máquinas lentas */
+  transition-duration: 0.001s !important;
+  transition-delay: 0s !important;
+}
+
+.performance-mode .backdrop-blur-md,
+.performance-mode .backdrop-blur-xl,
+.performance-mode .backdrop-blur-2xl,
+.performance-mode .backdrop-blur-3xl {
+  backdrop-filter: none !important;
+  background: rgba(15, 23, 42, 0.98) !important;
+}
+
+.performance-mode .blur-xl,
+.performance-mode .blur-2xl,
+.performance-mode .blur-3xl,
+.performance-mode .blur-[100px],
+.performance-mode .blur-[150px] {
+  filter: none !important;
+  display: none !important;
+}
+
+.performance-mode .animate-pulse,
+.performance-mode .animate-ping,
+.performance-mode .animate-bounce,
+.performance-mode .animate-shimmer {
+  animation: none !important;
+}
+
+/* Desativa efeitos de escala em hover, mas mantém o posicionamento translacional */
+.performance-mode *:not(.keep-transform):hover {
+  transition-duration: 0s !important;
+}
+
+/* Simplificar gradientes pesados e backgrounds "glass" */
+.performance-mode .bg-[#00000033],
+.performance-mode .bg-glass-100,
+.performance-mode .bg-glass-200,
+.performance-mode .bg-glass-300 {
+  background: #0a0f1d !important;
+}
+
+.performance-mode .bg-white\/\[0\.01\],
+.performance-mode .bg-white\/\[0\.05\],
+.performance-mode .bg-white\/\[0\.06\] {
+  background: rgba(255, 255, 255, 0.02) !important;
 }
