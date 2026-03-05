@@ -224,39 +224,42 @@ const Shell = ({ children, user, onLogout }) => {
 
     const filteredNavItems = navItems.filter(item => {
         try {
-            // 🔓 INTERNAL TOOLS: No filter for Central Lojas
+            // 1. 🔓 FERRAMENTAS INTERNAS: Sempre mostra 'Voltar à Central' ou a 'Central de Lojas'
             const internalModules = ['central-lojas', 'back-to-central'];
             if (internalModules.includes(item.module)) return true;
 
-            // 👑 DEVELOPER: Acesso absoluto para suporte (Vê tudo se tiver loja ou central)
-            if (user.role === 'developer') {
-                if (!currentLoja && item.module !== 'central-lojas') return false;
-                return true;
-            }
-
-            // 🏪 BLOQUEIO TOTAL: Se a loja estiver desativada (ex: inadimplência total)
+            // 2. 🏪 BLOQUEIO TOTAL: Se a loja estiver desativada (inadimplente)
             if (currentLoja && currentLoja.ativo === 0) {
-                return item.module === 'diario'; // Só permite ver o diário/avisos
+                return item.module === 'diario'; // Só permite ver avisos
             }
 
-            // 🏪 MÓDULOS DA LOJA: Verifica se o módulo está ativo no plano da loja
-            const lojaModulosRaw = currentLoja?.modulos;
-            if (!currentLoja || !lojaModulosRaw) return false;
+            // 3. SE NÃO TEM LOJA SELECIONADA AINDA
+            if (!currentLoja) {
+                // O Dev na tela inicial só vê a "Central de Lojas"
+                if (user.role === 'developer' && item.module === 'central-lojas') return true;
+                return false;
+            }
 
+            // 4. VERIFICA O PLANO DA LOJA ATUAL
+            const lojaModulosRaw = currentLoja?.modulos;
             let enabledModules = [];
             let raw = lojaModulosRaw;
             if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (e) { } }
             if (Array.isArray(raw)) enabledModules = raw;
 
+            // O módulo atual deste botão está na lista do que a loja comprou?
             const moduleEnabled = enabledModules.includes(item.module);
 
-            // Se o módulo não está no plano da loja, NINGUÉM (exceto dev) vê.
+            // 🔥 A MÁGICA ACONTECE AQUI: 
+            // Se a loja não comprou o módulo, NINGUÉM VÊ. Nem o cliente, nem o admin, NEM O DEVELOPER.
+            // (Assim você testa a interface exatamente como o cliente vê).
             if (!moduleEnabled) return false;
 
-            // 👑 MASTER/ADMIN: Vêem todos os módulos que a LOJA tem permissão
-            if (user.role === 'master' || user.role === 'admin') return true;
+            // 5. SE A LOJA COMPROU O MÓDULO, QUEM PODE CLICAR NELE?
+            // Developer, Master e Admin da loja veem tudo o que a loja comprou.
+            if (user.role === 'developer' || user.role === 'master' || user.role === 'admin') return true;
 
-            // 👤 USUÁRIO COMUM (Vendedor/SDR): Verifica se tem permissão individual DENTRO dos módulos da loja
+            // Usuário comum (SDR/Vendedor) passa pelo pente fino de permissões dele
             return hasPermission(item.to);
 
         } catch (e) {
@@ -334,50 +337,60 @@ const Shell = ({ children, user, onLogout }) => {
 
                 {/* Navegação */}
                 <nav className="flex-1 flex flex-col justify-center gap-2 px-3 py-6 overflow-y-auto no-scrollbar">
-                    {filteredNavItems.map((item) => (
-                        <NavLink
-                            key={item.label}
-                            to={item.to}
-                            onClick={(e) => {
-                                if (item.onClick) {
-                                    e.preventDefault();
-                                    item.onClick();
-                                }
-                            }}
-                            className={({ isActive }) => `
-                                relative flex items-center h-11 rounded-xl transition-all duration-300 group/item overflow-hidden shrink-0 focus:outline-none
-                                ${isActive && item.to !== '#'
-                                    ? 'bg-[#22d3ee15] text-[#22d3ee] border border-[#22d3ee30] shadow-[0_0_15px_-5px_rgba(34,211,238,0.3)]'
-                                    : 'text-slate-400 hover:text-white hover:bg-[#ffffff08] border border-transparent'}
-                            `}
-                        >
-                            <div className="absolute left-0 w-[var(--sidebar-width)] h-full flex items-center justify-center shrink-0 z-20">
-                                {item.label === 'WHATSAPP' && unseenCount > 0 ? (
-                                    <div className="relative flex items-center justify-center animate-[pulse_3s_ease-in-out_infinite]">
-                                        <MessageSquare className={`w-[1.625rem] h-[1.625rem] ${unseenCount >= 10 ? 'text-red-500 fill-red-500/20 drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'text-cyan-400 fill-cyan-400/20 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]'}`} strokeWidth={2} />
-                                        <span className={`absolute inset-0 flex items-center justify-center text-[10px] font-black leading-none pb-0.5 ${unseenCount >= 10 ? 'text-white' : 'text-white'}`}>
-                                            {unseenCount > 99 ? '99+' : unseenCount}
+                    <AnimatePresence>
+                        {filteredNavItems.map((item) => (
+                            <motion.div
+                                key={item.label}
+                                initial={{ opacity: 0, height: 0, scale: 0.9 }}
+                                animate={{ opacity: 1, height: '2.75rem', scale: 1 }}
+                                exit={{ opacity: 0, height: 0, scale: 0.9 }}
+                                transition={{ duration: 0.3 }}
+                                className="overflow-hidden"
+                            >
+                                <NavLink
+                                    to={item.to}
+                                    onClick={(e) => {
+                                        if (item.onClick) {
+                                            e.preventDefault();
+                                            item.onClick();
+                                        }
+                                    }}
+                                    className={({ isActive }) => `
+                                        relative flex items-center h-11 w-full rounded-xl transition-all duration-300 group/item overflow-hidden shrink-0 focus:outline-none block
+                                        ${isActive && item.to !== '#'
+                                            ? 'bg-[#22d3ee15] text-[#22d3ee] border border-[#22d3ee30] shadow-[0_0_15px_-5px_rgba(34,211,238,0.3)]'
+                                            : 'text-slate-400 hover:text-white hover:bg-[#ffffff08] border border-transparent'}
+                                    `}
+                                >
+                                    <div className="absolute left-0 w-[var(--sidebar-width)] h-full flex items-center justify-center shrink-0 z-20">
+                                        {item.label === 'WHATSAPP' && unseenCount > 0 ? (
+                                            <div className="relative flex items-center justify-center animate-[pulse_3s_ease-in-out_infinite]">
+                                                <MessageSquare className={`w-[1.625rem] h-[1.625rem] ${unseenCount >= 10 ? 'text-red-500 fill-red-500/20 drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'text-cyan-400 fill-cyan-400/20 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]'}`} strokeWidth={2} />
+                                                <span className={`absolute inset-0 flex items-center justify-center text-[10px] font-black leading-none pb-0.5 ${unseenCount >= 10 ? 'text-white' : 'text-white'}`}>
+                                                    {unseenCount > 99 ? '99+' : unseenCount}
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            item.icon
+                                        )}
+                                    </div>
+                                    <div className={`pl-[var(--sidebar-width)] flex items-center h-full w-full transition-all duration-300 ${isSidebarHovered ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
+                                        <span className="text-[13px] font-bold tracking-wider whitespace-nowrap">
+                                            {item.label}
                                         </span>
                                     </div>
-                                ) : (
-                                    item.icon
-                                )}
-                            </div>
-                            <div className={`pl-[var(--sidebar-width)] flex items-center h-full w-full transition-all duration-300 ${isSidebarHovered ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
-                                <span className="text-[13px] font-bold tracking-wider whitespace-nowrap">
-                                    {item.label}
-                                </span>
-                            </div>
 
-                            {item.to === location.pathname && (
-                                <div className={`absolute left-3 top-2.5 bottom-2.5 w-1 rounded-full transition-all duration-300
-                                    ${item.label === 'WHATSAPP' && unseenCount >= 10
-                                        ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.8)]'
-                                        : 'bg-[#22d3ee] shadow-[0_0_10px_cyan]'}
-                                `} />
-                            )}
-                        </NavLink>
-                    ))}
+                                    {item.to === location.pathname && (
+                                        <div className={`absolute left-3 top-2.5 bottom-2.5 w-1 rounded-full transition-all duration-300
+                                            ${item.label === 'WHATSAPP' && unseenCount >= 10
+                                                ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.8)]'
+                                                : 'bg-[#22d3ee] shadow-[0_0_10px_cyan]'}
+                                        `} />
+                                    )}
+                                </NavLink>
+                            </motion.div>
+                        ))}
+                    </AnimatePresence>
                 </nav>
 
                 {/* Footer - Sólido e Ultra-Leve */}

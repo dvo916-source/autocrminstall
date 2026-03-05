@@ -47,7 +47,7 @@ class ErrorBoundary extends Component {
             <div className="w-20 h-20 bg-red-500/20 rounded-3xl mx-auto flex items-center justify-center mb-6">
               <AlertCircle size={40} className="text-red-400" />
             </div>
-            <h1 className="text-2xl font-black text-white  italic mb-4">Ops! Algo deu errado</h1>
+            <h1 className="text-2xl font-black text-white italic mb-4">Ops! Algo deu errado</h1>
             <p className="text-gray-400 text-sm font-medium mb-8 leading-relaxed">
               Ocorreu um erro inesperado na interface. Tente recarregar o sistema.
             </p>
@@ -83,34 +83,30 @@ class ErrorBoundary extends Component {
   }
 }
 
-// === WHATSAPP OVERLAY ===
-const WhatsappOverlay = memo(({ user, isActive }) => {
-  if (!user) return null;
-  return (
-    <div
-      className={`fixed top-[4rem] lg:top-[5rem] left-0 right-0 bottom-0 bg-[#0f172a] transition-opacity duration-200 ${isActive ? 'z-[9999] opacity-100 pointer-events-auto' : 'z-[-1] opacity-0 pointer-events-none'
-        }`}
-    >
-      <div className="w-full h-full p-0 overflow-hidden">
-        <Whatsapp />
-      </div>
-    </div>
-  );
-}, (prev, next) => prev.isActive === next.isActive);
-
-const ProtectedRoute = ({ children, user }) => {
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-  return children;
-};
-
 const MainContent = ({ user, handleLogout }) => {
   const location = useLocation();
-  const navigate = useNavigate(); // Hook para navegação
+  const navigate = useNavigate();
   const isAdmin = user?.role === 'admin' || user?.role === 'master' || user?.role === 'developer';
-  const isWhatsappActive = location.pathname === '/whatsapp';
   const { currentLoja, lojas, switchLoja } = useLoja();
+
+  // 🔥 KILL SWITCH REALTIME TRIGGER
+  // Usado para forçar o re-render das permissões se o Supabase alterar os módulos
+  const [moduleSyncStamp, setModuleSyncStamp] = useState(Date.now());
+
+  useEffect(() => {
+    const { ipcRenderer } = window.require('electron');
+    const handleLojasUpdate = (e, table) => {
+      if (table === 'lojas' || table === 'all') {
+        console.log('🛑 [Kill Switch] Alteração de Módulos detectada na Nuvem!');
+        // Se a loja não atualizar o contexto automaticamente, a forma mais garantida 
+        // de efetivar o bloqueio no SO do cliente instantaneamente é forçar um reload.
+        // Se preferir algo mais sutil, troque por um fetch atualizado da loja.
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    };
+    ipcRenderer.on('refresh-data', handleLojasUpdate);
+    return () => ipcRenderer.removeListener('refresh-data', handleLojasUpdate);
+  }, []);
 
   // 🔥 AUTO-SELECT STORE FOR COMMON USERS
   useEffect(() => {
@@ -118,83 +114,87 @@ const MainContent = ({ user, handleLogout }) => {
       const target = lojas.find(l => l.id === user.loja_id);
       if (target) {
         console.log('🏪 [App] Auto-selecionando loja para o usuário:', target.nome);
-        // Usamos switchLoja sem recarregar se possível, ou apenas definimos o estado
-        // Note: switchLoja in LojaContext.jsx currently does a window.location.reload()
-        // which might be fine for the first time.
         switchLoja(target);
       }
     }
   }, [user, currentLoja, lojas, switchLoja]);
 
   useEffect(() => {
-    console.log('📍 [App] Pathname atual:', location.pathname);
-  }, [location.pathname]);
-
-  // Listener para forçar navegação via IPC (mais robusto)
-  useEffect(() => {
     const { ipcRenderer } = window.require('electron');
     const handleNav = (e, route) => {
-      console.log('🚀 [App] Navegação IPC recebida:', route);
-      // Garantimos um pequeno respiro para o React não se perder
-      setTimeout(() => {
-        navigate(route);
-        console.log('✅ [App] Navigate executado para:', route);
-      }, 50);
+      setTimeout(() => navigate(route), 50);
     };
     ipcRenderer.on('navigate-to', handleNav);
     return () => ipcRenderer.removeListener('navigate-to', handleNav);
   }, [navigate]);
 
   const hasPermission = (path) => {
-    // Developer has absolute access to everything
-    if (user?.role === 'developer') return true;
+    // Força re-render caso os módulos mudem no realtime
+    const _stamp = moduleSyncStamp;
 
-    // Admins/Master have access by default unless specific permissions exist
-    if (isAdmin) return true;
+    // Se é a página inicial, todo mundo logado passa
+    if (path === '/' || path === '/diario') return true;
 
-    if (!user?.permissions || user?.permissions === '[]') return false;
+    // 📦 Lista oficial de Módulos Comerciais (O que você vende)
+    const modulosComerciais = ['whatsapp', 'estoque', 'visitas', 'metas', 'portais', 'ia-chat', 'usuarios', 'crm'];
+    const moduleName = path.replace('/', '');
 
-    let perms = [];
-    try {
-      perms = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions;
-    } catch {
-      perms = [];
-    }
-
-    // Proteção robusta contra nulos
-    if (!Array.isArray(perms) || perms === null) {
-      perms = [];
-    }
-
-
-
-    // Check if path is in permissions or if the path is the root (which everyone has)
-    const basePermission = perms.includes(path) || path === '/' || path === '/diario';
-    if (!basePermission) return false;
-
-    // Se não for developer, o módulo PRECISA estar habilitado na loja (modulos na tabela lojas)
-    if (user?.role !== 'developer') {
+    // 1. CHECA PRIMEIRO O PLANO DA LOJA (Mas apenas para módulos comerciais)
+    if (currentLoja && modulosComerciais.includes(moduleName)) {
       const lojaModulosRaw = currentLoja?.modulos;
-      if (lojaModulosRaw) {
-        try {
-          let enabledModules = typeof lojaModulosRaw === 'string' ? JSON.parse(lojaModulosRaw) : lojaModulosRaw;
-          if (!Array.isArray(enabledModules) || enabledModules === null) enabledModules = [];
+      let enabledModules = [];
+      try {
+        enabledModules = typeof lojaModulosRaw === 'string' ? JSON.parse(lojaModulosRaw) : lojaModulosRaw;
+        if (!Array.isArray(enabledModules)) enabledModules = [];
+      } catch (e) { enabledModules = []; }
 
-
-          if (path === '/' || path === '/diario') return true;
-
-          // Mapeia paths para nomes de módulos (ex: /whatsapp -> whatsapp)
-          const moduleName = path.replace('/', '');
-          if (moduleName && !enabledModules.includes(moduleName)) {
-            return false;
-          }
-        } catch (e) {
-          console.error("Erro ao validar módulos da loja:", e);
-        }
+      // 🔥 A VISÃO DO CLIENTE: Se a loja NÃO pagou pelo módulo, ninguém passa (Nem o Developer)
+      if (!enabledModules.includes(moduleName)) {
+        return false;
       }
     }
 
-    return true;
+    // 2. SE A LOJA TEM O MÓDULO (Ou se é uma página de sistema como /ia-prompts)
+    // O Developer e o Admin da loja têm acesso total ao que sobrou.
+    if (user?.role === 'developer') return true;
+    if (isAdmin) return true;
+
+    // 3. SE FOR VENDEDOR/SDR, OLHA AS PERMISSÕES INDIVIDUAIS DELE
+    if (!user?.permissions || user?.permissions === '[]') return false;
+    let perms = [];
+    try {
+      perms = typeof user.permissions === 'string' ? JSON.parse(user.permissions) : user.permissions;
+    } catch { perms = []; }
+    if (!Array.isArray(perms)) perms = [];
+
+    return perms.includes(path);
+  };
+
+  // 🛡️ O "LEÃO DE CHÁCARA" DAS ROTAS
+  const RouteGuard = ({ path, element }) => {
+    if (!hasPermission(path)) {
+      return (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0 }}
+          className="flex flex-col items-center justify-center min-h-[80vh] bg-[#0f172a] text-white"
+        >
+          <div className="p-8 bg-slate-800/80 rounded-2xl border border-red-500/30 text-center shadow-[0_0_30px_rgba(239,68,68,0.15)] backdrop-blur-md">
+            <AlertCircle size={56} className="mx-auto text-red-500 mb-4 drop-shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
+            <h2 className="text-2xl font-black text-red-400 mb-2">Acesso Restrito</h2>
+            <p className="text-slate-400 mb-6 font-medium">Este módulo não está ativo na assinatura da loja.</p>
+            <button
+              onClick={() => navigate('/')}
+              className="px-8 py-3 bg-cyan-500 hover:bg-cyan-400 text-black font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(6,182,212,0.4)]"
+            >
+              Voltar ao Início
+            </button>
+          </div>
+        </motion.div>
+      );
+    }
+    return element;
   };
 
   const AppRoutes = () => (
@@ -202,33 +202,27 @@ const MainContent = ({ user, handleLogout }) => {
       <Routes location={location} key={location.pathname}>
         <Route path="/" element={<HomeVex user={user} />} />
         <Route path="/diario" element={<HomeVex user={user} />} />
-        <Route path="/whatsapp" element={<Whatsapp />} />
-        <Route path="/estoque" element={<Estoque user={user} />} />
-        <Route path="/visitas" element={<Visitas user={user} />} />
-        <Route path="/metas" element={<Metas />} />
-        <Route path="/portais" element={<Portais />} />
-        <Route path="/ia-chat" element={<IaChat />} />
-        <Route path="/usuarios" element={<Usuarios user={user} />} />
-        <Route path="/crm" element={<CRM user={user} />} />
 
-        {/* Central de Lojas - Apenas para Developer */}
-        <Route
-          path="/central-lojas"
-          element={user?.role === 'developer' ? <StoreManagement /> : <Navigate to="/" />}
-        />
+        {/* Rotas Protegidas pelo RouteGuard */}
+        <Route path="/whatsapp" element={<RouteGuard path="/whatsapp" element={<Whatsapp />} />} />
+        <Route path="/estoque" element={<RouteGuard path="/estoque" element={<Estoque user={user} />} />} />
+        <Route path="/visitas" element={<RouteGuard path="/visitas" element={<Visitas user={user} />} />} />
+        <Route path="/metas" element={<RouteGuard path="/metas" element={<Metas />} />} />
+        <Route path="/portais" element={<RouteGuard path="/portais" element={<Portais />} />} />
+        <Route path="/ia-chat" element={<RouteGuard path="/ia-chat" element={<IaChat />} />} />
+        <Route path="/usuarios" element={<RouteGuard path="/usuarios" element={<Usuarios user={user} />} />} />
+        <Route path="/crm" element={<RouteGuard path="/crm" element={<CRM user={user} />} />} />
 
-        {/* Migração Supabase - Apenas para Developer */}
-        <Route
-          path="/migrar-supabase/:lojaId?"
-          element={user?.role === 'developer' ? <MigracaoSupabase /> : <Navigate to="/" />}
-        />
+        {/* Rotas Exclusivas Developer */}
+        <Route path="/central-lojas" element={user?.role === 'developer' ? <StoreManagement /> : <Navigate to="/" />} />
+        <Route path="/migrar-supabase/:lojaId?" element={user?.role === 'developer' ? <MigracaoSupabase /> : <Navigate to="/" />} />
 
-        {/* Strictly Admin/Developer Routes */}
+        {/* Rotas Exclusivas Admin/Developer */}
         {isAdmin && (
           <>
-            <Route path="/ia-prompts" element={<PromptConfig />} />
-            <Route path="/admin-ia" element={<AdminIA />} />
-            <Route path="/crm-ia" element={<ChatCRM />} />
+            <Route path="/ia-prompts" element={<RouteGuard path="/ia-prompts" element={<PromptConfig />} />} />
+            <Route path="/admin-ia" element={<RouteGuard path="/admin-ia" element={<AdminIA />} />} />
+            <Route path="/crm-ia" element={<RouteGuard path="/crm-ia" element={<ChatCRM />} />} />
           </>
         )}
 
@@ -246,47 +240,27 @@ const MainContent = ({ user, handleLogout }) => {
   );
 };
 
-const NavigationResetter = () => {
-  const navigate = useNavigate();
-  useEffect(() => {
-    navigate('/', { replace: true });
-  }, []);
-  return null;
-};
-
 // === AUTO-SCALING HOOK (REM-Based) ===
 const useAutoScaling = () => {
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;
-
-      // Base de Design: 1920px
       const baseWidth = 1920;
       let scaleFactor = width / baseWidth;
 
-      // Refinamento para notebooks (1366px ~ 1440px)
       if (width <= 1440 && width >= 1200) {
-        scaleFactor = Math.max(scaleFactor, 0.82); // Um pouco maior para leitura
+        scaleFactor = Math.max(scaleFactor, 0.82);
       }
 
-      // Limites de segurança
       if (scaleFactor < 0.75) scaleFactor = 0.75;
       if (scaleFactor > 1.25) scaleFactor = 1.25;
 
-      // Aplica escala ao root font-size (base 16px)
       const fontSize = 16 * scaleFactor;
       document.documentElement.style.fontSize = `${fontSize}px`;
-
-      if (import.meta.env.MODE === 'development') {
-        console.log(`📏 [AutoScaling] Width: ${width} | REM Base: ${fontSize.toFixed(2)}px`);
-      }
     };
 
     const handleKeyDown = (e) => {
-      if (e.key === 'F8') {
-        document.documentElement.style.fontSize = '16px';
-        console.log("📏 [Scaling] Reset manual (F8)");
-      }
+      if (e.key === 'F8') document.documentElement.style.fontSize = '16px';
     };
 
     window.addEventListener('resize', handleResize);
@@ -300,26 +274,13 @@ const useAutoScaling = () => {
   }, []);
 };
 
-// 🔒 VALIDAÇÃO DE SESSÃO
-// Mantemos desabilitado conforme instrução anterior para evitar conflitos de cache
-const useSessionValidation = (user, onLogout) => {
-  /* ... logic ... */
-};
-
 function App() {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
   const [updateStatus, setUpdateStatus] = useState({ available: false, progress: 0, ready: false, info: null });
   const [showUpdateModal, setShowUpdateModal] = useState(false);
 
-  // Ativa o escalonamento proporcional via REM
   useAutoScaling();
-
-  // Ativa validação de sessão única
-  useSessionValidation(user, () => {
-    setUser(null);
-    localStorage.clear();
-  });
 
   useEffect(() => {
     const stored = localStorage.getItem('vexcore_user');
@@ -329,8 +290,6 @@ function App() {
       if (stored) {
         try {
           const parsed = JSON.parse(stored);
-
-          // Multi-level parse for safety
           let finalPerms = parsed.permissions || [];
           if (typeof finalPerms === 'string') {
             try {
@@ -342,38 +301,30 @@ function App() {
           const userToSet = { ...parsed, permissions: Array.isArray(finalPerms) ? finalPerms : [] };
           setUser(userToSet);
 
-          // 🚀 [Startup Sync] Puxa tudo da nuvem — apenas UMA vez por sessão
           const alreadySynced = sessionStorage.getItem('startup_synced');
           if (!alreadySynced) {
             sessionStorage.setItem('startup_synced', '1');
-            console.log(`🚀 [Startup] Disparando Sync Massivo para ${userToSet.username}...`);
             ipcRenderer.invoke('full-cloud-sync', userToSet.loja_id).catch(err => console.error("Startup Sync Error:", err));
-          } else {
-            console.log(`⏭️ [Startup] Sync já realizado nesta sessão, pulando.`);
           }
 
-          // 🛡️ VALIDAÇÃO DE STARTUP: Verifica se o usuário ainda existe no banco
           const freshData = await ipcRenderer.invoke('get-user', userToSet.username);
 
           if (!freshData) {
-            console.warn('⚠️ [App] Usuário não encontrado no banco. Limpando cache...');
             handleLogout();
             return;
           } else {
-            // Update initial state with fresh data from database
-            let finalPerms = freshData.permissions || [];
-            if (typeof finalPerms === 'string') {
+            let freshPerms = freshData.permissions || [];
+            if (typeof freshPerms === 'string') {
               try {
-                finalPerms = JSON.parse(finalPerms);
-                if (typeof finalPerms === 'string') finalPerms = JSON.parse(finalPerms);
-              } catch (e) { finalPerms = []; }
+                freshPerms = JSON.parse(freshPerms);
+                if (typeof freshPerms === 'string') freshPerms = JSON.parse(freshPerms);
+              } catch (e) { freshPerms = []; }
             }
-            const formatted = { ...freshData, permissions: Array.isArray(finalPerms) ? finalPerms : [] };
+            const formatted = { ...freshData, permissions: Array.isArray(freshPerms) ? freshPerms : [] };
             localStorage.setItem('vexcore_user', JSON.stringify(formatted));
             setUser(formatted);
           }
 
-          // Se for developer, verificamos se ele já estava atendendo uma loja
           if (userToSet.role === 'developer') {
             const activeLojaId = localStorage.getItem('active_loja_id');
             if (!activeLojaId && window.location.hash !== '#/central-lojas') {
@@ -389,11 +340,9 @@ function App() {
 
     initializeUser();
 
-    // 🔄 REALTIME PERMISSION UPDATE
     const handleUserDataUpdate = async (event, updatedUsername) => {
       const currentStored = JSON.parse(localStorage.getItem('vexcore_user') || '{}');
       if (updatedUsername.toLowerCase() === currentStored.username?.toLowerCase()) {
-        console.log(`📡 [App] Atualizando dados para usuário logado: ${updatedUsername}`);
         try {
           const freshData = await ipcRenderer.invoke('get-user', updatedUsername);
           if (freshData) {
@@ -404,15 +353,12 @@ function App() {
             localStorage.setItem('vexcore_user', JSON.stringify(formatted));
             setUser(formatted);
           }
-        } catch (err) {
-          console.error("Erro ao atualizar dados do usuário logado:", err);
-        }
+        } catch (err) { }
       }
     };
 
     ipcRenderer.on('user-data-updated', handleUserDataUpdate);
 
-    // 🔄 TRIGGERED WHEN FULL-SYNC COMPLETES
     const handleRefreshData = (e, table) => {
       if (table === 'all' || table === 'usuarios') {
         const currentUser = JSON.parse(localStorage.getItem('vexcore_user') || '{}');
@@ -423,25 +369,16 @@ function App() {
     };
     ipcRenderer.on('refresh-data', handleRefreshData);
 
-    // --- GLOBAL UPDATE LISTENERS ---
     const updateAvail = (e, info) => {
-      console.log('📡 [App] Update available:', info);
       setUpdateStatus(prev => ({ ...prev, available: true, info }));
       setShowUpdateModal(true);
     };
     const updateProg = (e, percent) => setUpdateStatus(prev => ({ ...prev, progress: percent }));
-    const updateReady = (e, info) => {
-      console.log('📡 [App] Update downloaded:', info);
-      setUpdateStatus(prev => ({ ...prev, ready: true, info }));
-    };
-    const updateError = (e, err) => {
-      console.error('📡 [App] Update error:', err);
-    };
+    const updateReady = (e, info) => setUpdateStatus(prev => ({ ...prev, ready: true, info }));
 
     ipcRenderer.on('update-available', updateAvail);
     ipcRenderer.on('update-progress', updateProg);
     ipcRenderer.on('update-downloaded', updateReady);
-    ipcRenderer.on('update-error', updateError);
 
     return () => {
       ipcRenderer.removeListener('user-data-updated', handleUserDataUpdate);
@@ -449,7 +386,6 @@ function App() {
       ipcRenderer.removeListener('update-available', updateAvail);
       ipcRenderer.removeListener('update-progress', updateProg);
       ipcRenderer.removeListener('update-downloaded', updateReady);
-      ipcRenderer.removeListener('update-error', updateError);
     };
   }, []);
 
@@ -470,20 +406,21 @@ function App() {
     localStorage.setItem('userRole', formattedUser.role);
     setUser(formattedUser);
 
-    // Developer Redirect
+    if (formattedUser.role !== 'developer' && formattedUser.loja_id) {
+      localStorage.setItem('active_loja_id', formattedUser.loja_id);
+    }
+
     if (formattedUser.role === 'developer') {
       window.location.hash = '#/central-lojas';
     }
   };
 
   const handleLogout = () => {
-    // Preservamos a loja ativa para que o backend saiba de qual ambiente baixar os dados
     const activeLojaId = localStorage.getItem('active_loja_id');
     localStorage.clear();
     if (activeLojaId) {
       localStorage.setItem('active_loja_id', activeLojaId);
     }
-    // Forçamos o reload sem setar user null para o React não tentar renderizar o estado intermediário
     window.location.reload();
   };
 

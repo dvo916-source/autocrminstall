@@ -116,12 +116,37 @@ const Visitas = ({ user }) => {
         loadData();
         const { ipcRenderer } = window.require('electron');
         const handleRefresh = (event, table) => {
-            if (table === 'visitas' || table === 'vendedores' || table === 'portais') {
+            if (table === 'vendedores' || table === 'portais') {
                 loadData();
             }
         };
+        const handleRealtimeUpdate = (event, { table, data, type }) => {
+            if (table === 'visitas' && data) {
+                setVisitas(prev => {
+                    if (type === 'DELETE') {
+                        return prev.filter(v => v.id !== data.id);
+                    } else if (type === 'INSERT' || type === 'UPDATE') {
+                        const idx = prev.findIndex(v => v.id === data.id);
+                        if (idx >= 0) {
+                            const newArr = [...prev];
+                            newArr[idx] = { ...prev[idx], ...data };
+                            return newArr;
+                        } else {
+                            return [data, ...prev];
+                        }
+                    }
+                    return prev;
+                });
+            }
+        };
+
         ipcRenderer.on('refresh-data', handleRefresh);
-        return () => ipcRenderer.removeListener('refresh-data', handleRefresh);
+        ipcRenderer.on('realtime-update', handleRealtimeUpdate);
+
+        return () => {
+            ipcRenderer.removeListener('refresh-data', handleRefresh);
+            ipcRenderer.removeListener('realtime-update', handleRealtimeUpdate);
+        };
     }, [currentUser.username, currentLoja?.id]);
 
     useEffect(() => {

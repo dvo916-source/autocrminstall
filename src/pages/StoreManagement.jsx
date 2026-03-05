@@ -82,8 +82,18 @@ const StoreManagement = () => {
 
         console.log(`🚀 [Central] Acessando ${lojaDestino.nome}. Módulos Válidos: ${validMods.length} | Primeiro módulo: ${firstMod || 'nenhum'} -> Path: ${targetPath}`);
 
-        switchLoja(lojaDestino);
-        navigate(targetPath);
+        setLoading(true);
+        ipcRenderer.invoke('sync-essential', lojaDestino.id).then(() => {
+            switchLoja(lojaDestino);
+            navigate(targetPath);
+        }).catch(err => {
+            console.error('[Central] Erro ao sincronizar loja antes de acessar:', err);
+            // Redireciona mesmo em caso de erro para não travar
+            switchLoja(lojaDestino);
+            navigate(targetPath);
+        }).finally(() => {
+            setLoading(false);
+        });
     }, [navigate, switchLoja]);
     const [searchTerm, setSearchTerm] = useState(''); // Texto da busca
 

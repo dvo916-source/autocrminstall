@@ -2409,11 +2409,13 @@ export function enableRealtimeSync(lojaId = null) {
     isRealtimeEnabled = true;
     console.log(`📡 [Supabase Realtime] Iniciando listeners para loja: ${lojaId || 'Global'}...`);
 
+    const filtroLoja = lojaId ? `loja_id=eq.${lojaId}` : undefined;
+
     // Inscreve para mudanças nas tabelas críticas
-    realtimeChannel = client.channel('db-changes')
+    realtimeChannel = client.channel(`db-changes-${lojaId || 'global'}`)
         .on(
             'postgres_changes',
-            { event: '*', schema: 'public', table: 'usuarios' },
+            { event: '*', schema: 'public', table: 'usuarios', filter: filtroLoja },
             async (payload) => {
                 if (syncLock) return;
                 console.log('⚡ [Realtime] Usuario Alterado:', payload.eventType);
@@ -2443,7 +2445,7 @@ export function enableRealtimeSync(lojaId = null) {
                                 ativo = excluded.ativo, permissions = excluded.permissions, loja_id = excluded.loja_id, 
                                 cpf = excluded.cpf, em_fila = excluded.em_fila, ultima_atribuicao = excluded.ultima_atribuicao,
                                 leads_recebidos_total = excluded.leads_recebidos_total, portais_permitidos = excluded.portais_permitidos
-                    `).run({
+                        `).run({
                             username: newRec.username,
                             password: newRec.password_hash || newRec.password,
                             role: newRec.role,
@@ -2461,19 +2463,20 @@ export function enableRealtimeSync(lojaId = null) {
                             portais_permitidos: typeof newRec.portais_permitidos === 'string' ? newRec.portais_permitidos : JSON.stringify(newRec.portais_permitidos || [])
                         });
 
-                        // 📢 AVISA O FRONTEND SE FOR O USUÁRIO LOGADO
                         BrowserWindow.getAllWindows().forEach(w => {
                             w.webContents.send('user-data-updated', newRec.username);
                         });
                     }
-                    // Apenas avisa a UI para recarregar do BANCO LOCAL (que já está atualizado)
-                    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'usuarios'));
+                    BrowserWindow.getAllWindows().forEach(w => {
+                        w.webContents.send('realtime-update', { table: 'usuarios', data: newRec || oldRec, type: eventType });
+                        w.webContents.send('refresh-data', 'usuarios');
+                    });
                 } catch (e) { console.error("Erro Realtime Usuario:", e); }
             }
         )
         .on(
             'postgres_changes',
-            { event: '*', schema: 'public', table: 'lojas' },
+            { event: '*', schema: 'public', table: 'lojas', filter: lojaId ? `id=eq.${lojaId}` : undefined },
             async (payload) => {
                 if (syncLock) return;
                 console.log('⚡ [Realtime] Loja Alterada:', payload.eventType);
@@ -2483,7 +2486,6 @@ export function enableRealtimeSync(lojaId = null) {
                     if (eventType === 'DELETE' && oldRec) {
                         db.prepare("DELETE FROM lojas WHERE id = ?").run(oldRec.id);
                     } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
-                        // Certifica-se de que modulos sejam salvos como string no banco local
                         const modulosString = typeof newRec.modulos === 'string' ? newRec.modulos : JSON.stringify(newRec.modulos || []);
 
                         db.prepare(`
@@ -2494,14 +2496,17 @@ export function enableRealtimeSync(lojaId = null) {
                                 slug = excluded.slug, modulos = excluded.modulos, ativo = excluded.ativo
                         `).run(newRec.id, newRec.nome, newRec.endereco || '', newRec.logo_url || '', newRec.slug || newRec.id, modulosString, newRec.ativo ? 1 : 0);
                     }
-                    // Avisa a UI para recarregar as lojas e configurações ativas
-                    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'lojas'));
+                    BrowserWindow.getAllWindows().forEach(w => {
+                        w.webContents.send('realtime-update', { table: 'lojas', data: newRec || oldRec, type: eventType });
+                        w.webContents.send('refresh-data', 'lojas');
+                        w.webContents.send('refresh-data', 'all');
+                    });
                 } catch (e) { console.error("Erro Realtime Lojas:", e); }
             }
         )
         .on(
             'postgres_changes',
-            { event: '*', schema: 'public', table: 'vendedores' },
+            { event: '*', schema: 'public', table: 'vendedores', filter: filtroLoja },
             async (payload) => {
                 if (syncLock) return;
                 console.log('⚡ [Realtime] Vendedor Alterado:', payload.eventType);
@@ -2513,24 +2518,27 @@ export function enableRealtimeSync(lojaId = null) {
                     } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
                         db.prepare(`
                             INSERT INTO vendedores(nome, sobrenome, telefone, ativo, loja_id)
-            VALUES(@nome, @sobrenome, @telefone, @ativo, @loja_id)
+                            VALUES(@nome, @sobrenome, @telefone, @ativo, @loja_id)
                             ON CONFLICT(nome, loja_id) DO UPDATE SET
-            sobrenome = excluded.sobrenome, telefone = excluded.telefone, ativo = excluded.ativo
-                `).run({
+                                sobrenome = excluded.sobrenome, telefone = excluded.telefone, ativo = excluded.ativo
+                        `).run({
                             nome: newRec.nome,
-                            sobrenome: newRec.sobrenome,
-                            telefone: newRec.telefone,
+                            sobrenome: newRec.sobrenome || '',
+                            telefone: newRec.telefone || '',
                             ativo: newRec.ativo ? 1 : 0,
-                            loja_id: newRec.loja_id
+                            loja_id: newRec.loja_id || lojaId
                         });
                     }
-                    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'vendedores'));
+                    BrowserWindow.getAllWindows().forEach(w => {
+                        w.webContents.send('realtime-update', { table: 'vendedores', data: newRec || oldRec, type: eventType });
+                        w.webContents.send('refresh-data', 'vendedores');
+                    });
                 } catch (e) { console.error("Erro Realtime Vendedor:", e); }
             }
         )
         .on(
             'postgres_changes',
-            { event: '*', schema: 'public', table: 'scripts' },
+            { event: '*', schema: 'public', table: 'scripts', filter: filtroLoja },
             async (payload) => {
                 if (syncLock) return;
                 console.log('⚡ [Realtime] Script Alterado:', payload.eventType);
@@ -2542,52 +2550,67 @@ export function enableRealtimeSync(lojaId = null) {
                     } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
                         db.prepare(`
                             INSERT INTO scripts(id, titulo, mensagem, is_system, link, username, ordem, loja_id)
-            VALUES(@id, @titulo, @mensagem, @is_system, @link, @username, @ordem, @loja_id)
+                            VALUES(@id, @titulo, @mensagem, @is_system, @link, @username, @ordem, @loja_id)
                             ON CONFLICT(id) DO UPDATE SET
-            titulo = excluded.titulo, mensagem = excluded.mensagem,
-                is_system = excluded.is_system, link = excluded.link, username = excluded.username, ordem = excluded.ordem, loja_id = excluded.loja_id
-                    `).run({
+                                titulo = excluded.titulo, mensagem = excluded.mensagem,
+                                is_system = excluded.is_system, link = excluded.link, username = excluded.username, ordem = excluded.ordem, loja_id = excluded.loja_id
+                        `).run({
                             ...newRec,
                             is_system: newRec.is_system ? 1 : 0,
-                            loja_id: newRec.loja_id
+                            loja_id: newRec.loja_id || lojaId
                         });
                     }
-                    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'scripts'));
+                    BrowserWindow.getAllWindows().forEach(w => {
+                        w.webContents.send('realtime-update', { table: 'scripts', data: newRec || oldRec, type: eventType });
+                        w.webContents.send('refresh-data', 'scripts');
+                    });
                 } catch (e) { console.error("Erro Realtime Script:", e); }
             }
         )
         .on(
             'postgres_changes',
-            { event: '*', schema: 'public', table: 'estoque' },
-            (payload) => {
+            { event: '*', schema: 'public', table: 'estoque', filter: filtroLoja },
+            async (payload) => {
                 if (syncLock) return;
                 console.log('⚡ [Realtime] Estoque Alterado:', payload.eventType);
                 const { new: newRec, old: oldRec, eventType } = payload;
 
-                if (eventType === 'INSERT' || eventType === 'UPDATE') {
-                    if (newRec) {
+                try {
+                    if (eventType === 'DELETE' && oldRec) {
+                        db.prepare("DELETE FROM estoque WHERE id = ?").run(oldRec.id);
+                    } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
                         db.prepare(`
-                            INSERT INTO estoque(id, nome, foto, fotos, link, km, cambio, ano, valor, ativo, loja_id)
-            VALUES(@id, @nome, @foto, @fotos, @link, @km, @cambio, @ano, @valor, @ativo, @loja_id)
+                            INSERT INTO estoque(id, loja_id, nome, foto, fotos, link, km, cambio, ano, valor, ativo)
+                            VALUES(@id, @loja_id, @nome, @foto, @fotos, @link, @km, @cambio, @ano, @valor, @ativo)
                             ON CONFLICT(id) DO UPDATE SET
-            nome = excluded.nome, foto = excluded.foto, fotos = excluded.fotos, link = excluded.link,
-                km = excluded.km, cambio = excluded.cambio, ano = excluded.ano, valor = excluded.valor, ativo = excluded.ativo, loja_id = excluded.loja_id
-                    `).run({
-                            ...newRec,
-                            fotos: typeof newRec.fotos === 'string' ? newRec.fotos : JSON.stringify(newRec.fotos),
-                            ativo: newRec.ativo ? 1 : 0,
-                            loja_id: newRec.loja_id
+                                nome = excluded.nome, foto = excluded.foto, fotos = excluded.fotos,
+                                link = excluded.link, km = excluded.km, cambio = excluded.cambio,
+                                ano = excluded.ano, valor = excluded.valor, ativo = excluded.ativo,
+                                loja_id = excluded.loja_id
+                        `).run({
+                            id: newRec.id,
+                            loja_id: newRec.loja_id || lojaId,
+                            nome: newRec.nome || '',
+                            foto: newRec.foto || newRec.foto_url || '',
+                            fotos: typeof newRec.fotos === 'string' ? newRec.fotos : JSON.stringify(newRec.fotos || []),
+                            link: newRec.link || '',
+                            km: newRec.km || '',
+                            cambio: newRec.cambio || '',
+                            ano: newRec.ano || '',
+                            valor: newRec.valor || newRec.preco || '',
+                            ativo: newRec.ativo ? 1 : 0
                         });
                     }
-                } else if (eventType === 'DELETE' && oldRec) {
-                    db.prepare("DELETE FROM estoque WHERE id = ?").run(oldRec.id);
-                }
-                BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'estoque'));
+                    BrowserWindow.getAllWindows().forEach(w => {
+                        w.webContents.send('realtime-update', { table: 'estoque', data: newRec || oldRec, type: eventType });
+                        w.webContents.send('refresh-data', 'estoque');
+                    });
+                } catch (e) { console.error("Erro Realtime Estoque:", e); }
             }
         )
         .on(
             'postgres_changes',
-            { event: '*', schema: 'public', table: 'visitas' },
+            { event: '*', schema: 'public', table: 'visitas', filter: filtroLoja },
             async (payload) => {
                 if (syncLock) return;
                 console.log('⚡ [Realtime] Visita Alterada:', payload.eventType);
@@ -2647,14 +2670,17 @@ export function enableRealtimeSync(lojaId = null) {
                             updated_at: newRec.updated_at || null,
                         });
                     }
-                    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'visitas'));
+                    BrowserWindow.getAllWindows().forEach(w => {
+                        w.webContents.send('realtime-update', { table: 'visitas', data: newRec || oldRec, type: eventType });
+                        // Removido refresh-data (Gargalo 2): Frontend atualizará via Delta React State
+                    });
                 } catch (e) { console.error("Erro Realtime Visitas:", e); }
             }
         )
         // 🔥 NOVO LISTENER: Configurações (Prompts de IA)
         .on(
             'postgres_changes',
-            { event: '*', schema: 'public', table: 'crm_settings' },
+            { event: '*', schema: 'public', table: 'crm_settings', filter: filtroLoja },
             (payload) => {
                 if (syncLock) return;
                 console.log('🧩 [Realtime] Config Alterada:', payload.eventType);
@@ -2665,80 +2691,20 @@ export function enableRealtimeSync(lojaId = null) {
                         db.prepare(`
                             INSERT INTO crm_settings(key, value, updated_at, loja_id) VALUES(@key, @value, @updated_at, @loja_id)
                             ON CONFLICT(key, loja_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-                `).run(newRec);
+                        `).run(newRec);
                     }
                 } else if (eventType === 'DELETE' && oldRec) {
                     db.prepare("DELETE FROM crm_settings WHERE key = ?").run(oldRec.key);
                 }
-                // Avisa o Frontend que o prompt mudou
-                BrowserWindow.getAllWindows().forEach(w => w.webContents.send('config-updated', newRec?.key));
-                BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'config'));
+                BrowserWindow.getAllWindows().forEach(w => {
+                    w.webContents.send('config-updated', newRec?.key);
+                    w.webContents.send('refresh-data', 'config');
+                });
             }
         )
         .on(
             'postgres_changes',
-            { event: '*', schema: 'public', table: 'estoque' },
-            async (payload) => {
-                if (syncLock) return;
-                console.log('⚡ [Realtime] Estoque Alterado:', payload.eventType);
-                const { new: newRec, old: oldRec, eventType } = payload;
-                try {
-                    if (eventType === 'DELETE' && oldRec) {
-                        db.prepare("DELETE FROM estoque WHERE id = ?").run(oldRec.id);
-                    } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRec) {
-                        db.prepare(`
-                            INSERT INTO estoque(id, loja_id, nome, foto, fotos, link, km, cambio, ano, valor, ativo)
-                            VALUES(@id, @loja_id, @nome, @foto, @fotos, @link, @km, @cambio, @ano, @valor, @ativo)
-                            ON CONFLICT(id) DO UPDATE SET
-                                nome = excluded.nome, foto = excluded.foto, fotos = excluded.fotos,
-                                link = excluded.link, km = excluded.km, cambio = excluded.cambio,
-                                ano = excluded.ano, valor = excluded.valor, ativo = excluded.ativo,
-                                loja_id = excluded.loja_id
-                        `).run({
-                            id: newRec.id,
-                            loja_id: newRec.loja_id || lojaId,
-                            nome: newRec.nome || '',
-                            foto: newRec.foto || newRec.foto_url || '',
-                            fotos: typeof newRec.fotos === 'string' ? newRec.fotos : JSON.stringify(newRec.fotos || []),
-                            link: newRec.link || '',
-                            km: newRec.km || '',
-                            cambio: newRec.cambio || '',
-                            ano: newRec.ano || '',
-                            valor: newRec.valor || newRec.preco || '',
-                            ativo: newRec.ativo ? 1 : 0
-                        });
-                    }
-                    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'estoque'));
-                } catch (e) { console.error("Erro Realtime Estoque:", e); }
-            }
-        )
-        .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'lojas' },
-            async (payload) => {
-                if (syncLock) return;
-                console.log('⚡ [Realtime] Loja Alterada:', payload.eventType);
-                const { new: newRec, eventType } = payload;
-                if (eventType === 'INSERT' || eventType === 'UPDATE') {
-                    if (newRec) {
-                        try {
-                            db.prepare(`
-                                INSERT INTO lojas(id, nome, endereco, logo_url, slug, modulos, ativo)
-                                VALUES(?, ?, ?, ?, ?, ?, ?)
-                                ON CONFLICT(id) DO UPDATE SET
-                                    nome = excluded.nome, endereco = excluded.endereco, logo_url = excluded.logo_url,
-                                    slug = excluded.slug, modulos = excluded.modulos, ativo = excluded.ativo
-                            `).run(newRec.id, newRec.nome, newRec.endereco || '', newRec.logo_url || '', newRec.slug || newRec.id, newRec.modulos || '[]', newRec.ativo ? 1 : 0);
-
-                            BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'all'));
-                        } catch (e) { console.error("Erro Realtime Loja:", e); }
-                    }
-                }
-            }
-        )
-        .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'portais' },
+            { event: '*', schema: 'public', table: 'portais', filter: filtroLoja },
             async (payload) => {
                 if (syncLock) return;
                 console.log('⚡ [Realtime] Portal Alterado:', payload.eventType);
@@ -2752,7 +2718,10 @@ export function enableRealtimeSync(lojaId = null) {
                             ON CONFLICT(nome, loja_id) DO UPDATE SET link = excluded.link, ativo = excluded.ativo
                         `).run(newRec);
                     }
-                    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'portais'));
+                    BrowserWindow.getAllWindows().forEach(w => {
+                        w.webContents.send('realtime-update', { table: 'portais', data: newRec || oldRec, type: eventType });
+                        w.webContents.send('refresh-data', 'portais');
+                    });
                 } catch (e) { console.error("Erro Realtime Portais:", e); }
             }
         )
