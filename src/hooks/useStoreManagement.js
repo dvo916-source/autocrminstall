@@ -81,6 +81,15 @@ export const useStoreManagement = () => {
     }, []);
 
     const handleAcessarLoja = useCallback(async (lojaDestino) => {
+        const modules = typeof lojaDestino.modulos === 'string'
+            ? JSON.parse(lojaDestino.modulos)
+            : lojaDestino.modulos || [];
+
+        if (!modules || modules.length === 0) {
+            setEmptyStoreAlert(lojaDestino);
+            return;
+        }
+
         const targetPath = getFirstAvailableModulePath(lojaDestino);
 
         if (!targetPath) {

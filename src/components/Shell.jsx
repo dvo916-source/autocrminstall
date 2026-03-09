@@ -30,7 +30,7 @@ const Shell = ({ children, user, onLogout }) => {
 
     useEffect(() => {
         try {
-            
+
             electronAPI.getAppVersion().then(v => setAppVersion(v)).catch(() => setAppVersion('1.1.2'));
         } catch (e) { setAppVersion('1.1.2'); }
     }, []);
@@ -52,7 +52,7 @@ const Shell = ({ children, user, onLogout }) => {
 
     const loadPendingCount = async () => {
         try {
-            
+
             const visits = await electronAPI.getVisitas(user.role, user.username, currentLoja?.id);
             const allVisits = visits || [];
             const pending = allVisits.filter(v => (v.status_pipeline || v.status || '').toLowerCase() === 'pendente');
@@ -90,7 +90,7 @@ const Shell = ({ children, user, onLogout }) => {
     // --- Electron Listeners ---
     useEffect(() => {
         try {
-            
+
 
             // Trigger Sync (Fire and forget, let notifications handle status)
             electronAPI.syncEssential().catch(err => console.error("Sync Error:", err));
@@ -98,7 +98,7 @@ const Shell = ({ children, user, onLogout }) => {
             const syncHandler = ({ loading }) => setIsSyncing(loading);
 
             const notifyHandler = (detail) => {
-                const rawObj = detail?.detail || detail; 
+                const rawObj = detail?.detail || detail;
                 if (!rawObj) return;
 
                 const { message, type = 'info', duration = 4000 } = rawObj;
@@ -191,7 +191,7 @@ const Shell = ({ children, user, onLogout }) => {
     navItems.push(
         { to: '/diario', label: 'MEU DIÁRIO', icon: <Calendar className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'diario' },
         { to: '/whatsapp', label: 'WHATSAPP', icon: <MessageSquare className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'whatsapp' },
-        { to: '/estoque', label: 'TABELA', icon: <Car className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'estoque' },
+        { to: '/estoque', label: 'TABELA', icon: <Car className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'tabela-virtual' },
         { to: '/portais', label: 'PORTAIS', icon: <Globe className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'portais' },
         {
             to: '/crm',
