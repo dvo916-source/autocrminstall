@@ -375,6 +375,7 @@ ipcMain.handle('set-config-meta', async (e, { visita, venda, lojaId }) => await 
 // Estatísticas de Veículos (Estoque Digital)
 ipcMain.handle('get-vehicles-stats', async (e, lojaId) => db.getVehiclesStats(lojaId));
 ipcMain.handle('get-visits-by-vehicle', async (e, { name, lojaId }) => db.getVisitsByVehicle(name, lojaId));
+ipcMain.handle('scrap-car-details', async (e, { nome, url }) => await db.scrapCarDetails(nome, url));
 
 // Comandos de Sincronização e Atualização
 ipcMain.handle('sync-xml', (e, lojaId) => db.syncXml(lojaId));

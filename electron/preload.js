@@ -103,6 +103,9 @@ const ALLOWED_CHANNELS = {
         'focus-window',
         'show-native-notification',
 
+        // 🚗 RASPAGEM E CACHE
+        'scrap-car-details',
+
         // 🛠️ DEBUG
         'execute-sql',
         'userData',

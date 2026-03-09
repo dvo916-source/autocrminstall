@@ -171,6 +171,10 @@ export const electronAPI = {
         ensureElectron();
         return window.electronAPI.invoke('get-vehicles-stats', lojaId);
     },
+    scrapCarDetails: async ({ nome, url }) => {
+        ensureElectron();
+        return window.electronAPI.invoke('scrap-car-details', { nome, url });
+    },
 
     // 🏪 LOJAS
     getStores: async () => {

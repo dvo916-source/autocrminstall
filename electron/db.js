@@ -229,6 +229,12 @@ export function initDb() {
       mensagem TEXT,
       created_at TEXT DEFAULT (datetime('now', 'localtime'))
     );
+    CREATE TABLE IF NOT EXISTS cached_images (
+      veiculo_id TEXT PRIMARY KEY,
+      image_url TEXT,
+      image_base64 TEXT,
+      cached_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
     // Migrações de segurança (Essencial para manter dados em bancos existentes)
@@ -489,9 +495,24 @@ export async function syncXml(lojaId = DEFAULT_STORE_ID) {
                 for (const v of items) {
                     try {
                         // 🛡️ PROTEÇÃO: Garante que SEMPRE tenha loja_id
+                        let foto = v.foto;
+
+                        // 📸 FALLBACK CACHE: Se não tem foto, busca no histórico local
+                        if (!foto || foto === '/placeholder.png') {
+                            try {
+                                const cached = db.prepare("SELECT image_url, image_base64 FROM cached_images WHERE veiculo_id = ?").get(v.id);
+                                if (cached) {
+                                    foto = cached.image_base64 || cached.image_url;
+                                }
+                            } catch (e) {
+                                console.error("[Cache] Erro ao buscar fallback:", e.message);
+                            }
+                        }
+
                         const veiculoComLoja = {
                             ...v,
                             loja_id: v.loja_id || lojaId,
+                            foto: foto || '/placeholder.png',
                             fotos: typeof v.fotos === 'string' ? v.fotos : JSON.stringify(v.fotos),
                             ativo: v.ativo ? 1 : 0,
                             placa: v.placa || ''
@@ -1012,6 +1033,29 @@ export async function scrapCarDetails(nome, url) {
         const listFotos = Array.from(photosMap.values());
         if (listFotos.length > 0) {
             const fotosJson = JSON.stringify(listFotos);
+            const firstPhoto = listFotos[0];
+
+            // 💾 SALVA NO CACHE: Garante que o veículo tenha foto para sempre
+            if (carId) {
+                try {
+                    let base64 = null;
+                    try {
+                        const imgResp = await fetch(firstPhoto);
+                        const buffer = Buffer.from(await imgResp.arrayBuffer());
+                        base64 = `data:${imgResp.headers.get('content-type') || 'image/jpeg'};base64,${buffer.toString('base64')}`;
+                    } catch (e) {
+                        console.warn("[Cache] Falha ao converter para Base64:", e.message);
+                    }
+
+                    db.prepare(`
+                        INSERT OR REPLACE INTO cached_images (veiculo_id, image_url, image_base64, cached_at) 
+                        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    `).run(carId, firstPhoto, base64);
+                } catch (e) {
+                    console.error("[Cache] Erro ao salvar imagem:", e.message);
+                }
+            }
+
             db.prepare("UPDATE estoque SET km = ?, fotos = ? WHERE nome = ?").run(km, fotosJson, nome);
             return { km, fotos: listFotos };
         }
