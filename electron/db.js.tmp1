@@ -1,0 +1,907 @@
+// --- CAMADA DE DADOS (DATABASE LAYER) ---
+// Este arquivo é responsável por persistir todas as informações do sistema.
+// Ele utiliza um modelo HÍBRIDO:
+// 1. SQLite (Local): Para velocidade máxima e funcionamento Offline.
+// 2. Supabase (Nuvem): Para sincronização entre diferentes PCs e backup.
+
+import Database from 'better-sqlite3'; // Driver de alta performance para SQLite
+import path from 'path';
+import { app, BrowserWindow } from 'electron';
+import bcrypt from 'bcryptjs'; // Para criptografia de senhas
+import { createClient } from '@supabase/supabase-js'; // Cliente Supabase
+import { v4 as uuidv4 } from 'uuid'; // Para gerar IDs únicos
+// 🔐 CONFIGURAÇÃO DE SEGURANÇA (SUPABASE)
+// Prioriza o arquivo .env, mas mantém fallback para compatibilidade em máquinas novas sem .env.
+const SUPABASE_CONFIG = {
+    url: process.env.VITE_SUPABASE_URL || "https://mtbfzimnyactwhdonkgy.supabase.co",
+    key: process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10YmZ6aW1ueWFjdHdoZG9ua2d5Iiwicm9sZESImFub24iLCJpYXQiOjE3NzA0NzAwMTYsImV4cCI6MjA4NjA0NjAxNn0.drl9-iMcddxdyKSR5PnUoKoSdzU3Fw2n00MFd9p9uys"
+};
+
+// Log de diagnóstico de inicialização (Apenas no console do desenvolvedor)
+if (!process.env.VITE_SUPABASE_URL) {
+    console.warn('🛡️ [Segurança] Arquivo .env não detectado ou chaves ausentes. Usando fallback de compatibilidade.');
+} else {
+    console.log('✅ [Segurança] Chaves Supabase carregadas via .env com sucesso.');
+}
+
+const DEFAULT_STORE_ID = 'irw-motors-main';
+
+// Cache de clientes Supabase para suporte a múltiplos projetos
+const supabaseClients = new Map();
+
+/**
+ * Obtém o cliente Supabase correto para uma determinada loja.
+ * Se a loja tiver credenciais próprias no banco local, usa elas.
+ * Caso contrário, usa o projeto padrão.
+ */
+function getSupabaseClient(lojaId = null) {
+    const id = lojaId || DEFAULT_STORE_ID;
+
+    // Se já estiver no cache, retorna
+    if (supabaseClients.has(id)) return supabaseClients.get(id);
+
+    try {
+        // Busca credenciais dedicadas no banco
+        const store = db.prepare("SELECT supabase_url, supabase_anon_key FROM lojas WHERE id = ?").get(id);
+
+        if (store && store.supabase_url && store.supabase_anon_key) {
+            console.log(`🔌 [Supabase] Inicializando cliente DEDICADO para loja: ${id}`);
+            const client = createClient(store.supabase_url, store.supabase_anon_key);
+            supabaseClients.set(id, client);
+            return client;
+        }
+    } catch (e) {
+        console.warn(`⚠️ [Supabase] Erro ao buscar config customizada para ${id}, usando padrão.`);
+    }
+
+    // Fallback para o cliente padrão
+    if (!supabaseClients.has('default')) {
+        console.log(`🔌 [Supabase] Inicializando cliente PADRÃO`);
+        supabaseClients.set('default', createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key));
+    }
+    return supabaseClients.get('default');
+}
+
+// 🛡️ PROTEÇÃO GLOBAL: Garante que TODOS os dados enviados ao Supabase tenham loja_id
+const safeSupabaseUpsert = async (table, data, lojaId, options = {}) => {
+    const client = getSupabaseClient(lojaId);
+    if (!client) {
+        console.warn('[DB] Supabase não disponível');
+        return { data: null, error: new Error('Supabase não disponível') };
+    }
+
+    const currentLojaId = lojaId || DEFAULT_STORE_ID;
+
+    // Garante que SEMPRE tenha loja_id
+    const safeData = Array.isArray(data)
+        ? data.map(item => ({ ...item, loja_id: item.loja_id || currentLojaId }))
+        : { ...data, loja_id: data.loja_id || currentLojaId };
+
+    console.log(`🛡️ [SafeUpsert] ${table}: Garantindo loja_id para ${Array.isArray(safeData) ? safeData.length : 1} item(ns)`);
+
+    return await client.from(table).upsert(safeData, options);
+};
+
+// 📂 CAMINHO DO BANCO LOCAL
+// O arquivo .db fica na pasta de dados do usuário do Windows (AppData)
+const dbPath = path.join(app.getPath('userData'), 'sistema_visitas.db');
+const db = new Database(dbPath);
+db.pragma('journal_mode = WAL'); // Modo WAL melhora a performance de leitura/escrita simultânea
+
+// 🔄 VARIÁVEIS DE CONTROLE DE SINCRONIZAÇÃO
+let syncLock = false; // Impede loops infinitos durante a sincronização
+let isRealtimeEnabled = false; // Garante que o Realtime do Supabase não seja inscrito múltiplas vezes
+
+// 🛡️ IDs de visitas salvas localmente — ignora o echo do Realtime por 30s
+const recentlySavedVisitas = new Set();
+function markVisitaSaved(id) {
+    recentlySavedVisitas.add(String(id));
+    setTimeout(() => recentlySavedVisitas.delete(String(id)), 30000);
+}
+
+// 🛒 RETORNA O ID DA LOJA ATIVA (Usado pelo Heartbeat do main.js)
+export function getActiveStoreId() {
+    try {
+        const row = db.prepare("SELECT loja_id FROM usuarios WHERE username != 'diego' ORDER BY rowid LIMIT 1").get();
+        return row?.loja_id || DEFAULT_STORE_ID;
+    } catch (e) {
+        return DEFAULT_STORE_ID;
+    }
+}
+
+// 📤 Exporta a instância do banco para uso em outros módulos (ex: uploadData.js)
+export function getDbInstance() {
+    return db;
+}
+
+// 🛠️ INICIALIZAÇÃO DO ESQUEMA (TABELAS)
+// Esta função cria a "planta" da casa onde os dados moram.
+export function initDb() {
+    db.exec(`
+    -- Tabela de Lojas (Unidades)
+    CREATE TABLE IF NOT EXISTS lojas (
+      id TEXT PRIMARY KEY,
+      nome TEXT,
+      logo_url TEXT,
+      slug TEXT UNIQUE,
+      config TEXT, -- Configurações em JSON
+      modulos TEXT, -- Módulos ativos (ex: [dashboard, whatsapp])
+      ativo INTEGER DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS visitas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      loja_id TEXT,
+      datahora TEXT,
+      mes INTEGER,
+      cliente TEXT,
+      telefone TEXT,
+      portal TEXT,
+      veiculo_interesse TEXT,
+      veiculo_troca TEXT,
+      vendedor TEXT,
+      vendedor_sdr TEXT,
+      negociacao TEXT,
+      data_agendamento TEXT,
+      temperatura TEXT,
+      motivo_perda TEXT,
+      forma_pagamento TEXT,
+      status_pipeline TEXT,
+      valor_proposta TEXT,
+      cpf_cliente TEXT,
+      historico_log TEXT,
+      status TEXT DEFAULT 'Pendente',
+      created_at TEXT,
+      updated_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS estoque (
+      id TEXT PRIMARY KEY,
+      loja_id TEXT,
+      nome TEXT, 
+      foto TEXT,
+      fotos TEXT,
+      link TEXT,
+      km TEXT,
+      cambio TEXT,
+      ano TEXT,
+      valor TEXT,
+      ativo INTEGER DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS portais (
+      nome TEXT, 
+      loja_id TEXT,
+      link TEXT,
+      ativo INTEGER DEFAULT 1,
+      PRIMARY KEY (nome, loja_id)
+    );
+    CREATE TABLE IF NOT EXISTS vendedores (
+      nome TEXT, 
+      loja_id TEXT,
+      sobrenome TEXT,
+      telefone TEXT,
+      ativo INTEGER DEFAULT 1,
+      PRIMARY KEY (nome, loja_id)
+    );
+    CREATE TABLE IF NOT EXISTS config (chave TEXT, loja_id TEXT, valor TEXT, PRIMARY KEY (chave, loja_id));
+    CREATE TABLE IF NOT EXISTS crm_settings (
+        key TEXT, 
+        loja_id TEXT,
+        category TEXT,
+        value TEXT,
+        updated_at TEXT,
+        PRIMARY KEY (key, loja_id)
+    );
+    CREATE TABLE IF NOT EXISTS usuarios (
+      username TEXT PRIMARY KEY, 
+      loja_id TEXT,
+      password TEXT, 
+      role TEXT,
+      reset_password INTEGER DEFAULT 0,
+      nome_completo TEXT,
+      email TEXT,
+      whatsapp TEXT,
+      ativo INTEGER DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS scripts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, 
+      loja_id TEXT,
+      titulo TEXT, 
+      mensagem TEXT, 
+      is_system INTEGER DEFAULT 0,
+      link TEXT,
+      username TEXT,
+      ordem INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS notas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      loja_id TEXT,
+      sdr_username TEXT,
+      texto TEXT,
+      data_nota TEXT,
+      concluido INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS historico_chat (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      visita_id INTEGER,
+      loja_id TEXT,
+      telefone TEXT,
+      remetente TEXT, -- bot, cliente, diego
+      mensagem TEXT,
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    );
+  `);
+
+    // Migrações de segurança (Essencial para manter dados em bancos existentes)
+    const migrations = [
+        "ALTER TABLE estoque ADD COLUMN fotos TEXT",
+        "ALTER TABLE estoque ADD COLUMN id TEXT",
+        "ALTER TABLE estoque ADD COLUMN km TEXT",
+        "ALTER TABLE estoque ADD COLUMN cambio TEXT",
+        "ALTER TABLE estoque ADD COLUMN valor TEXT",
+        "ALTER TABLE estoque ADD COLUMN ano TEXT",
+        "ALTER TABLE estoque ADD COLUMN foto TEXT",
+        "ALTER TABLE estoque ADD COLUMN link TEXT",
+        "ALTER TABLE visitas ADD COLUMN vendedor_sdr TEXT",
+        "ALTER TABLE visitas ADD COLUMN negociacao TEXT",
+        "ALTER TABLE visitas ADD COLUMN data_agendamento TEXT",
+        "ALTER TABLE visitas ADD COLUMN temperatura TEXT",
+        "ALTER TABLE visitas ADD COLUMN motivo_perda TEXT",
+        "ALTER TABLE visitas ADD COLUMN forma_pagamento TEXT",
+        "ALTER TABLE visitas ADD COLUMN status_pipeline TEXT",
+        "ALTER TABLE visitas ADD COLUMN valor_proposta TEXT",
+        "ALTER TABLE visitas ADD COLUMN cpf_cliente TEXT",
+        "ALTER TABLE visitas ADD COLUMN historico_log TEXT",
+        "ALTER TABLE usuarios ADD COLUMN reset_password INTEGER DEFAULT 0",
+        "ALTER TABLE vendedores ADD COLUMN sobrenome TEXT",
+        "ALTER TABLE vendedores ADD COLUMN telefone TEXT",
+        "ALTER TABLE scripts ADD COLUMN is_system INTEGER DEFAULT 0",
+        "ALTER TABLE scripts ADD COLUMN link TEXT",
+        "ALTER TABLE scripts ADD COLUMN username TEXT",
+        "ALTER TABLE scripts ADD COLUMN ordem INTEGER",
+        "ALTER TABLE usuarios ADD COLUMN nome_completo TEXT",
+        "ALTER TABLE usuarios ADD COLUMN email TEXT",
+        "ALTER TABLE usuarios ADD COLUMN whatsapp TEXT",
+        "ALTER TABLE usuarios ADD COLUMN ativo INTEGER DEFAULT 1",
+        "ALTER TABLE portais ADD COLUMN link TEXT",
+        "ALTER TABLE usuarios ADD COLUMN permissions TEXT DEFAULT '[]'",
+        "ALTER TABLE visitas ADD COLUMN loja_id TEXT",
+        "ALTER TABLE estoque ADD COLUMN loja_id TEXT",
+        "ALTER TABLE portais ADD COLUMN loja_id TEXT",
+        "ALTER TABLE vendedores ADD COLUMN loja_id TEXT",
+        "ALTER TABLE usuarios ADD COLUMN loja_id TEXT",
+        "ALTER TABLE scripts ADD COLUMN loja_id TEXT",
+        "ALTER TABLE config ADD COLUMN loja_id TEXT",
+        "ALTER TABLE notas ADD COLUMN loja_id TEXT",
+        "ALTER TABLE lojas ADD COLUMN modulos TEXT",
+        // Phase 11: Multi-Tenant Store Management
+        "ALTER TABLE lojas ADD COLUMN endereco TEXT",
+        "ALTER TABLE lojas ADD COLUMN supabase_url TEXT",
+        "ALTER TABLE lojas ADD COLUMN supabase_anon_key TEXT",
+        "ALTER TABLE usuarios ADD COLUMN cpf TEXT",
+        "ALTER TABLE usuarios ADD COLUMN session_id TEXT",
+        "ALTER TABLE usuarios ADD COLUMN last_login TEXT",
+        "ALTER TABLE usuarios ADD COLUMN created_by TEXT",
+        "ALTER TABLE vendedores ADD COLUMN id TEXT",
+        // Phase 12: Campos extras do Supabase para compatibilidade total
+        "ALTER TABLE vendedores ADD COLUMN email TEXT",
+        "ALTER TABLE vendedores ADD COLUMN foto_url TEXT",
+        "ALTER TABLE usuarios ADD COLUMN avatar_url TEXT",
+        // Phase 13: Sincronização total com Supabase (created_at / updated_at)
+        "ALTER TABLE visitas ADD COLUMN created_at TEXT",
+        "ALTER TABLE visitas ADD COLUMN updated_at TEXT",
+        // Phase 14: n8n AI Boost (Transbordo e Memória)
+        "ALTER TABLE visitas ADD COLUMN bot_ativo INTEGER DEFAULT 1",
+        "ALTER TABLE visitas ADD COLUMN localizacao TEXT",
+        "ALTER TABLE visitas ADD COLUMN tem_troca INTEGER DEFAULT 0",
+        "ALTER TABLE visitas ADD COLUMN troca_modelo TEXT",
+        "ALTER TABLE visitas ADD COLUMN troca_ano TEXT",
+        "ALTER TABLE visitas ADD COLUMN troca_km TEXT",
+        "ALTER TABLE visitas ADD COLUMN agendamento_visita TEXT",
+        "ALTER TABLE lojas ADD COLUMN crm_ativo INTEGER DEFAULT 0",
+        "ALTER TABLE lojas ADD COLUMN supabase_url TEXT",
+        "ALTER TABLE lojas ADD COLUMN supabase_anon_key TEXT",
+        "ALTER TABLE usuarios ADD COLUMN em_fila INTEGER DEFAULT 0",
+        "ALTER TABLE usuarios ADD COLUMN ultima_atribuicao TEXT",
+        "ALTER TABLE usuarios ADD COLUMN leads_recebidos_total INTEGER DEFAULT 0",
+        "ALTER TABLE usuarios ADD COLUMN portais_permitidos TEXT DEFAULT '[]'",
+        // Phase 15: Visita Física vs Pipeline (visitou_loja flag independente)
+        "ALTER TABLE visitas ADD COLUMN visitou_loja INTEGER DEFAULT 0",
+        // Phase 16: Confirmação de não comparecimento (botão NÃO)
+        "ALTER TABLE visitas ADD COLUMN nao_compareceu INTEGER DEFAULT 0",
+        // Phase 17: Placa do veículo no estoque
+        "ALTER TABLE estoque ADD COLUMN placa TEXT"
+    ];
+
+    migrations.forEach(query => {
+        try { db.exec(query); } catch (e) { }
+    });
+
+    // --- MIRAÇÃO CRÍTICA: REESTRUTURAÇÃO DA TABELA ESTOQUE (Nome -> ID como PK) ---
+    try {
+        const tableInfo = db.prepare("PRAGMA table_info(estoque)").all();
+        const pkColumn = tableInfo.find(c => c.pk === 1);
+
+        // Se a PK atual for 'nome' (antiga) ou se não tiver a coluna 'id', precisamos reconstruir
+        if (!pkColumn || pkColumn.name === 'nome' || !tableInfo.find(c => c.name === 'id')) {
+            console.log("🛠️ [DB Migration] Reconstruindo tabela 'estoque' para nova arquitetura de IDs...");
+            db.transaction(() => {
+                // 1. Cria tabela temporária com a estrutura nova
+                db.exec(`
+                    CREATE TABLE IF NOT EXISTS estoque_new(
+        id TEXT PRIMARY KEY,
+        nome TEXT,
+        foto TEXT,
+        fotos TEXT,
+        link TEXT,
+        km TEXT,
+        cambio TEXT,
+        ano TEXT,
+        valor TEXT,
+        ativo INTEGER DEFAULT 1
+    )
+        `);
+
+                // 2. Tenta migrar os dados (usando o link como ID temporário caso o ID esteja nulo)
+                db.exec(`
+                    INSERT OR IGNORE INTO estoque_new(id, nome, foto, fotos, link, km, cambio, ano, valor, ativo)
+                    SELECT IFNULL(id, link), nome, foto, fotos, link, km, cambio, ano, valor, ativo FROM estoque
+        `);
+
+                // 3. Substitui a tabela
+                db.exec("DROP TABLE estoque");
+                db.exec("ALTER TABLE estoque_new RENAME TO estoque");
+            })();
+            console.log("✅ [DB Migration] Tabela 'estoque' atualizada com sucesso.");
+        }
+    } catch (e) {
+        console.error("❌ [DB Migration] Erro ao reconstruir tabela estoque:", e.message);
+    }
+    // === SEED INICIAL (AUTO CONFIGURAÇÃO) ===
+    try {
+        // 1. Configurar Metas Padrão se não existirem
+        const metaVisita = db.prepare("SELECT valor FROM config WHERE chave = 'meta_visita_semanal'").get();
+        if (!metaVisita) {
+            db.prepare("INSERT INTO config (chave, valor) VALUES (?, ?)").run('meta_visita_semanal', '15');
+            db.prepare("INSERT INTO config (chave, valor) VALUES (?, ?)").run('meta_venda_mensal', '10');
+            console.log('🌱 [SEED] Metas padrão configuradas.');
+        }
+
+        // 2. Configurar Portais Padrão (Garante que a lista inicial exista)
+        ensurePortals();
+
+        // 3. Configurar Campanha Padrão (Seed para Demonstração)
+        const campaignCheck = db.prepare("SELECT valor FROM config WHERE chave = 'active_campaign'").get();
+        if (!campaignCheck) {
+            const demoCampaign = {
+                active: true,
+                title: "Corrida da Semana",
+                prize: "R$ 300,00",
+                goal_visits: 10,
+                goal_sales: 3,
+                start_date: new Date().toISOString().split('T')[0]
+            };
+            db.prepare("INSERT INTO config (chave, valor) VALUES (?, ?)").run('active_campaign', JSON.stringify(demoCampaign));
+            console.log('🌱 [SEED] Campanha de Vendas iniciada!');
+        }
+
+    } catch (err) {
+        console.error("Erro no Seed Inicial:", err);
+    }
+    performMaintenance();
+    try {
+        db.prepare("UPDATE usuarios SET ativo = 1 WHERE ativo IS NULL").run();
+    } catch (e) { }
+    ensureDefaultStore();
+    ensureDevUser();
+    // 📡 RESET LÓGICO (v1.1.21+) - Garante integridade de licenciamento no BOOT
+    checkVersionAndReset();
+
+    console.log("✅ [DB] Banco de dados pronto e verificado.");
+}
+
+// --- RESET LOGICO PARA VERSOES CRITICAS ---
+export function checkVersionAndReset() {
+    try {
+        const currentInternalVersion = "1.1.21";
+        const row = db.prepare("SELECT valor FROM config WHERE chave = 'internal_db_version' AND loja_id = 'SYSTEM'").get();
+        const lastVersion = row ? row.valor : "0.0.0";
+
+        if (lastVersion !== currentInternalVersion) {
+            console.log(`📡 [Reset Lógico] Detectada nova versão (${currentInternalVersion}). Atualizando flag de versão...`);
+
+            // Atualiza a flag de versão (Global)
+            db.prepare("INSERT OR REPLACE INTO config (chave, loja_id, valor) VALUES (?, ?, ?)").run('internal_db_version', 'SYSTEM', currentInternalVersion);
+
+            console.log(`✅ [Reset Lógico] Versão atualizada. O próximo syncConfig garantirá dados frescos da nuvem.`);
+            return true;
+        }
+    } catch (e) {
+        console.error("Erro no Reset Lógico:", e.message);
+    }
+    return false;
+}
+
+// --- UTIL ---
+export function toPerfectSlug(text) {
+    if (!text) return "";
+    return text.toString().toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove acentos
+        .replace(/[^a-z0-9]+/g, '-') // substitui tudo que não é letra/numero por -
+        .replace(/^-+|-+$/g, ''); // remove traços no inicio e fim
+}
+
+// --- Sync Hybrid Logic (API Real-time + XML Fallback) ---
+
+export async function syncXml(lojaId = DEFAULT_STORE_ID) {
+    if (!lojaId) lojaId = DEFAULT_STORE_ID;
+
+    // 🔥 Lógica de Reset para V1.1.21 (Garante integridade de licenciamento)
+    checkVersionAndReset();
+
+    // 🔥 SYNC CONFIG FIRST (PULL FROM CLOUD)
+    await syncConfig(lojaId);
+
+    // 🔥 REALTIME SYNC (Instant Updates)
+    enableRealtimeSync();
+
+    try {
+        const client = getSupabaseClient(lojaId);
+        console.log(`[SupabaseSync] Buscando estoque da nuvem para loja: ${lojaId}...`);
+        console.log(`[SupabaseSync] Supabase disponível: ${!!client}`);
+
+        if (!client) {
+            console.error('[SupabaseSync] ❌ Supabase não está inicializado!');
+            return { success: false, message: 'Supabase não disponível' };
+        }
+
+        const { data: cloudEstoque, error: ceErr } = await client
+            .from('estoque')
+            .select('*')
+            .eq('loja_id', lojaId);
+
+        console.log(`[SupabaseSync] Resposta do Supabase:`, {
+            temDados: !!cloudEstoque,
+            quantidade: cloudEstoque?.length || 0,
+            erro: ceErr?.message || 'nenhum'
+        });
+
+        if (ceErr) {
+            console.error('[SupabaseSync] ❌ Erro na query:', ceErr);
+            return { success: false, message: ceErr.message };
+        }
+
+        if (!cloudEstoque) {
+            console.warn('[SupabaseSync] ⚠️  cloudEstoque é null/undefined');
+            return { success: false, message: 'Nenhum dado retornado' };
+        }
+
+        db.transaction((items) => {
+            // 🔥 ESTRATÉGIA "ESPELHO PERFEITO" POR LOJA: Limpa apenas o estoque desta loja
+            const deleted = db.prepare("DELETE FROM estoque WHERE loja_id = ?").run(lojaId);
+            console.log(`[SupabaseSync] 🗑️  Removidos ${deleted.changes} veículos antigos da loja ${lojaId}`);
+
+            if (items.length > 0) {
+                const stmt = db.prepare(`
+                    INSERT INTO estoque(id, loja_id, nome, foto, fotos, link, km, cambio, ano, valor, ativo, placa)
+                    VALUES(@id, @loja_id, @nome, @foto, @fotos, @link, @km, @cambio, @ano, @valor, @ativo, @placa)
+                `);
+                let inserted = 0;
+                for (const v of items) {
+                    try {
+                        // 🛡️ PROTEÇÃO: Garante que SEMPRE tenha loja_id
+                        const veiculoComLoja = {
+                            ...v,
+                            loja_id: v.loja_id || lojaId,
+                            fotos: typeof v.fotos === 'string' ? v.fotos : JSON.stringify(v.fotos),
+                            ativo: v.ativo ? 1 : 0,
+                            placa: v.placa || ''
+                        };
+                        stmt.run(veiculoComLoja);
+                        inserted++;
+                    } catch (err) {
+                        console.error(`[SupabaseSync] ❌ Erro ao inserir veículo ${v.nome}:`, err.message);
+                    }
+                }
+                console.log(`[SupabaseSync] ✅ Inseridos ${inserted}/${items.length} veículos`);
+            } else {
+                console.warn(`[SupabaseSync] ⚠️  Nenhum veículo para inserir`);
+            }
+        })(cloudEstoque);
+
+        console.log(`✅[SupabaseSync] Sincronia Completa: ${cloudEstoque.length} veículos ativos na loja ${lojaId}.`);
+        BrowserWindow.getAllWindows().forEach(w => {
+            w.webContents.send('sync-status', { table: 'estoque', loading: false, lojaId });
+            w.webContents.send('refresh-data', 'estoque');
+        });
+        return { success: true, message: `Sincronizado: ${cloudEstoque.length} veículos.`, syncedCount: cloudEstoque.length };
+    } catch (e) {
+        console.error("[SupabaseSync] ❌ Exceção capturada:", e);
+        console.warn("[SupabaseSync] Falha ao puxar estoque da nuvem:", e.message);
+        return { success: false, message: e.message };
+    }
+}
+
+function performMaintenance() {
+    try {
+        const users = db.prepare("SELECT username, password FROM usuarios WHERE reset_password = 0").all();
+        const usersNeedsReset = users.filter(u => !u.password.startsWith('$2b$'));
+        if (usersNeedsReset.length > 0) {
+            const stmt = db.prepare("UPDATE usuarios SET reset_password = 1 WHERE username = ?");
+            usersNeedsReset.forEach(u => stmt.run(u.username));
+        }
+
+        // Backfill Permissions for Legacy SDRs
+        const legacySdr = db.prepare("SELECT username FROM usuarios WHERE role = 'sdr' AND (permissions IS NULL OR permissions = '[]')").all();
+        if (legacySdr.length > 0) {
+            const defaultPerms = JSON.stringify(['/', '/whatsapp', '/estoque', '/visitas', '/metas']);
+            const update = db.prepare("UPDATE usuarios SET permissions = ? WHERE username = ?");
+            legacySdr.forEach(u => update.run(defaultPerms, u.username));
+            console.log(`✅[Maintenance] Permissões padrão aplicadas para ${legacySdr.length} usuários SDR antigos.`);
+        }
+    } catch (e) { }
+    ensureDefaultStore();
+    ensureDevUser();
+    // db.prepare("DELETE FROM usuarios WHERE username = 'admin'").run();
+    ensurePortals();
+    fixMissingDates();
+}
+
+function fixMissingDates() {
+    try {
+        const missing = db.prepare("SELECT id, data_agendamento FROM visitas WHERE datahora IS NULL OR datahora = ''").all();
+        if (missing.length > 0) {
+            console.log(`🛠️ [Maintenance] Corrigindo ${missing.length} visitas sem datahora.`);
+            const stmt = db.prepare("UPDATE visitas SET datahora = ?, mes = ? WHERE id = ?");
+
+            missing.forEach(v => {
+                let d = new Date();
+                // Se tiver agendamento, usa como base
+                if (v.data_agendamento) {
+                    const parsed = new Date(v.data_agendamento);
+                    if (!isNaN(parsed.getTime())) d = parsed;
+                }
+                const iso = d.toISOString();
+                const mes = d.getMonth() + 1;
+                stmt.run(iso, mes, v.id);
+            });
+            console.log("✅ [Maintenance] Visitas corrigidas.");
+        }
+    } catch (e) {
+        console.error("Erro ao corrigir datas:", e);
+    }
+}
+
+
+
+function ensureDefaultStore() {
+    try {
+        const store = db.prepare("SELECT id FROM lojas WHERE id = ?").get(DEFAULT_STORE_ID);
+        if (!store) {
+            db.prepare(`
+                INSERT INTO lojas(id, nome, slug, ativo)
+    VALUES(?, ?, ?, ?)
+            `).run(DEFAULT_STORE_ID, 'IRW Motors', 'irw-motors', 1);
+            console.log('🌱 [SEED] Loja padrão IRW Motors criada.');
+        }
+
+        // Retroativamente marcar dados órfãos com a loja padrão
+        const tablesToUpdate = ['usuarios', 'visitas', 'estoque', 'vendedores', 'scripts', 'config', 'portais', 'notas'];
+        tablesToUpdate.forEach(table => {
+            try {
+                db.prepare(`UPDATE ${table} SET loja_id = ? WHERE loja_id IS NULL`).run(DEFAULT_STORE_ID);
+            } catch (e) {
+                // Ignore if it fails due to table specific schema issues during migration
+            }
+        });
+    } catch (e) {
+        console.error("Erro ao garantir loja padrão:", e.message);
+    }
+}
+
+export async function syncAllStoresFromCloud() {
+    try {
+        const client = getSupabaseClient(null);
+        console.log('☁️ [Sync] Puxando todas as lojas da nuvem (Admin Rescue)...');
+        const { data: cloudLojas, error } = await client.from('lojas').select('*');
+        if (error) throw error;
+
+        if (cloudLojas) {
+            db.transaction(() => {
+                for (const cloudLoja of cloudLojas) {
+                    db.prepare(`
+                        INSERT INTO lojas(id, nome, endereco, logo_url, slug, modulos, ativo)
+                        VALUES(?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                        nome = excluded.nome, endereco = excluded.endereco, logo_url = excluded.logo_url,
+                        slug = excluded.slug, modulos = excluded.modulos, ativo = excluded.ativo
+                    `).run(
+                        cloudLoja.id,
+                        cloudLoja.nome,
+                        cloudLoja.endereco || '',
+                        cloudLoja.logo_url || '',
+                        cloudLoja.slug || cloudLoja.id,
+                        cloudLoja.modulos || '[]',
+                        cloudLoja.ativo ? 1 : 0
+                    );
+                }
+            })();
+            // Notifica a interface para recarregar
+            BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'lojas'));
+            return { success: true, count: cloudLojas.length };
+        }
+        return { success: false, error: 'Nenhuma loja encontrada.' };
+    } catch (err) {
+        console.error('[Sync] Erro ao baixar todas as lojas:', err);
+        return { success: false, error: err.message };
+    }
+}
+
+export async function syncConfig(lojaId = DEFAULT_STORE_ID) {
+    if (!lojaId) lojaId = DEFAULT_STORE_ID;
+    console.log(`☁️ [SyncConfig] Iniciando sincronização para loja: ${lojaId}...`);
+    ensureDevUser();
+    const stats = { users: 0, sellers: 0, scripts: 0, errors: [] };
+
+    try {
+        // 1. USUÁRIOS
+        const client = getSupabaseClient(lojaId);
+        const { data: cloudUsers, error: uErr } = await client.from('usuarios').select('*').eq('loja_id', lojaId);
+        if (cloudUsers) {
+            db.transaction(() => {
+                for (const u of cloudUsers) {
+                    db.prepare(`
+                        INSERT INTO usuarios(
+                            username, password, role, reset_password, nome_completo, email,
+                            whatsapp, avatar_url, ativo, permissions, session_id, created_by,
+                            loja_id, cpf, em_fila, ultima_atribuicao, leads_recebidos_total, portais_permitidos
+                        )
+                        VALUES(
+                            @username, @password, @role, @reset_password, @nome_completo, @email,
+                            @whatsapp, @avatar_url, @ativo, @permissions, @session_id, @created_by,
+                            @loja_id, @cpf, @em_fila, @ultima_atribuicao, @leads_rece_total, @portais
+                        )
+                        ON CONFLICT(username) DO UPDATE SET
+                            password = excluded.password, role = excluded.role, reset_password = excluded.reset_password,
+                            nome_completo = excluded.nome_completo, email = excluded.email, whatsapp = excluded.whatsapp,
+                            avatar_url = excluded.avatar_url, ativo = excluded.ativo, permissions = excluded.permissions,
+                            session_id = excluded.session_id, created_by = excluded.created_by, loja_id = excluded.loja_id,
+                            cpf = excluded.cpf, em_fila = excluded.em_fila, ultima_atribuicao = excluded.ultima_atribuicao,
+                            leads_recebidos_total = excluded.leads_recebidos_total, portais_permitidos = excluded.portais_permitidos
+                    `).run({
+                        username: u.username,
+                        password: u.password_hash || u.password,
+                        role: u.role,
+                        reset_password: u.force_password_change ? 1 : (u.reset_password ? 1 : 0),
+                        nome_completo: u.nome_completo || '',
+                        email: u.email || '',
+                        whatsapp: u.whatsapp || '',
+                        avatar_url: u.avatar_url || '',
+                        ativo: (u.ativo === true || u.ativo === 1) ? 1 : 0,
+                        permissions: typeof u.permissions === 'string' ? u.permissions : JSON.stringify(u.permissions || []),
+                        session_id: u.session_id || '',
+                        created_by: u.created_by || '',
+                        loja_id: u.loja_id || DEFAULT_STORE_ID,
+                        cpf: u.cpf || null,
+                        em_fila: u.em_fila ? 1 : 0,
+                        ultima_atribuicao: u.ultima_atribuicao || null,
+                        leads_rece_total: u.leads_recebidos_total || 0,
+                        portais: typeof u.portais_permitidos === 'string' ? u.portais_permitidos : JSON.stringify(u.portais_permitidos || [])
+                    });
+                }
+            })();
+            stats.users = cloudUsers.length;
+            BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'usuarios'));
+        }
+
+        // 2. LOJA (Sincroniza status e módulos ativos)
+        try {
+            const { data: cloudLoja, error: lErr } = await client.from('lojas').select('*').eq('id', lojaId).single();
+            if (cloudLoja) {
+                db.prepare(`
+                    INSERT INTO lojas(id, nome, endereco, logo_url, slug, modulos, ativo)
+                    VALUES(?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                    nome = excluded.nome, endereco = excluded.endereco, logo_url = excluded.logo_url,
+                        slug = excluded.slug, modulos = excluded.modulos, ativo = excluded.ativo
+                            `).run(
+                    cloudLoja.id,
+                    cloudLoja.nome,
+                    cloudLoja.endereco || '',
+                    cloudLoja.logo_url || '',
+                    cloudLoja.slug || cloudLoja.id,
+                    cloudLoja.modulos || '[]',
+                    cloudLoja.ativo ? 1 : 0
+                );
+                console.log(`✅[SyncConfig] Status da loja ${lojaId} atualizado(Ativo: ${cloudLoja.ativo}, Módulos: ${cloudLoja.modulos})`);
+            }
+        } catch (err) {
+            console.error('[SyncConfig] Erro Loja:', err.message);
+        }
+
+        // 3. Vendedores
+        try {
+            const { data: cloudSellers, error: sErr } = await client.from('vendedores').select('*').eq('loja_id', lojaId);
+            if (sErr) {
+                console.error('[SyncConfig] Erro ao buscar vendedores:', sErr);
+            } else if (cloudSellers && cloudSellers.length > 0) {
+                db.transaction(() => {
+                    for (const s of cloudSellers) {
+                        try {
+                            // Usa INSERT OR REPLACE para evitar erro de constraint
+                            db.prepare(`
+                                INSERT OR REPLACE INTO vendedores(nome, sobrenome, telefone, email, foto_url, ativo, loja_id)
+                    VALUES(@nome, @sobrenome, @telefone, @email, @foto_url, @ativo, @loja_id)
+                        `).run({
+                                nome: s.nome,
+                                sobrenome: s.sobrenome || '',
+                                telefone: s.telefone || '',
+                                email: s.email || '',
+                                foto_url: s.foto_url || '',
+                                ativo: s.ativo ? 1 : 0,
+                                loja_id: s.loja_id || DEFAULT_STORE_ID
+                            });
+                        } catch (err) {
+                            console.error(`[SyncConfig] Erro ao inserir vendedor ${s.nome}: `, err.message);
+                        }
+                    }
+                })();
+                stats.sellers = cloudSellers.length;
+                BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'vendedores'));
+            }
+        } catch (err) {
+            console.error('[SyncConfig] Erro Vendedores:', err.message);
+            stats.errors.push(`Vendedores: ${err.message} `);
+        }
+
+        // 3. Scripts
+        try {
+            const { data: cloudScripts, error: scErr } = await client.from('scripts').select('*').eq('loja_id', lojaId);
+            if (scErr) {
+                console.error('[SyncConfig] Erro ao buscar scripts:', scErr);
+            } else if (cloudScripts && cloudScripts.length > 0) {
+                db.transaction(() => {
+                    for (const s of cloudScripts) {
+                        try {
+                            // Usa INSERT OR REPLACE para evitar erro de constraint
+                            db.prepare(`
+                                INSERT OR REPLACE INTO scripts(id, titulo, mensagem, is_system, link, username, ordem, loja_id)
+                    VALUES(@id, @titulo, @mensagem, @is_system, @link, @username, @ordem, @loja_id)
+                        `).run({ ...s, is_system: s.is_system ? 1 : 0 });
+                        } catch (err) {
+                            console.error(`[SyncConfig] Erro ao inserir script ${s.id}: `, err.message);
+                        }
+                    }
+                })();
+                stats.scripts = cloudScripts.length;
+                BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'scripts'));
+            }
+        } catch (err) {
+            console.error('[SyncConfig] Erro Scripts:', err.message);
+            stats.errors.push(`Scripts: ${err.message} `);
+        }
+
+        // 4. Visitas (Recent Pull)
+        try {
+            const { data: cloudVisitas, error: vErr } = await client
+                .from('visitas')
+                .select('*')
+                .eq('loja_id', lojaId)
+                .order('id', { ascending: false })
+                .limit(2000);
+
+            if (vErr) {
+                console.error('[SyncConfig] Erro ao buscar visitas:', vErr);
+            } else if (cloudVisitas && cloudVisitas.length > 0) {
+                db.transaction(() => {
+                    for (const v of cloudVisitas) {
+                        try {
+                            // Usa INSERT OR REPLACE para evitar erro de constraint
+                            // IMPORTANTE: inclui visitou_loja e nao_compareceu para não resetar ao sincronizar
+                            db.prepare(`
+                    INSERT INTO visitas(
+                            id, datahora, mes, cliente, telefone, portal,
+                            veiculo_interesse, veiculo_troca, vendedor, vendedor_sdr, negociacao, status,
+                            data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline,
+                            valor_proposta, cpf_cliente, historico_log, loja_id,
+                            visitou_loja, nao_compareceu
+                        )
+                    VALUES(
+                        @id, @datahora, @mes, @cliente, @telefone, @portal,
+                        @veiculo_interesse, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao, @status,
+                        @data_agendamento, @temperatura, @motivo_perda, @forma_pagamento, @status_pipeline,
+                        @valor_proposta, @cpf_cliente, @historico_log, @loja_id,
+                        @visitou_loja, @nao_compareceu
+                    )
+                    ON CONFLICT(id) DO UPDATE SET
+                    datahora = excluded.datahora,
+                        mes = excluded.mes,
+                        cliente = excluded.cliente,
+                        telefone = excluded.telefone,
+                        portal = excluded.portal,
+                        veiculo_interesse = excluded.veiculo_interesse,
+                        veiculo_troca = excluded.veiculo_troca,
+                        vendedor = excluded.vendedor,
+                        vendedor_sdr = excluded.vendedor_sdr,
+                        negociacao = excluded.negociacao,
+                        status = excluded.status,
+                        data_agendamento = excluded.data_agendamento,
+                        temperatura = excluded.temperatura,
+                        motivo_perda = excluded.motivo_perda,
+                        forma_pagamento = excluded.forma_pagamento,
+                        status_pipeline = excluded.status_pipeline,
+                        valor_proposta = excluded.valor_proposta,
+                        cpf_cliente = excluded.cpf_cliente,
+                        historico_log = excluded.historico_log,
+                        loja_id = excluded.loja_id,
+                        --Só atualiza visitou_loja se o valor da nuvem for 1(alguém confirmou lá)
+                        --Nunca deixa a nuvem "apagar" um SIM local com NULL ou 0
+                    visitou_loja = MAX(COALESCE(visitas.visitou_loja, 0), COALESCE(excluded.visitou_loja, 0)),
+                        nao_compareceu = COALESCE(excluded.nao_compareceu, visitas.nao_compareceu, 0)
+                            `).run({
+                                ...v,
+                                visitou_loja: v.visitou_loja ? 1 : 0,
+                                nao_compareceu: v.nao_compareceu ? 1 : 0,
+                            });
+
+                        } catch (err) {
+                            console.error(`[SyncConfig] Erro ao inserir visita ${v.id}: `, err.message);
+                        }
+                    }
+                })();
+                BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'visitas'));
+            }
+        } catch (err) {
+            console.error('[SyncConfig] Erro Visitas:', err.message);
+            stats.errors.push(`Visitas: ${err.message} `);
+        }
+
+        // 5. Portais
+        try {
+            const { data: cloudPortals, error: pErr } = await client.from('portais').select('*').eq('loja_id', lojaId);
+            if (pErr) {
+                console.error('[SyncConfig] Erro ao buscar portais:', pErr);
+            } else if (cloudPortals && cloudPortals.length > 0) {
+                db.transaction(() => {
+                    for (const p of cloudPortals) {
+                        try {
+                            db.prepare(`
+                                INSERT OR REPLACE INTO portais(nome, link, ativo, loja_id)
+                    VALUES(@nome, @link, @ativo, @loja_id)
+                        `).run({ ...p, ativo: p.ativo ? 1 : 0 });
+                        } catch (err) {
+                            console.error(`[SyncConfig] Erro ao inserir portal ${p.nome}: `, err.message);
+                        }
+                    }
+                })();
+                BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'portais'));
+            } else {
+                // Se a nuvem estiver vazia, vamos tentar subir os locais (Upstream Sync)
+                const localPortals = db.prepare("SELECT * FROM portais WHERE loja_id = ?").all(lojaId);
+                if (localPortals.length > 0) {
+                    console.log(`⬆️[SyncConfig] Subindo ${localPortals.length} portais locais para a nuvem...`);
+                    await safeSupabaseUpsert('portais', localPortals, lojaId, { onConflict: 'nome,loja_id' });
+                }
+            }
+        } catch (err) {
+            console.error('[SyncConfig] Erro Portais:', err.message);
+        }
+
+        // 6. Configurações Globais (IA Prompts e Categorias)
+        try {
+            const client = getSupabaseClient(lojaId);
+            const { data: cloudConfig, error: cErr } = await client.from('crm_settings').select('*').eq('loja_id', lojaId);
+            if (cErr) {
+                console.error('[SyncConfig] Erro ao buscar crm_settings:', cErr);
+            } else if (cloudConfig && cloudConfig.length > 0) {
+                saveSettingsBatch(cloudConfig, lojaId);
+            }
+        } catch (err) {
+            console.error('[SyncConfig] Erro Config:', err.message);
+        }
+
+        console.log(`✅[SyncConfig] Completo para loja ${lojaId}: `, stats);
+        return { success: true, stats };
+    } catch (e) {
+        console.error("❌ [SyncConfig] Erro Geral:", e.message);
+        return { success: false, error: e.message, stats };
+    }
+}

@@ -7,8 +7,9 @@ import {
     Trash2, Sparkles, Flame
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { electronAPI } from '@/lib/electron-api';
 
-const { ipcRenderer } = window.require('electron');
+
 
 const MigracaoSupabase = () => {
     const { lojaId } = useParams();
@@ -29,7 +30,7 @@ const MigracaoSupabase = () => {
         if (lojaId) {
             const fetchStore = async () => {
                 try {
-                    const lojas = await ipcRenderer.invoke('get-stores');
+                    const lojas = await electronAPI.getStores();
                     const found = lojas.find(l => l.id === lojaId);
                     if (found) {
                         setLoja(found);
@@ -66,7 +67,7 @@ const MigracaoSupabase = () => {
                 supabase_anon_key: config.key,
                 modulos: typeof loja.modulos === 'string' ? JSON.parse(loja.modulos) : loja.modulos
             };
-            await ipcRenderer.invoke('update-store', updated);
+            await electronAPI.updateStore(updated);
             showToast("Configurações salvas com sucesso!");
         } catch (err) {
             showToast("Erro ao salvar: " + err.message, 'error');
@@ -78,7 +79,7 @@ const MigracaoSupabase = () => {
     // 📋 Copiar SQL para o Clipboard
     const copiarSQL = async () => {
         try {
-            const sqlContent = await ipcRenderer.invoke('read-file-content', 'SQL_CRIAR_TABELAS_SIMPLES.sql');
+            const sqlContent = await electronAPI.readFileContent('SQL_CRIAR_TABELAS_SIMPLES.sql');
             await navigator.clipboard.writeText(sqlContent);
             log('📋 SQL copiado para a área de transferência!');
             showToast("Script SQL copiado! Agora cole no Supabase.", 'info');
@@ -124,7 +125,7 @@ const MigracaoSupabase = () => {
             log('👤 Criando Perfil de Administrador...');
 
             // Buscamos o usuário admin vinculado a esta loja no SQLite
-            const users = await ipcRenderer.invoke('get-list-users', loja.id);
+            const users = await electronAPI.getListUsers(loja.id);
             const admin = users.find(u => u.role === 'admin' || u.role === 'supervisor');
 
             if (admin) {
@@ -172,7 +173,7 @@ const MigracaoSupabase = () => {
                 log(`📦 Migrando ${table.toUpperCase()}...`);
 
                 // Busca do banco mestre (env) filtrando por loja_id
-                const { data, error: fetchErr } = await ipcRenderer.invoke('get-list', {
+                const { data, error: fetchErr } = await electronAPI.getList({
                     table,
                     lojaId: loja.id
                 });

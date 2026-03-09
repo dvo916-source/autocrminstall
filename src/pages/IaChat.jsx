@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useLoja } from '../context/LojaContext';
 import { useUI } from '../context/UIContext';
+import { electronAPI } from '@/lib/electron-api';
 
 // --- AESTHETIC COMPONENTS ---
 
@@ -93,8 +94,8 @@ const IaChat = () => {
     const loadSettings = async () => {
         try {
             setLoading(true);
-            const { ipcRenderer } = window.require('electron');
-            const rows = await ipcRenderer.invoke('get-all-settings', currentLoja?.id);
+            
+            const rows = await electronAPI.getAllSettings(currentLoja?.id);
             const data = rows.filter(item => item.category === 'diego_ai');
 
             if (data && data.length > 0) {
@@ -126,8 +127,8 @@ const IaChat = () => {
                 { category: 'diego_ai', key: 'model_name', value: finalConfig.model_name }
             ];
 
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('save-settings-batch', { settings: upsertData, lojaId: currentLoja?.id });
+            
+            await electronAPI.saveSettingsBatch(upsertData, currentLoja?.id);
 
             setShowSuccess(true);
             setTimeout(() => setShowSuccess(false), 2000);

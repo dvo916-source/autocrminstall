@@ -6,17 +6,16 @@ import ConfirmModal from '../components/ConfirmModal';
 import PremiumSelect from '../components/PremiumSelect';
 import { useLoja } from '../context/LojaContext';
 import { ToastContainer } from '../components/Toast';
+import { electronAPI } from '@/lib/electron-api';
+import { SYSTEM_MODULES } from '../constants/modules';
 
-const AVAILABLE_PERMISSIONS = [
-    { id: '/diario', label: 'Agenda Diária (Diário)', icon: 'BookOpen' },
-    { id: '/whatsapp', label: 'WhatsApp', icon: 'MessageSquare' },
-    { id: '/estoque', label: 'Tabela de Estoque', icon: 'Car' },
-    { id: '/visitas', label: 'Gestão de Visitas', icon: 'Users' },
-    { id: '/metas', label: 'Metas & Resultados', icon: 'Target' },
-    { id: '/portais', label: 'Config. Portais', icon: 'Globe' },
-    { id: '/ia-chat', label: 'IA Chat (Configuração)', icon: 'Bot' },
-    { id: '/usuarios', label: 'Gestão de Usuários', icon: 'Shield' },
-];
+const AVAILABLE_PERMISSIONS = SYSTEM_MODULES
+    .filter(m => !m.disabled)
+    .map(m => ({
+        id: `/${m.id}`,
+        label: m.label,
+        icon: m.icon
+    }));
 
 const Usuarios = ({ user }) => {
     const navigate = useNavigate();
@@ -66,13 +65,13 @@ const Usuarios = ({ user }) => {
 
     const loadAll = useCallback(async () => {
         try {
-            const { ipcRenderer } = window.require('electron');
+
             // 🚀 FALLBACK: Se currentLoja não estiver definida, usa a loja padrão
             const lojaId = currentLoja?.id || 'irw-motors-main';
 
             const [vends, usersList] = await Promise.all([
-                ipcRenderer.invoke('get-list', { table: 'vendedores', lojaId }),
-                ipcRenderer.invoke('get-list-users', lojaId)
+                electronAPI.getList('vendedores', lojaId),
+                electronAPI.getListUsers(lojaId)
             ]);
             setVendedores(vends || []);
             const parsedUsers = (usersList || []).map(u => {
@@ -94,7 +93,7 @@ const Usuarios = ({ user }) => {
     useEffect(() => {
         loadAll();
 
-        const { ipcRenderer } = window.require('electron');
+
         const handleRefresh = (event, table) => {
             if (table === 'usuarios' || table === 'vendedores') {
                 loadAll();
@@ -108,11 +107,11 @@ const Usuarios = ({ user }) => {
             }
         };
 
-        ipcRenderer.on('refresh-data', handleRefresh);
+        electronAPI.onRefreshData(handleRefresh);
         window.addEventListener('keydown', handleEscape);
 
         return () => {
-            ipcRenderer.removeListener('refresh-data', handleRefresh);
+            // Managed by electronAPI.onRefreshData unsubscribe;
             window.removeEventListener('keydown', handleEscape);
         };
     }, [loadAll]);
@@ -127,8 +126,8 @@ const Usuarios = ({ user }) => {
         const data = customData || newVendedor;
         if (!data?.nome?.trim()) return;
         try {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('add-item', {
+
+            await electronAPI.addItem({
                 table: 'vendedores',
                 data: {
                     id: Date.now().toString(),
@@ -146,8 +145,8 @@ const Usuarios = ({ user }) => {
 
     const toggleVendedor = async (nome, current) => {
         try {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('toggle-item', { table: 'vendedores', nome, ativo: !current, loja_id: currentLoja?.id });
+
+            await electronAPI.toggleItem({ table: 'vendedores', nome, ativo: !current, loja_id: currentLoja?.id });
             loadAll();
         } catch (err) { console.error(err); }
     };
@@ -192,8 +191,8 @@ const Usuarios = ({ user }) => {
         if (newUser.password !== confirmPassword) return addToast("As senhas não conferem", "error");
 
         try {
-            const { ipcRenderer } = window.require('electron');
-            const res = await ipcRenderer.invoke('add-user', {
+
+            const res = await electronAPI.addUser({
                 ...newUser,
                 loja_id: currentLoja?.id || 'irw-motors-main'
             });
@@ -251,8 +250,8 @@ const Usuarios = ({ user }) => {
         }
 
         try {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('update-user', { ...u, loja_id: currentLoja?.id });
+
+            await electronAPI.updateUser({ ...u, loja_id: currentLoja?.id });
             addToast('Usuário atualizado com sucesso!');
             setEditModal({ open: false, user: null });
             loadAll();
@@ -263,8 +262,8 @@ const Usuarios = ({ user }) => {
 
     const toggleUserStatus = async (userObj) => {
         try {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('update-user', {
+
+            await electronAPI.updateUser({
                 ...userObj,
                 ativo: !userObj.ativo,
                 loja_id: currentLoja?.id
@@ -279,13 +278,13 @@ const Usuarios = ({ user }) => {
     const handleConfirmDelete = async () => {
         const { type, data } = modal;
         try {
-            const { ipcRenderer } = window.require('electron');
+
             let res;
             if (type === 'vendedor') {
-                res = await ipcRenderer.invoke('delete-item', { table: 'vendedores', nome: data, loja_id: currentLoja?.id });
+                res = await electronAPI.deleteItem({ table: 'vendedores', nome: data, loja_id: currentLoja?.id });
                 addToast("Consultor removido");
             } else {
-                res = await ipcRenderer.invoke('delete-user', data);
+                res = await electronAPI.deleteUser(data);
                 addToast("Usuário removido");
             }
             loadAll();
@@ -485,6 +484,8 @@ const Usuarios = ({ user }) => {
                                                     {AVAILABLE_PERMISSIONS.filter(p => {
                                                         const storeModules = currentLoja?.modulos ? (typeof currentLoja.modulos === 'string' ? JSON.parse(currentLoja.modulos) : currentLoja.modulos) : [];
                                                         const moduleKey = p.id.replace('/', '');
+                                                        // Fallback para permitir que permissões legadas de 'visitas' funcionem no 'crm'
+                                                        if (moduleKey === 'crm' && storeModules.includes('visitas')) return true;
                                                         return storeModules.includes(moduleKey);
                                                     }).map((page) => {
                                                         const isChecked = newUser.permissions?.includes(page.id);
@@ -630,8 +631,8 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
         }
 
         try {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('update-user', { ...user, loja_id: currentLoja?.id });
+
+            await electronAPI.updateUser({ ...user, loja_id: currentLoja?.id });
 
             if (user.password && user.password.length > 0) {
                 onSuccess('Usuário atualizado! A senha foi alterada.');

@@ -9,6 +9,7 @@ import { parsePrice, cleanVehicleName } from '../lib/utils';
 import { useLoja } from '../context/LojaContext';
 import { useUI } from '../context/UIContext';
 import { get, set } from 'idb-keyval'; // ⚡ Cache Local
+import { electronAPI } from '@/lib/electron-api';
 
 const Estoque = ({ user }) => {
     const { currentLoja } = useLoja();
@@ -37,9 +38,9 @@ const Estoque = ({ user }) => {
 
     const loadClients = async () => {
         try {
-            const { ipcRenderer } = window.require('electron');
+            
             // Assuming get-visitas returns all history, we extract unique clients
-            const visitas = await ipcRenderer.invoke('get-visitas-secure', { role: 'admin', username: null, lojaId: currentLoja?.id });
+            const visitas = await electronAPI.getVisitas('admin', null, currentLoja?.id);
 
             const uniqueMap = new Map();
             visitas.forEach(v => {
@@ -80,8 +81,8 @@ const Estoque = ({ user }) => {
 
     const loadStats = async () => {
         try {
-            const { ipcRenderer } = window.require('electron');
-            const data = await ipcRenderer.invoke('get-vehicles-stats', currentLoja?.id);
+            
+            const data = await electronAPI.getVehiclesStats(currentLoja?.id);
             setStats(data || {});
         } catch (err) { console.error(err); }
     };
@@ -92,7 +93,7 @@ const Estoque = ({ user }) => {
         loadClients();
 
         // Ouvi atualizações automáticas do Main Process
-        const { ipcRenderer } = window.require('electron');
+        
         const handleRefresh = (event, payload) => {
             const table = typeof payload === 'string' ? payload : payload?.table;
             if (table === 'estoque' || !table) {
@@ -101,18 +102,18 @@ const Estoque = ({ user }) => {
                 loadStats();
             }
         };
-        ipcRenderer.on('sync-status', handleRefresh);
-        ipcRenderer.on('refresh-data', handleRefresh);
+        electronAPI.onSyncStatus(handleRefresh);
+        electronAPI.onRefreshData(handleRefresh);
         return () => {
-            ipcRenderer.removeListener('sync-status', handleRefresh);
-            ipcRenderer.removeListener('refresh-data', handleRefresh);
+            // Managed by electronAPI cleanup;
+            // Managed by electronAPI.onRefreshData unsubscribe;
         };
     }, []);
 
     const loadItems = async (force = false) => {
         try {
             setLoading(true);
-            const { ipcRenderer } = window.require('electron');
+            
             const lojaId = currentLoja?.id || 'irw-motors-main';
 
             // ⚡ CACHE LOCAL (Stale-While-Revalidate)
@@ -128,7 +129,7 @@ const Estoque = ({ user }) => {
             }
 
             // 🏠 BUSCA NO BANCO LOCAL (Sincronizado a cada 5 min)
-            const localData = await ipcRenderer.invoke('get-list', { table: 'estoque', lojaId });
+            const localData = await electronAPI.getList('estoque', lojaId);
 
             let finalItems = [];
 
@@ -165,8 +166,8 @@ const Estoque = ({ user }) => {
         setSelectedVehicle(vehicleName);
         setLoadingVisits(true);
         try {
-            const { ipcRenderer } = window.require('electron');
-            const data = await ipcRenderer.invoke('get-visits-by-vehicle', { name: vehicleName, lojaId: currentLoja?.id });
+            
+            const data = await electronAPI.getVisitsByVehicle(vehicleName, currentLoja?.id);
             setVehicleVisits(data || []);
         } catch (err) {
             console.error(err);
@@ -181,8 +182,8 @@ const Estoque = ({ user }) => {
         if (syncing) return;
         setSyncing(true);
         try {
-            const { ipcRenderer } = window.require('electron');
-            const res = await ipcRenderer.invoke('sync-xml', currentLoja?.id);
+            
+            const res = await electronAPI.syncXml(currentLoja?.id);
 
             if (res.success) {
                 showToast(res.message, 'success');
@@ -203,8 +204,8 @@ const Estoque = ({ user }) => {
         if (syncing) return;
         setSyncing(true);
         try {
-            const { ipcRenderer } = window.require('electron');
-            const res = await ipcRenderer.invoke('migrate-all');
+            
+            const res = await electronAPI.migrateAll();
             if (res.success) {
                 showToast(res.message, 'success');
             } else {
@@ -224,11 +225,10 @@ const Estoque = ({ user }) => {
     // ... toggleAtivo removed or kept as hidden feature? User asked to remove explicit button, but functionality might still be needed in admin.
     // User said "não precisa ter a opção oculatar", so we remove the button.
 
-    const openLink = (url) => {
+    const openLink = async (url) => {
         if (!url) return;
         try {
-            const { shell } = window.require('electron');
-            shell.openExternal(url);
+            await electronAPI.openExternal(url);
         } catch (err) { console.error(err); }
     };
 

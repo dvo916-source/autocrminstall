@@ -2,7 +2,7 @@ import React, { useState, useEffect, memo, Suspense, Component } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Shell from './components/Shell';
 import HomeVex from './pages/HomeSDR';
-import Visitas from './pages/Visitas';
+
 import Estoque from './pages/Estoque';
 import Portais from './pages/Portais';
 import Usuarios from './pages/Usuarios';
@@ -17,12 +17,15 @@ import CRM from './pages/CRM';
 import IaChat from './pages/IaChat';
 import PromptConfig from './pages/PromptConfig';
 import MigracaoSupabase from './pages/MigracaoSupabase';
-import { AlertCircle, RotateCcw, Database } from 'lucide-react';
+import { AlertCircle, RotateCcw } from 'lucide-react';
 import { LojaProvider, useLoja } from './context/LojaContext';
 import { UIProvider } from './context/UIContext';
+import { LeadsProvider } from './context/LeadsContext';
 import StoreManagement from './pages/StoreManagement';
+import { COMMERCIAL_MODULES } from './constants/modules';
 import { AnimatePresence, motion } from 'framer-motion';
 import UpdateModal from './components/UpdateModal';
+import { electronAPI } from '@/lib/electron-api';
 
 // === ERROR BOUNDARY ===
 class ErrorBoundary extends Component {
@@ -89,57 +92,31 @@ const MainContent = ({ user, handleLogout }) => {
   const isAdmin = user?.role === 'admin' || user?.role === 'master' || user?.role === 'developer';
   const { currentLoja, lojas, switchLoja } = useLoja();
 
-  // 🔥 KILL SWITCH REALTIME TRIGGER
-  // Usado para forçar o re-render das permissões se o Supabase alterar os módulos
-  const [moduleSyncStamp, setModuleSyncStamp] = useState(Date.now());
-
-  useEffect(() => {
-    const { ipcRenderer } = window.require('electron');
-    const handleLojasUpdate = (e, table) => {
-      if (table === 'lojas' || table === 'all') {
-        console.log('🛑 [Kill Switch] Alteração de Módulos detectada na Nuvem!');
-        // Se a loja não atualizar o contexto automaticamente, a forma mais garantida 
-        // de efetivar o bloqueio no SO do cliente instantaneamente é forçar um reload.
-        // Se preferir algo mais sutil, troque por um fetch atualizado da loja.
-        setTimeout(() => window.location.reload(), 1500);
-      }
-    };
-    ipcRenderer.on('refresh-data', handleLojasUpdate);
-    return () => ipcRenderer.removeListener('refresh-data', handleLojasUpdate);
-  }, []);
-
   // 🔥 AUTO-SELECT STORE FOR COMMON USERS
   useEffect(() => {
-    if (user && user.role !== 'developer' && user.loja_id && !currentLoja && lojas.length > 0) {
+    if (user && user.role !== 'developer' && user.loja_id && lojas.length > 0) {
       const target = lojas.find(l => l.id === user.loja_id);
-      if (target) {
+      if (target && target.id !== currentLoja?.id) {
         console.log('🏪 [App] Auto-selecionando loja para o usuário:', target.nome);
         switchLoja(target);
       }
     }
-  }, [user, currentLoja, lojas, switchLoja]);
+  }, [user, lojas, currentLoja, switchLoja]);
 
   useEffect(() => {
-    const { ipcRenderer } = window.require('electron');
-    const handleNav = (e, route) => {
+    const handleNav = (route) => {
       setTimeout(() => navigate(route), 50);
     };
-    ipcRenderer.on('navigate-to', handleNav);
-    return () => ipcRenderer.removeListener('navigate-to', handleNav);
+    const unsubscribe = electronAPI.onNavigateTo(handleNav);
+    return () => unsubscribe();
   }, [navigate]);
 
   const hasPermission = (path) => {
-    // Força re-render caso os módulos mudem no realtime
-    const _stamp = moduleSyncStamp;
-
-    // Se é a página inicial, todo mundo logado passa
     if (path === '/' || path === '/diario') return true;
 
-    // 📦 Lista oficial de Módulos Comerciais (O que você vende)
-    const modulosComerciais = ['whatsapp', 'estoque', 'visitas', 'metas', 'portais', 'ia-chat', 'usuarios', 'crm'];
+    const modulosComerciais = COMMERCIAL_MODULES;
     const moduleName = path.replace('/', '');
 
-    // 1. CHECA PRIMEIRO O PLANO DA LOJA (Mas apenas para módulos comerciais)
     if (currentLoja && modulosComerciais.includes(moduleName)) {
       const lojaModulosRaw = currentLoja?.modulos;
       let enabledModules = [];
@@ -148,18 +125,14 @@ const MainContent = ({ user, handleLogout }) => {
         if (!Array.isArray(enabledModules)) enabledModules = [];
       } catch (e) { enabledModules = []; }
 
-      // 🔥 A VISÃO DO CLIENTE: Se a loja NÃO pagou pelo módulo, ninguém passa (Nem o Developer)
       if (!enabledModules.includes(moduleName)) {
         return false;
       }
     }
 
-    // 2. SE A LOJA TEM O MÓDULO (Ou se é uma página de sistema como /ia-prompts)
-    // O Developer e o Admin da loja têm acesso total ao que sobrou.
     if (user?.role === 'developer') return true;
     if (isAdmin) return true;
 
-    // 3. SE FOR VENDEDOR/SDR, OLHA AS PERMISSÕES INDIVIDUAIS DELE
     if (!user?.permissions || user?.permissions === '[]') return false;
     let perms = [];
     try {
@@ -170,7 +143,6 @@ const MainContent = ({ user, handleLogout }) => {
     return perms.includes(path);
   };
 
-  // 🛡️ O "LEÃO DE CHÁCARA" DAS ROTAS
   const RouteGuard = ({ path, element }) => {
     if (!hasPermission(path)) {
       return (
@@ -203,21 +175,17 @@ const MainContent = ({ user, handleLogout }) => {
         <Route path="/" element={<HomeVex user={user} />} />
         <Route path="/diario" element={<HomeVex user={user} />} />
 
-        {/* Rotas Protegidas pelo RouteGuard */}
         <Route path="/whatsapp" element={<RouteGuard path="/whatsapp" element={<Whatsapp />} />} />
         <Route path="/estoque" element={<RouteGuard path="/estoque" element={<Estoque user={user} />} />} />
-        <Route path="/visitas" element={<RouteGuard path="/visitas" element={<Visitas user={user} />} />} />
         <Route path="/metas" element={<RouteGuard path="/metas" element={<Metas />} />} />
         <Route path="/portais" element={<RouteGuard path="/portais" element={<Portais />} />} />
         <Route path="/ia-chat" element={<RouteGuard path="/ia-chat" element={<IaChat />} />} />
         <Route path="/usuarios" element={<RouteGuard path="/usuarios" element={<Usuarios user={user} />} />} />
         <Route path="/crm" element={<RouteGuard path="/crm" element={<CRM user={user} />} />} />
 
-        {/* Rotas Exclusivas Developer */}
         <Route path="/central-lojas" element={user?.role === 'developer' ? <StoreManagement /> : <Navigate to="/" />} />
         <Route path="/migrar-supabase/:lojaId?" element={user?.role === 'developer' ? <MigracaoSupabase /> : <Navigate to="/" />} />
 
-        {/* Rotas Exclusivas Admin/Developer */}
         {isAdmin && (
           <>
             <Route path="/ia-prompts" element={<RouteGuard path="/ia-prompts" element={<PromptConfig />} />} />
@@ -284,7 +252,6 @@ function App() {
 
   useEffect(() => {
     const stored = localStorage.getItem('vexcore_user');
-    const { ipcRenderer } = window.require('electron');
 
     const initializeUser = async () => {
       if (stored) {
@@ -304,10 +271,10 @@ function App() {
           const alreadySynced = sessionStorage.getItem('startup_synced');
           if (!alreadySynced) {
             sessionStorage.setItem('startup_synced', '1');
-            ipcRenderer.invoke('full-cloud-sync', userToSet.loja_id).catch(err => console.error("Startup Sync Error:", err));
+            electronAPI.fullCloudSync(userToSet.loja_id).catch(err => console.error("Startup Sync Error:", err));
           }
 
-          const freshData = await ipcRenderer.invoke('get-user', userToSet.username);
+          const freshData = await electronAPI.getUser(userToSet.username);
 
           if (!freshData) {
             handleLogout();
@@ -340,11 +307,11 @@ function App() {
 
     initializeUser();
 
-    const handleUserDataUpdate = async (event, updatedUsername) => {
+    const handleUserDataUpdate = async (updatedUsername) => {
       const currentStored = JSON.parse(localStorage.getItem('vexcore_user') || '{}');
       if (updatedUsername.toLowerCase() === currentStored.username?.toLowerCase()) {
         try {
-          const freshData = await ipcRenderer.invoke('get-user', updatedUsername);
+          const freshData = await electronAPI.getUser(updatedUsername);
           if (freshData) {
             const formatted = {
               ...freshData,
@@ -357,35 +324,36 @@ function App() {
       }
     };
 
-    ipcRenderer.on('user-data-updated', handleUserDataUpdate);
+    const unsubscribeUser = electronAPI.onUserDataUpdated(handleUserDataUpdate);
 
-    const handleRefreshData = (e, table) => {
+    const handleRefreshData = (payload) => {
+      const table = typeof payload === 'string' ? payload : payload?.table;
       if (table === 'all' || table === 'usuarios') {
         const currentUser = JSON.parse(localStorage.getItem('vexcore_user') || '{}');
         if (currentUser.username) {
-          handleUserDataUpdate(null, currentUser.username);
+          handleUserDataUpdate(currentUser.username);
         }
       }
     };
-    ipcRenderer.on('refresh-data', handleRefreshData);
+    const unsubscribeRefresh = electronAPI.onRefreshData(handleRefreshData);
 
-    const updateAvail = (e, info) => {
+    const updateAvail = (info) => {
       setUpdateStatus(prev => ({ ...prev, available: true, info }));
       setShowUpdateModal(true);
     };
-    const updateProg = (e, percent) => setUpdateStatus(prev => ({ ...prev, progress: percent }));
-    const updateReady = (e, info) => setUpdateStatus(prev => ({ ...prev, ready: true, info }));
+    const updateProg = (percent) => setUpdateStatus(prev => ({ ...prev, progress: percent }));
+    const updateReady = (info) => setUpdateStatus(prev => ({ ...prev, ready: true, info }));
 
-    ipcRenderer.on('update-available', updateAvail);
-    ipcRenderer.on('update-progress', updateProg);
-    ipcRenderer.on('update-downloaded', updateReady);
+    const unsubscribeAvail = electronAPI.onUpdateAvailable(updateAvail);
+    const unsubscribeProg = electronAPI.onUpdateProgress(updateProg);
+    const unsubscribeReady = electronAPI.onUpdateDownloaded(updateReady);
 
     return () => {
-      ipcRenderer.removeListener('user-data-updated', handleUserDataUpdate);
-      ipcRenderer.removeListener('refresh-data', handleRefreshData);
-      ipcRenderer.removeListener('update-available', updateAvail);
-      ipcRenderer.removeListener('update-progress', updateProg);
-      ipcRenderer.removeListener('update-downloaded', updateReady);
+      if (unsubscribeUser) unsubscribeUser();
+      if (unsubscribeRefresh) unsubscribeRefresh();
+      if (unsubscribeAvail) unsubscribeAvail();
+      if (unsubscribeProg) unsubscribeProg();
+      if (unsubscribeReady) unsubscribeReady();
     };
   }, []);
 
@@ -429,32 +397,33 @@ function App() {
   return (
     <UIProvider>
       <LojaProvider>
-        <ErrorBoundary>
-          <HashRouter>
-            <Suspense fallback={<div className="min-h-screen bg-[#0f172a]" />}>
-              {!user ? (
-                <Login onLogin={handleLogin} />
-              ) : user.reset_password === 1 ? (
-                <ResetPassword user={user} onComplete={setUser} />
-              ) : (
-                <MainContent user={user} handleLogout={handleLogout} />
-              )}
-            </Suspense>
-          </HashRouter>
+        <LeadsProvider user={user}>
+          <ErrorBoundary>
+            <HashRouter>
+              <Suspense fallback={<div className="min-h-screen bg-[#0f172a]" />}>
+                {!user ? (
+                  <Login onLogin={handleLogin} />
+                ) : user.reset_password === 1 ? (
+                  <ResetPassword user={user} onComplete={setUser} />
+                ) : (
+                  <MainContent user={user} handleLogout={handleLogout} />
+                )}
+              </Suspense>
+            </HashRouter>
 
-          {/* --- UPDATE MODAL --- */}
-          {showUpdateModal && updateStatus.info && (
-            <UpdateModal
-              updateInfo={updateStatus.info}
-              onInstall={() => {
-                const { ipcRenderer } = window.require('electron');
-                setShowUpdateModal(false);
-                ipcRenderer.invoke('install-update', updateStatus.info);
-              }}
-              onDismiss={() => setShowUpdateModal(false)}
-            />
-          )}
-        </ErrorBoundary>
+            {/* --- UPDATE MODAL --- */}
+            {showUpdateModal && updateStatus.info && (
+              <UpdateModal
+                updateInfo={updateStatus.info}
+                onInstall={() => {
+                  setShowUpdateModal(false);
+                  electronAPI.installUpdate(updateStatus.info);
+                }}
+                onDismiss={() => setShowUpdateModal(false)}
+              />
+            )}
+          </ErrorBoundary>
+        </LeadsProvider>
       </LojaProvider>
     </UIProvider>
   );

@@ -5,6 +5,7 @@ import { useLoja } from '../context/LojaContext';
 import { ArrowLeft, ChevronDown, ChevronRight, Save, RotateCcw, MessageSquare, Sparkles, Shield, FileText, MessageCircleQuestion, Car, Clock, Image as ImageIcon, Zap, CheckCircle2, Cpu, Brain, Terminal, Activity, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import FAQManager from '../components/FAQManager';
+import { electronAPI } from '@/lib/electron-api';
 
 const PromptConfig = () => {
     const { currentLoja } = useLoja();
@@ -37,8 +38,8 @@ const PromptConfig = () => {
     const loadSettings = async () => {
         try {
             setLoading(true);
-            const { ipcRenderer } = window.require('electron');
-            const rows = await ipcRenderer.invoke('get-all-settings', currentLoja?.id);
+            
+            const rows = await electronAPI.getAllSettings(currentLoja?.id);
             const data = rows.filter(item => item.category === 'diego_ai');
 
             if (data && data.length > 0) {
@@ -83,8 +84,8 @@ const PromptConfig = () => {
                 { category: 'diego_ai', key: 'response_speed', value: String(humanSettings.responseSpeed) }
             ];
 
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('save-settings-batch', { settings: upsertData, lojaId: currentLoja?.id });
+            
+            await electronAPI.saveSettingsBatch(upsertData, currentLoja?.id);
             setShowSuccess(true);
             setTimeout(() => setShowSuccess(false), 2000);
         } catch (error) {
@@ -105,8 +106,7 @@ const PromptConfig = () => {
             {/* Background Aesthetics */}
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,#1e293b_0%,#050b1a_100%)]" />
             <div className="absolute inset-0 opacity-[0.05] pointer-events-none" style={{ backgroundImage: 'linear-gradient(#06b6d4 1px, transparent 1px), linear-gradient(90deg, #06b6d4 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
-
-            <div className="flex-1 overflow-y-auto custom-scrollbar relative z-10 p-0 pb-20">
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar relative z-10 p-0 pb-20">
                 {/* Header Cyber */}
                 <header className="max-w-6xl mx-auto flex items-center justify-between mb-12">
                     <div className="flex items-center gap-6">

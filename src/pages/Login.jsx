@@ -5,6 +5,7 @@ import { Lock, User, ChevronRight, AlertCircle, Mail, CheckCircle, ArrowLeft, Ar
 import { supabase } from '../lib/supabase';
 import ForcePasswordReset from '../components/ForcePasswordReset';
 import { ToastContainer } from '../components/Toast';
+import { electronAPI } from '@/lib/electron-api';
 
 const Login = ({ onLogin }) => {
     const { performanceMode } = useUI();
@@ -23,8 +24,8 @@ const Login = ({ onLogin }) => {
 
     useEffect(() => {
         try {
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.invoke('get-app-version').then(setAppVersion).catch(() => setAppVersion('v1.1.2'));
+            
+            electronAPI.getAppVersion().then(setAppVersion).catch(() => setAppVersion('v1.1.2'));
         } catch (e) {
             setAppVersion('v1.1.2');
         }
@@ -49,8 +50,8 @@ const Login = ({ onLogin }) => {
         setLoading(true);
 
         try {
-            const { ipcRenderer } = window.require('electron');
-            const user = await ipcRenderer.invoke('login', { username, password });
+            
+            const user = await electronAPI.login(username, password);
 
             if (user) {
                 if (user.reset_password === 1) {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Store, Bot, Cpu, Save, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { electronAPI } from '@/lib/electron-api';
 
 const AiConfigModal = ({ isOpen, onClose }) => {
     const [activeTab, setActiveTab] = useState('identity');
@@ -40,8 +41,8 @@ const AiConfigModal = ({ isOpen, onClose }) => {
     const loadSettings = async () => {
         setLoading(true);
         try {
-            const { ipcRenderer } = window.require('electron');
-            const data = await ipcRenderer.invoke('get-all-settings');
+            
+            const data = await electronAPI.getAllSettings();
             if (data && Object.keys(data).length > 0) {
                 // Merge com defaults para garantir que campos novos não quebrem
                 setSettings(prev => ({ ...prev, ...data }));
@@ -56,8 +57,8 @@ const AiConfigModal = ({ isOpen, onClose }) => {
     const handleSave = async () => {
         setSaving(true);
         try {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('save-settings-batch', settings);
+            
+            await electronAPI.saveSettingsBatch(settings);
 
             // Notificação de sucesso (você pode integrar com seu sistema de toast)
             const event = new CustomEvent('show-notification', {

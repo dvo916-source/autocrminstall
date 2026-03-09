@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
     BarChart3, Users, Car, Globe, Target, Bot,
@@ -11,6 +11,7 @@ import WhatsappService from './WhatsappService';
 import ConnectionStatus from './ConnectionStatus';
 import { useUI } from '../context/UIContext';
 import { Zap, Sparkles } from 'lucide-react';
+import { electronAPI } from '@/lib/electron-api';
 
 const Shell = ({ children, user, onLogout }) => {
     const [isSidebarHovered, setIsSidebarHovered] = useState(false);
@@ -29,8 +30,8 @@ const Shell = ({ children, user, onLogout }) => {
 
     useEffect(() => {
         try {
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.invoke('get-app-version').then(v => setAppVersion(v)).catch(() => setAppVersion('1.1.2'));
+            
+            electronAPI.getAppVersion().then(v => setAppVersion(v)).catch(() => setAppVersion('1.1.2'));
         } catch (e) { setAppVersion('1.1.2'); }
     }, []);
 
@@ -51,12 +52,8 @@ const Shell = ({ children, user, onLogout }) => {
 
     const loadPendingCount = async () => {
         try {
-            const { ipcRenderer } = window.require('electron');
-            const visits = await ipcRenderer.invoke('get-visitas-secure', {
-                role: user.role,
-                username: user.username,
-                lojaId: currentLoja?.id
-            });
+            
+            const visits = await electronAPI.getVisitas(user.role, user.username, currentLoja?.id);
             const allVisits = visits || [];
             const pending = allVisits.filter(v => (v.status_pipeline || v.status || '').toLowerCase() === 'pendente');
             setPendingVisitsCount(pending.length);
@@ -93,36 +90,35 @@ const Shell = ({ children, user, onLogout }) => {
     // --- Electron Listeners ---
     useEffect(() => {
         try {
-            const { ipcRenderer } = window.require('electron');
+            
 
             // Trigger Sync (Fire and forget, let notifications handle status)
-            ipcRenderer.invoke('sync-essential').catch(err => console.error("Sync Error:", err));
+            electronAPI.syncEssential().catch(err => console.error("Sync Error:", err));
 
-            const syncHandler = (e, { loading }) => setIsSyncing(loading);
+            const syncHandler = ({ loading }) => setIsSyncing(loading);
 
-            const notifyHandler = (e, detail) => {
-                const rawObj = e.detail || detail; // Handle both CustomEvent (e.detail) and IPC (detail)
-                const messageObj = rawObj?.detail || rawObj;
-                if (!messageObj) return;
+            const notifyHandler = (detail) => {
+                const rawObj = detail?.detail || detail; 
+                if (!rawObj) return;
 
-                const { message, type = 'info', duration = 4000 } = messageObj;
+                const { message, type = 'info', duration = 4000 } = rawObj;
                 const id = Date.now();
                 setNotifications(prev => [...prev, { id, message, type }]);
                 setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), duration);
             };
 
-            ipcRenderer.on('sync-status', syncHandler);
-            ipcRenderer.on('show-notification', notifyHandler);
-            window.addEventListener('show-notification', notifyHandler);
-            ipcRenderer.on('refresh-data', (e, table) => {
+            const unsubscribeSync = electronAPI.onSyncStatus(syncHandler);
+            const unsubscribeNotify = electronAPI.onShowNotification(notifyHandler);
+            const unsubscribeRefresh = electronAPI.onRefreshData((table) => {
                 if (table === 'visitas') loadPendingCount();
             });
+            window.addEventListener('show-notification', notifyHandler);
 
             return () => {
-                ipcRenderer.removeListener('sync-status', syncHandler);
-                ipcRenderer.removeListener('show-notification', notifyHandler);
+                unsubscribeSync();
+                unsubscribeNotify();
+                unsubscribeRefresh();
                 window.removeEventListener('show-notification', notifyHandler);
-                ipcRenderer.removeAllListeners('refresh-data');
             };
         } catch (err) { console.error(err); }
     }, [user?.username, currentLoja?.id]);
@@ -196,12 +192,14 @@ const Shell = ({ children, user, onLogout }) => {
         { to: '/diario', label: 'MEU DIÁRIO', icon: <Calendar className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'diario' },
         { to: '/whatsapp', label: 'WHATSAPP', icon: <MessageSquare className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'whatsapp' },
         { to: '/estoque', label: 'TABELA', icon: <Car className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'estoque' },
+        { to: '/metas', label: 'METAS', icon: <Target className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'metas' },
+        { to: '/portais', label: 'PORTAIS', icon: <Globe className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'portais' },
         {
-            to: '/visitas',
-            label: 'VISITAS',
+            to: '/crm',
+            label: 'CRM',
             icon: (
                 <div className="relative">
-                    <Users className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />
+                    <Zap className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />
                     {pendingVisitsCount > 0 && (
                         <motion.span
                             initial={{ scale: 0 }}
@@ -213,11 +211,8 @@ const Shell = ({ children, user, onLogout }) => {
                     )}
                 </div>
             ),
-            module: 'visitas'
+            module: 'crm'
         },
-        { to: '/metas', label: 'METAS', icon: <Target className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'metas' },
-        { to: '/portais', label: 'PORTAIS', icon: <Globe className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'portais' },
-        { to: '/crm', label: 'CRM', icon: <Zap className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'crm' },
         { to: '/ia-chat', label: 'IA CHAT', icon: <Bot className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'ia-chat' },
         { to: '/usuarios', label: 'USUÁRIOS', icon: <Shield className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'usuarios' }
     );
@@ -469,8 +464,11 @@ const Shell = ({ children, user, onLogout }) => {
                 )}
 
                 <div
-                    className={`flex-grow flex flex-col relative w-full h-full ${location.pathname === '/whatsapp' ? 'p-0 pointer-events-none' : 'overflow-y-auto custom-scrollbar'}`}
-                    style={{ padding: location.pathname === '/whatsapp' ? '0' : 'var(--main-padding)' }}
+                    className={`flex-grow flex flex-col relative w-full h-full ${location.pathname === '/whatsapp' ? 'p-0 pointer-events-none' :
+                        ['/crm', '/usuarios'].includes(location.pathname) ? 'p-0 overflow-hidden' :
+                            'overflow-y-auto custom-scrollbar'
+                        }`}
+                    style={{ padding: ['/whatsapp', '/crm', '/usuarios'].includes(location.pathname) ? '0' : 'var(--main-padding)' }}
                 >
                     {children}
                 </div>

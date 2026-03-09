@@ -1,13 +1,18 @@
-import { MessageSquare, Smartphone, ListCheck, Plus, Trash2, Send, Star, X, Car, Search, ExternalLink, Image as ImageIcon, Edit2, GripVertical, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Calendar, Gauge, CircleDollarSign, Filter } from 'lucide-react';
+import { MessageSquare, MessageCircle, Smartphone, ListCheck, Plus, Trash2, Send, Star, X, Car, Search, ExternalLink, Image as ImageIcon, Edit2, GripVertical, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Calendar, Gauge, CircleDollarSign, Filter } from 'lucide-react';
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { useUI } from '../context/UIContext';
 import { useLoja } from '../context/LojaContext';
+import { useLeads } from '../context/LeadsContext'; // 🔥 Cérebro de Leads
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import NewVisitModal from '../components/NewVisitModal';
-import QuickVisitForm from '../components/QuickVisitForm';
+import PremiumSelect from '../components/PremiumSelect'; // 🔥 Dropdown Premium
 import { cleanVehicleName } from '../lib/utils';
+import CarCard from '../components/Whatsapp/CarCard';
+import { AddScriptModal, EditScriptModal } from '../components/Whatsapp/ScriptModals';
+import { WorkspaceControls } from '../components/Whatsapp/WorkspaceControls';
 import { get, set } from 'idb-keyval'; // ⚡ Cache Local
+import { electronAPI } from '@/lib/electron-api';
 
 // Error Boundary para capturar crashes do React
 class ErrorBoundary extends React.Component {
@@ -38,106 +43,15 @@ class ErrorBoundary extends React.Component {
 // --- Sub-componentes Optimizados ---
 
 
-const CarCard = memo(({ car, onSendPhotos, onSendInfo, onPasteLink, loadingCar }) => {
-    const { performanceMode } = useUI();
-    let fotosCount = 0;
-    try {
-        const parsed = JSON.parse(car.fotos || '[]');
-        fotosCount = Array.isArray(parsed) ? parsed.length : 0;
-    } catch (e) {
-        console.warn("Erro fotos:", car?.nome, e);
-    }
 
-    return (
-        <div className={`relative group overflow-hidden rounded-[1.5rem] border border-white/5 bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] p-1 ${performanceMode ? '' : 'shadow-lg hover:shadow-cyan-500/10'} transition-all duration-300`}>
-            {/* Glow Effect on Hover - Oculto em Performance */}
-            {!performanceMode && (
-                <div className="absolute inset-0 bg-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-            )}
-
-            <div className="relative z-10 p-3 flex flex-col gap-3">
-                {/* Header: Image & Title */}
-                <div className="flex gap-3">
-                    <div className="relative w-24 h-20 rounded-xl overflow-hidden shrink-0 border border-white/10 group-hover:border-white/20 transition-colors">
-                        {car.foto ? (
-                            <img src={car.foto} className={`w-full h-full object-cover transition-transform duration-500 ${performanceMode ? '' : 'group-hover:scale-110'}`} loading="lazy" />
-                        ) : (
-                            <div className="w-full h-full flex items-center justify-center text-gray-700 bg-black/40">
-                                <ImageIcon size={24} />
-                            </div>
-                        )}
-                        {/* Overlay Gradient on Image */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                    </div>
-
-                    <div className="min-w-0 flex-1 flex flex-col justify-between py-0.5">
-                        <h4 className="text-sm font-bold text-white leading-tight tracking-tight line-clamp-2 group-hover:text-cyan-400 transition-colors">
-                            {cleanVehicleName(car.nome).split('#')[0]}
-                        </h4>
-
-                        <div className="flex flex-col items-start gap-1">
-                            <span className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-tight drop-shadow-sm">
-                                {car.valor || 'R$ 0,00'}
-                            </span>
-
-                            <div className="flex flex-wrap gap-1.5">
-                                {car.ano && (
-                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-white/10 shadow-sm transition-colors group-hover:border-amber-500/30">
-                                        <Calendar size={12} className="text-amber-500" />
-                                        <span className="text-[11px] font-bold text-gray-300 font-rajdhani tracking-wider">
-                                            {car.ano}
-                                        </span>
-                                    </div>
-                                )}
-                                {car.km && (
-                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-white/10 shadow-sm transition-colors group-hover:border-cyan-500/30">
-                                        <Gauge size={12} className="text-cyan-400" />
-                                        <span className="text-[11px] font-bold text-gray-300 font-rajdhani tracking-wider lowercase">
-                                            {car.km}
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Actions Grid - Cyber Buttons Padronizados */}
-                <div className="grid grid-cols-1 gap-2 pt-2 border-t border-white/5">
-                    <button
-                        onClick={() => onSendPhotos(car)}
-                        disabled={loadingCar === car.nome}
-                        className={`btn-cyber-primary w-full flex items-center justify-center gap-2 text-[11px] py-3.5 rounded-2xl
-                            ${loadingCar === car.nome ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
-                    >
-                        {loadingCar === car.nome ? (
-                            <ImageIcon className="animate-spin" size={14} />
-                        ) : (
-                            <ImageIcon size={14} className="group-hover:scale-110 transition-transform" />
-                        )}
-                        <span className="font-black tracking-widest">{loadingCar === car.nome ? 'BUSCANDO...' : `ENVIAR FOTOS (${fotosCount})`}</span>
-                    </button>
-
-                    <button
-                        onClick={(e) => { e.currentTarget.blur(); onSendInfo(car); }}
-                        className="btn-cyber-primary w-full text-[11px] py-3.5 flex items-center justify-center gap-2 rounded-2xl bg-white/5 border-white/10 text-white hover:bg-cyan-500/10 hover:border-cyan-500/50 transition-all"
-                    >
-                        <ListCheck size={14} className="group-hover:text-cyan-400 transition-colors" />
-                        <span className="font-black tracking-widest">ENVIAR INFORMAÇÕES</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-});
 
 const Whatsapp = () => {
     const { currentLoja } = useLoja();
     const { performanceMode } = useUI();
+    const { filteredLeads, estoque: brainEstoque } = useLeads(); // 🔥 Puxando Leads do Cérebro
     const location = useLocation();
     const navigate = useNavigate();
     const [scripts, setScripts] = useState([]);
-    const [estoque, setEstoque] = useState([]);
     const [activeTab, setActiveTab] = useState('veiculos');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false); // <--- INICIA FECHADO AGORA
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -170,6 +84,38 @@ const Whatsapp = () => {
         }));
     }, [isSidebarOpen]);
 
+    // 🔥 MOTOR CROSS-ROUTING: Recebe o clique vindo lá dos cards do CRM
+    useEffect(() => {
+        if (location.state && location.state.action === 'open-chat' && location.state.phone) {
+            const phone = location.state.phone;
+
+            const performChatOpen = async () => {
+                // Aguarda 1.2s para garantir que o painel interno do Zap terminou de carregar na tela
+                await new Promise(r => setTimeout(r, 1200));
+
+                // Dispara a mágica do Anti-Reload silencioso no Webview
+                const scriptAntiReload = `
+                    (function() {
+                        try {
+                            const link = document.createElement('a');
+                            link.href = 'https://api.whatsapp.com/send/?phone=${phone}';
+                            link.target = '_self';
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                        } catch(err) {}
+                    })();
+                `;
+                window.dispatchEvent(new CustomEvent('whatsapp-execute-script', { detail: { script: scriptAntiReload } }));
+                window.dispatchEvent(new CustomEvent('show-notification', { detail: { message: 'Abrindo conversa do CRM...', type: 'info' } }));
+            };
+
+            performChatOpen();
+            // Limpa o estado da memória para não ficar repetindo ao navegar
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+    }, [location.state, navigate]);
+
 
     const pasteToWhatsapp = useCallback((text) => {
         // Dispara evento para o Service colar texto
@@ -179,14 +125,14 @@ const Whatsapp = () => {
     // Função avançada para injetar fotos diretamente (Via Service)
     const sendPhotosToWhatsapp = async (fotosRaw) => {
         try {
-            const { ipcRenderer } = window.require('electron');
+
             const fotosArray = typeof fotosRaw === 'string' ? JSON.parse(fotosRaw) : fotosRaw;
 
             if (!fotosArray || fotosArray.length === 0) return;
 
             // Busca todas as fotos em paralelo
             const base64Promises = fotosArray.map(url =>
-                ipcRenderer.invoke('get-image-base64', url).catch(e => null)
+                electronAPI.getImageBase64(url).catch(e => null)
             );
 
             const base64Results = await Promise.all(base64Promises);
@@ -299,7 +245,7 @@ const Whatsapp = () => {
         loadData();
 
         // Listener para sincronização automática
-        const { ipcRenderer } = window.require('electron');
+
         let refreshTimeout;
         const handleRefresh = (event, payload) => {
             const table = typeof payload === 'string' ? payload : payload?.table;
@@ -312,13 +258,13 @@ const Whatsapp = () => {
                 }, 300); // Aguarda 300ms antes de atualizar
             }
         };
-        ipcRenderer.on('sync-status', handleRefresh);
-        ipcRenderer.on('refresh-data', handleRefresh);
+        electronAPI.onSyncStatus(handleRefresh);
+        electronAPI.onRefreshData(handleRefresh);
 
         return () => {
             clearTimeout(refreshTimeout);
-            ipcRenderer.removeListener('sync-status', handleRefresh);
-            ipcRenderer.removeListener('refresh-data', handleRefresh);
+            // Managed by electronAPI cleanup;
+            // Managed by electronAPI.onRefreshData unsubscribe;
         };
     }, [currentLoja]);
     // Sincronizar estado da sidebar com componentes externos
@@ -344,7 +290,7 @@ const Whatsapp = () => {
 
     const loadData = async (force = false) => {
         try {
-            const { ipcRenderer } = window.require('electron');
+
             const username = localStorage.getItem('username');
 
             // 🚀 FALLBACK: Se currentLoja não estiver definida, usa a loja padrão
@@ -359,63 +305,70 @@ const Whatsapp = () => {
             // Se não for forçado, tenta carregar do cache para mostrar algo instantaneamente
             if (!force) {
                 try {
-                    const [cachedScripts, cachedEstoque] = await Promise.all([
-                        get(`scripts-cache-${lojaId}`),
-                        get(`estoque-cache-${lojaId}`)
-                    ]);
+                    const cachedScripts = await get(`scripts-cache-${lojaId}`);
 
                     if (cachedScripts && Array.isArray(cachedScripts)) {
                         console.log(`⚡ [Cache] Carregados ${cachedScripts.length} scripts`);
                         setScripts(cachedScripts);
                     }
-                    if (cachedEstoque && Array.isArray(cachedEstoque)) {
-                        console.log(`⚡ [Cache] Carregados ${cachedEstoque.length} veículos`);
-                        setEstoque(cachedEstoque);
-                    }
                 } catch (e) { console.warn('Erro leitura cache Whatsapp:', e); }
             }
 
-            const [scriptsData, estoqueData] = await Promise.all([
-                ipcRenderer.invoke('get-scripts', { username, lojaId }),
-                ipcRenderer.invoke('get-list', { table: 'estoque', lojaId })
-            ]);
-
-            console.log('📊 [Whatsapp] Scripts recebidos:', scriptsData?.length || 0, scriptsData);
-            console.log('🚗 [Whatsapp] Estoque recebido:', estoqueData?.length || 0);
-
-            if (estoqueData && estoqueData.length > 0) {
-                console.log('🚗 [Whatsapp] Primeiros 3 veículos:', estoqueData.slice(0, 3));
-            } else {
-                console.warn('⚠️  [Whatsapp] Nenhum veículo retornado!');
-                console.log('🔍 [Whatsapp] Verificando lojaId usado:', lojaId);
-            }
+            const scriptsData = await electronAPI.getScripts(username, lojaId);
 
             if (scriptsData) {
                 setScripts(scriptsData);
                 set(`scripts-cache-${lojaId}`, scriptsData).catch(console.error);
             }
-
-            if (estoqueData) {
-                setEstoque(estoqueData);
-                set(`estoque-cache-${lojaId}`, estoqueData).catch(console.error);
-            }
-
-            // DEBUG: Verificar se está setando corretamente
-            console.log('🔍 [DEBUG] Após setEstoque, estoque.length deveria ser:', estoqueData?.length);
-            // console.log('🔍 [DEBUG] Valor de ativo nos primeiros 3:', estoqueData?.slice(0, 3).map(v => ({ nome: v.nome, ativo: v.ativo, tipo: typeof v.ativo })));
         } catch (err) {
-            console.error('❌ [Whatsapp] Erro ao carregar dados:', err);
+            console.error('❌ [Whatsapp] Erro ao carregar scripts:', err);
         }
     };
+
+    // 🔥 MOTOR BLINDADO ANTI-RELOAD DE CONVERSA RÁPIDA
+    const handleStartDirectChat = useCallback((e) => {
+        if (e) {
+            e.preventDefault(); // Impede o formulário HTML de piscar
+            e.stopPropagation();
+        }
+
+        if (directPhone.length >= 8) {
+            let numeroLimpo = directPhone.replace(/\D/g, '');
+            if (!numeroLimpo.startsWith('55')) numeroLimpo = '55' + numeroLimpo;
+
+            // 1. INJEÇÃO DE SCRIPT (A Mágica do Sem-Recarregar)
+            // Isso cria um link invisível dentro do WhatsApp e clica nele, acionando a troca de conversa instantânea!
+            const scriptAntiReload = `
+                (function() {
+                    try {
+                        const link = document.createElement('a');
+                        link.href = 'https://api.whatsapp.com/send/?phone=${numeroLimpo}';
+                        link.target = '_self';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    } catch(err) {}
+                })();
+            `;
+            window.dispatchEvent(new CustomEvent('whatsapp-execute-script', { detail: { script: scriptAntiReload } }));
+
+            // 2. Emite o evento padrão do sistema como segurança (Motor de Busca do Service)
+            window.dispatchEvent(new CustomEvent('whatsapp-direct-chat', { detail: numeroLimpo }));
+
+            window.dispatchEvent(new CustomEvent('show-notification', { detail: { message: 'Iniciando conversa...', type: 'info' } }));
+
+            setDirectPhone(''); // Limpa o input
+        }
+    }, [directPhone]);
 
     const handleAddScript = async (e) => {
         e.preventDefault();
         if (!newScript.titulo || !newScript.mensagem) return;
         try {
-            const { ipcRenderer } = window.require('electron');
+
             const username = localStorage.getItem('username');
 
-            await ipcRenderer.invoke('add-script', {
+            await electronAPI.addScript({
                 titulo: newScript.titulo,
                 mensagem: newScript.mensagem,
                 isSystem: newScript.isSystem ? 1 : 0,
@@ -442,10 +395,10 @@ const Whatsapp = () => {
     const handleUpdateScript = async (e) => {
         e.preventDefault();
         try {
-            const { ipcRenderer } = window.require('electron');
+
             const username = localStorage.getItem('username');
 
-            await ipcRenderer.invoke('update-script', {
+            await electronAPI.updateScript({
                 id: editingScript.id,
                 titulo: editingScript.titulo,
                 mensagem: editingScript.mensagem,
@@ -468,10 +421,10 @@ const Whatsapp = () => {
     const handleDeleteScript = async (e, id) => {
         e.stopPropagation();
         try {
-            const { ipcRenderer } = window.require('electron');
+
             const username = localStorage.getItem('username');
 
-            await ipcRenderer.invoke('delete-script', {
+            await electronAPI.deleteScript({
                 id,
                 userRole,
                 username: username,
@@ -491,8 +444,8 @@ const Whatsapp = () => {
         if (car.km === 'Consulte' || (JSON.parse(car.fotos || '[]').length <= 4)) {
             try {
                 setLoadingCar(car.nome);
-                const { ipcRenderer } = window.require('electron');
-                const fresh = await ipcRenderer.invoke('scrap-car-details', { nome: car.nome, url: car.link });
+
+                const fresh = await electronAPI.scrapCarDetails({ nome: car.nome, url: car.link });
                 if (fresh) {
                     // Atualiza o estado local para refletir na UI
                     const updatedCar = {
@@ -555,37 +508,23 @@ const Whatsapp = () => {
     }, []);
 
     const filteredEstoque = useMemo(() => {
-        const query = (searchEstoque || "").toLowerCase();
+        const query_filtered = (searchEstoque || "").toLowerCase();
         const limit = parseInt(priceLimit);
 
-        console.log('🔍 [filteredEstoque] Início do filtro');
-        console.log('🔍 [filteredEstoque] estoque.length:', estoque?.length);
-        console.log('🔍 [filteredEstoque] query:', query);
-        console.log('🔍 [filteredEstoque] priceLimit:', priceLimit);
+        const source = brainEstoque || [];
 
-        const filtered = (estoque || []).filter(car => {
-            if (!car || !car.nome) {
-                console.log('🔍 [filteredEstoque] Rejeitado: sem nome', car);
-                return false;
-            }
-            const matchesSearch = car.nome.toLowerCase().includes(query);
+        const filtered = source.filter(car => {
+            if (!car || !car.nome) return false;
+            const matchesSearch = car.nome.toLowerCase().includes(query_filtered);
             const carPrice = parsePrice(car.valor);
             const matchesPrice = !priceLimit || isNaN(limit) || carPrice <= limit;
             const ativoOk = car.ativo !== 0;
 
-            if (!matchesSearch || !matchesPrice || !ativoOk) {
-                console.log(`🔍 [filteredEstoque] Rejeitado: ${car.nome} - search:${matchesSearch}, price:${matchesPrice}, ativo:${ativoOk} (valor ativo=${car.ativo}, tipo=${typeof car.ativo})`);
-            }
-
             return matchesSearch && matchesPrice && ativoOk;
         });
 
-        console.log('🔍 [filteredEstoque] Resultado FINAL:', filtered.length, 'veículos');
-        if (filtered.length === 0 && estoque && estoque.length > 0) {
-            console.error('❌ [filteredEstoque] PROBLEMA: estoque tem', estoque.length, 'mas filtro retorna 0!');
-        }
         return filtered;
-    }, [estoque, searchEstoque, priceLimit, parsePrice]);
+    }, [brainEstoque, searchEstoque, priceLimit, parsePrice]);
 
     // Separa scripts para facilitar o Drag and Drop
     const systemScripts = scripts.filter(s => s.is_system === 1);
@@ -595,8 +534,8 @@ const Whatsapp = () => {
         const newFullList = [...systemScripts, ...newUserScripts];
         setScripts(newFullList);
         const orderUpdate = newFullList.map((script, index) => ({ id: script.id, ordem: index }));
-        const { ipcRenderer } = window.require('electron');
-        ipcRenderer.invoke('update-scripts-order', orderUpdate).catch(console.error);
+
+        electronAPI.updateScriptsOrder(orderUpdate).catch(console.error);
     };
 
     return (
@@ -611,6 +550,7 @@ const Whatsapp = () => {
                 {/* ÁREA DE CONTROLE (Botão Toggle) */}
                 {/* ÁREA DE CONTROLE (Botão Toggle) */}
                 <motion.button
+                    type="button"
                     onClick={(e) => { e.stopPropagation(); setIsSidebarOpen(!isSidebarOpen); }}
                     initial={false}
                     animate={{
@@ -634,32 +574,41 @@ const Whatsapp = () => {
                             transition={performanceMode ? { duration: 0 } : { type: "spring", stiffness: 400, damping: 35 }}
                             className="absolute right-0 top-0 bottom-0 w-[420px] h-full overflow-y-auto custom-scrollbar flex flex-col pr-2 pl-4 py-8 bg-[#0f172a] border-l border-white/10 z-50 shadow-2xl pointer-events-auto"
                         >
-                            {/* Header */}
-                            <div className="shrink-0 space-y-4 mb-4">
-                                <div className="flex items-center justify-between px-2">
-                                    <h2 className="text-xl font-black text-white tracking-tighter flex items-center gap-2">
-                                        <span className="w-1 h-6 bg-gradient-to-b from-blue-500 to-purple-500 rounded-full block"></span>
-                                        {activeTab === 'veiculos' ? 'CATÁLOGO' : 'SCRIPTS'}
-                                    </h2>
+                            {/* 🔥 HEADER E TABS PREMIUM */}
+                            <div className="shrink-0 mb-6">
+                                <div className="flex items-center justify-between px-1 mb-1">
+                                    <div>
+                                        <h2 className="text-lg font-black text-white tracking-[0.15em] uppercase flex items-center gap-2.5">
+                                            <span className="w-1.5 h-5 bg-gradient-to-b from-cyan-400 to-blue-600 rounded-full block shadow-[0_0_10px_rgba(6,182,212,0.5)]"></span>
+                                            {activeTab === 'veiculos' ? 'WORKSPACE' : 'MENSAGENS'}
+                                        </h2>
+                                        <p className="text-[9px] font-bold text-gray-500 tracking-[0.2em] uppercase mt-1 ml-4">
+                                            {activeTab === 'veiculos' ? 'Central de Atendimento' : 'Scripts e Atalhos'}
+                                        </p>
+                                    </div>
+
                                     {activeTab === 'templates' && (
-                                        <button onClick={() => setIsAddModalOpen(true)} className="w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500 hover:text-white flex items-center justify-center transition-all border border-cyan-500/20">
-                                            <Plus size={18} />
+                                        <button onClick={() => setIsAddModalOpen(true)} className="w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500 hover:text-white flex items-center justify-center transition-all border border-cyan-500/20 shadow-lg" title="Novo Script">
+                                            <Plus size={16} strokeWidth={3} />
                                         </button>
                                     )}
                                 </div>
 
-                                {/* Tabs */}
-                                <div className="bg-black/40 p-1.5 rounded-2xl flex gap-1 border border-white/5">
+                                {/* Tabs / Segmented Control */}
+                                <div className="bg-[#0a101d] p-1.5 rounded-[1.25rem] flex gap-1 border border-white/5 shadow-inner mt-4">
                                     <button
                                         onClick={() => setActiveTab('veiculos')}
-                                        className={`flex-1 transition-all rounded-xl py-2 text-[11px] font-bold tracking-widest uppercase ${activeTab === 'veiculos' ? 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg shadow-orange-500/20' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
+                                        className={`flex-1 flex items-center justify-center gap-2 transition-all rounded-xl py-2.5 text-[10px] font-black tracking-widest uppercase ${activeTab === 'veiculos' ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-[0_4px_15px_rgba(6,182,212,0.3)] border border-cyan-400/30' : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.02]'}`}
                                     >
-                                        Estoque
+                                        <Smartphone size={13} className={activeTab === 'veiculos' ? 'text-cyan-200' : 'opacity-60'} />
+                                        Operação
                                     </button>
+
                                     <button
                                         onClick={() => setActiveTab('templates')}
-                                        className={`flex-1 transition-all rounded-xl py-2 text-[11px] font-bold tracking-widest uppercase ${activeTab === 'templates' ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
+                                        className={`flex-1 flex items-center justify-center gap-2 transition-all rounded-xl py-2.5 text-[10px] font-black tracking-widest uppercase ${activeTab === 'templates' ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-[0_4px_15px_rgba(168,85,247,0.3)] border border-purple-400/30' : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.02]'}`}
                                     >
+                                        <MessageSquare size={13} className={activeTab === 'templates' ? 'text-purple-200' : 'opacity-60'} />
                                         Scripts
                                     </button>
                                 </div>
@@ -672,7 +621,7 @@ const Whatsapp = () => {
 
 
 
-                                        <div className="space-y-2 mt-4 overflow-y-auto flex-1 pr-2 custom-scrollbar">
+                                        <div className="flex-1 min-h-0 space-y-2 mt-4 overflow-y-auto pr-2 custom-scrollbar">
                                             {/* Scripts Fixos */}
                                             {systemScripts.map(script => (
                                                 <div key={script.id}
@@ -708,115 +657,16 @@ const Whatsapp = () => {
                                         </div>
                                     </>
                                 ) : (
-                                    <>
-                                        {/* Chat Direto por Número - UI Premium */}
-                                        <div className="mb-4 p-4 bg-gradient-to-br from-cyan-500/10 to-blue-600/5 rounded-3xl border border-cyan-500/20 backdrop-blur-md shadow-lg shadow-cyan-900/10 relative overflow-hidden group/chatcard">
-                                            {/* Glow decorativo */}
-                                            <div className="absolute -right-4 -top-4 w-16 h-16 bg-cyan-500/20 blur-2xl rounded-full" />
+                                    <div className="flex flex-col h-full">
+                                        <WorkspaceControls
+                                            directPhone={directPhone} setDirectPhone={setDirectPhone}
+                                            handleStartDirectChat={handleStartDirectChat}
+                                            isQuickVisitOpen={isQuickVisitOpen} setIsQuickVisitOpen={setIsQuickVisitOpen}
+                                            searchEstoque={searchEstoque} setSearchEstoque={setSearchEstoque}
+                                            priceLimit={priceLimit} setPriceLimit={setPriceLimit}
+                                        />
 
-                                            <div className="flex items-center gap-2 mb-3 px-1 relative z-10">
-                                                <div className="p-1.5 bg-cyan-500/20 rounded-lg">
-                                                    <MessageSquare size={12} className="text-cyan-400" />
-                                                </div>
-                                                <span className="text-[10px] font-black text-cyan-200/60 tracking-[0.2em] uppercase">Conversa Rápida</span>
-                                            </div>
-
-                                            <div className="relative group/phone z-10">
-                                                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-500/50 group-focus-within/phone:text-cyan-400 transition-colors">
-                                                    <Smartphone size={14} />
-                                                </div>
-                                                <input
-                                                    type="text"
-                                                    placeholder="DDD + Telefone"
-                                                    value={directPhone}
-                                                    onChange={(e) => setDirectPhone(e.target.value.replace(/\D/g, '').slice(0, 13))}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter' && directPhone.length >= 8) {
-                                                            window.dispatchEvent(new CustomEvent('whatsapp-direct-chat', { detail: directPhone }));
-                                                            window.dispatchEvent(new CustomEvent('show-notification', { detail: { message: 'Iniciando conversa...', type: 'info' } }));
-                                                            setDirectPhone('');
-                                                        }
-                                                    }}
-                                                    className="w-full bg-black/30 border border-white/10 rounded-2xl py-3 pl-10 pr-12 text-xs text-white placeholder:text-gray-500 focus:outline-none focus:border-cyan-500/50 focus:bg-black/50 transition-all font-mono font-bold tracking-widest shadow-inner"
-                                                />
-                                                <button
-                                                    onClick={() => {
-                                                        if (directPhone.length >= 8) {
-                                                            window.dispatchEvent(new CustomEvent('whatsapp-direct-chat', { detail: directPhone }));
-                                                            window.dispatchEvent(new CustomEvent('show-notification', { detail: { message: 'Iniciando conversa...', type: 'info' } }));
-                                                            setDirectPhone('');
-                                                        }
-                                                    }}
-                                                    disabled={directPhone.length < 8}
-                                                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-2 rounded-xl bg-cyan-600 text-white hover:bg-cyan-500 hover:scale-105 active:scale-95 transition-all disabled:opacity-0 disabled:scale-90 shadow-lg shadow-cyan-500/20"
-                                                    title="Iniciar Conversa"
-                                                >
-                                                    <Send size={14} />
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <div className="px-2 mt-2 space-y-2 mb-4">
-                                            <div className="px-2">
-                                                <button
-                                                    onClick={() => setIsQuickVisitOpen(!isQuickVisitOpen)}
-                                                    className={`w-full flex items-center justify-center gap-2 text-xs py-2.5 rounded-xl transition-all border font-black tracking-widest
-                                                        ${isQuickVisitOpen
-                                                            ? 'bg-red-500/10 border-red-500/50 text-red-500 hover:bg-red-500 hover:text-white'
-                                                            : 'btn-cyber-primary'}`}
-                                                >
-                                                    {isQuickVisitOpen ? (
-                                                        <> <X size={16} /> Cancelar Agendamento </>
-                                                    ) : (
-                                                        <> <CalendarIcon size={16} strokeWidth={2.5} /> Agendar Visita </>
-                                                    )}
-                                                </button>
-                                            </div>
-
-                                            <AnimatePresence>
-                                                {isQuickVisitOpen && (
-                                                    <div className="px-4 mt-2">
-                                                        <QuickVisitForm onClose={() => setIsQuickVisitOpen(false)} />
-                                                    </div>
-                                                )}
-                                            </AnimatePresence>
-                                        </div>
-
-                                        {/* Tab Veículos - Filtros Premium */}
-                                        <div className="space-y-3 mb-6 p-4 bg-black/40 rounded-3xl border border-white/5 backdrop-blur-sm shadow-xl">
-                                            <div className="flex items-center gap-2 mb-1 px-1">
-                                                <Filter size={12} className="text-orange-500" />
-                                                <span className="text-[10px] font-black text-gray-500 tracking-[0.2em] uppercase">Filtrar Catálogo</span>
-                                            </div>
-
-                                            <div className="space-y-2.5">
-                                                {/* Busca por Nome */}
-                                                <div className="relative group/input">
-                                                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within/input:text-orange-400 transition-colors" size={14} />
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Qual veículo procura?"
-                                                        value={searchEstoque}
-                                                        onChange={(e) => setSearchEstoque(e.target.value)}
-                                                        className="w-full bg-white/5 text-xs text-white pl-10 pr-4 py-3 rounded-2xl border border-white/10 outline-none focus:border-orange-500/50 focus:bg-orange-500/5 transition-all placeholder:text-gray-600 font-bold"
-                                                    />
-                                                </div>
-
-                                                {/* Preço Máximo */}
-                                                <div className="relative group/input">
-                                                    <CircleDollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within/input:text-emerald-400 transition-colors" size={14} />
-                                                    <input
-                                                        type="number"
-                                                        placeholder="Preço Máximo (Opcional)"
-                                                        value={priceLimit}
-                                                        onChange={(e) => setPriceLimit(e.target.value)}
-                                                        className="w-full bg-white/5 text-xs text-white pl-10 pr-4 py-3 rounded-2xl border border-white/10 outline-none focus:border-emerald-500/50 focus:bg-emerald-500/5 transition-all placeholder:text-gray-600 font-bold"
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-3 overflow-y-auto flex-1 pr-2 custom-scrollbar pb-20">
+                                        <div className="flex-1 min-h-0 space-y-3 overflow-y-auto pr-2 custom-scrollbar pb-20">
                                             {filteredEstoque.map(car => (
                                                 <CarCard
                                                     key={car.id || car.nome}
@@ -827,9 +677,8 @@ const Whatsapp = () => {
                                                     onPasteLink={handlePasteLink}
                                                 />
                                             ))}
-                                            {filteredEstoque.length === 0 && <div className="text-center text-gray-500 text-xs py-10">Nenhum veículo encontrado.</div>}
                                         </div>
-                                    </>
+                                    </div>
                                 )}
                             </div>
                         </motion.div>
@@ -837,106 +686,16 @@ const Whatsapp = () => {
                 </AnimatePresence>
 
                 {/* Modais */}
-                <AnimatePresence>
-                    {isAddModalOpen && (
-                        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 overflow-hidden">
-                            <motion.div
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                onClick={() => setIsAddModalOpen(false)}
-                                className="absolute inset-0 bg-[#0f172a]/90 backdrop-blur-sm pointer-events-auto"
-                            />
-                            <motion.div
-                                initial={{ scale: 0.9, opacity: 0 }}
-                                animate={{ scale: 1, opacity: 1 }}
-                                className="relative z-10 w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] p-8 shadow-2xl pointer-events-auto"
-                            >
-                                <div className="flex justify-between items-center mb-6">
-                                    <h3 className="text-xl font-black text-white tracking-tighter">Novo Script</h3>
-                                    <button onClick={() => setIsAddModalOpen(false)} className="p-2 text-gray-500 hover:text-white transition-colors">
-                                        <X />
-                                    </button>
-                                </div>
-                                <form onSubmit={handleAddScript} className="space-y-4">
-                                    <input
-                                        autoFocus
-                                        className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 font-bold text-sm text-white"
-                                        placeholder="TÍTULO DO ATALHO"
-                                        value={newScript.titulo}
-                                        onChange={e => setNewScript({ ...newScript, titulo: e.target.value.toUpperCase() })}
-                                        required
-                                    />
-                                    <textarea
-                                        className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 font-medium text-sm h-32 resize-none text-white"
-                                        placeholder="MENSAGEM..."
-                                        value={newScript.mensagem}
-                                        onChange={e => setNewScript({ ...newScript, mensagem: e.target.value })}
-                                        required
-                                    />
-
-                                    <div className="space-y-1.5">
-                                        <label className="text-[11px] font-black text-gray-400 ml-4 tracking-widest uppercase">🔗 Link (Opcional)</label>
-                                        <input type="url" className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 font-medium text-sm" placeholder="https://exemplo.com" value={newScript.link} onChange={e => setNewScript({ ...newScript, link: e.target.value })} />
-                                    </div>
-
-                                    {(userRole === 'master' || userRole === 'developer' || userRole === 'admin') && (
-                                        <label className="flex items-center gap-3 p-3 bg-white/5 rounded-xl cursor-pointer hover:bg-white/10 transition-all">
-                                            <input type="checkbox" checked={newScript.isSystem} onChange={e => setNewScript({ ...newScript, isSystem: e.target.checked })} className="w-5 h-5 rounded accent-blue-500" />
-                                            <div className="flex-1"><span className="font-bold text-sm text-white">🔒 Script do Sistema</span></div>
-                                        </label>
-                                    )}
-                                    <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-white text-xs  tracking-widest shadow-xl shadow-blue-500/20 active:scale-95 border-t border-white/10">Salvar Script</button>
-                                </form>
-                            </motion.div>
-                        </div>
-                    )}
-                </AnimatePresence>
-
-                <AnimatePresence>
-                    {isEditModalOpen && editingScript && (
-                        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 overflow-hidden">
-                            <motion.div
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                onClick={() => setIsEditModalOpen(false)}
-                                className="absolute inset-0 bg-[#0f172a]/90 backdrop-blur-sm pointer-events-auto"
-                            />
-                            <motion.div
-                                initial={{ scale: 0.9, opacity: 0 }}
-                                animate={{ scale: 1, opacity: 1 }}
-                                className="relative z-10 w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] p-8 shadow-2xl pointer-events-auto"
-                            >
-                                <h3 className="text-xl font-black text-white mb-6">Editar Script</h3>
-                                <form onSubmit={handleUpdateScript} className="space-y-4">
-                                    <input
-                                        autoFocus
-                                        className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 font-bold text-sm text-white outline-none focus:border-blue-500"
-                                        value={editingScript.titulo}
-                                        onChange={e => setEditingScript({ ...editingScript, titulo: e.target.value.toUpperCase() })}
-                                        required
-                                    />
-                                    <textarea
-                                        className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 font-medium text-sm h-32 resize-none text-white outline-none focus:border-blue-500"
-                                        value={editingScript.mensagem}
-                                        onChange={e => setEditingScript({ ...editingScript, mensagem: e.target.value })}
-                                        required
-                                    />
-                                    <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black text-white shadow-xl transition-all active:scale-95">Atualizar</button>
-                                </form>
-                            </motion.div>
-                        </div>
-                    )}
-                </AnimatePresence>
+                <AddScriptModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} newScript={newScript} setNewScript={setNewScript} onSubmit={handleAddScript} userRole={userRole} />
+                <EditScriptModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} editingScript={editingScript} setEditingScript={setEditingScript} onSubmit={handleUpdateScript} />
 
                 <NewVisitModal
                     isOpen={isVisitModalOpen}
                     onClose={() => setIsVisitModalOpen(false)}
                 />
 
-            </motion.div>
-        </ErrorBoundary>
+            </motion.div >
+        </ErrorBoundary >
     );
 };
 

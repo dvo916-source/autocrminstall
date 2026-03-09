@@ -16,10 +16,22 @@ export const parsePrice = (priceStr) => {
  * Formata um número para moeda BRL
  */
 export const formatCurrency = (value) => {
+    if (value === null || value === undefined) return '';
     return new Intl.NumberFormat('pt-BR', {
         style: 'currency',
         currency: 'BRL',
+        maximumFractionDigits: 0
     }).format(value);
+};
+
+/**
+ * Retorna saudação baseada no horário
+ */
+export const getGreeting = () => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Bom dia';
+    if (h < 18) return 'Boa tarde';
+    return 'Boa noite';
 };
 
 /**
@@ -73,4 +85,16 @@ export const cleanVehicleName = (name) => {
     }
 
     return uniqueWords.join(' ');
+};
+
+// 🎭 MÁSCARA DE CPF
+// Transforma "12345678900" em "123.456.789-00" enquanto digita
+export const maskCPF = (value) => {
+    if (!value) return '';
+    return value
+        .replace(/\D/g, '')
+        .replace(/(\d{3})(\d)/, '$1.$2')
+        .replace(/(\d{3})(\d)/, '$1.$2')
+        .replace(/(\d{3})(\d{1,2})/, '$1-$2')
+        .replace(/(-\d{2})\d+?$/, '$1');
 };

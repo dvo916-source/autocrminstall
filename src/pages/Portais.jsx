@@ -5,6 +5,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import { supabase } from '../lib/supabase';
 import { useLoja } from '../context/LojaContext';
 import { ToastContainer } from '../components/Toast';
+import { electronAPI } from '@/lib/electron-api';
 
 const Portais = () => {
     const { currentLoja } = useLoja();
@@ -34,15 +35,16 @@ const Portais = () => {
 
         // IPC Listener for Realtime Refreshes
         try {
-            const { ipcRenderer } = window.require('electron');
+            
             const handleRefresh = (event, table) => {
                 if (table === 'portais') {
                     console.log(`[Portais] Refreshing due to ${table} change...`);
                     loadItems();
                 }
             };
-            ipcRenderer.on('refresh-data', handleRefresh);
-            return () => ipcRenderer.removeListener('refresh-data', handleRefresh);
+            electronAPI.onRefreshData(handleRefresh);
+            const unsub = electronAPI.onRefreshData(handleRefresh);
+            return () => { if (unsub) unsub(); };
         } catch (e) { }
     }, []);
 
@@ -61,8 +63,8 @@ const Portais = () => {
             console.error('Erro ao carregar portais da nuvem:', err);
             // Fallback local se estiver offline? 
             try {
-                const { ipcRenderer } = window.require('electron');
-                const localData = await ipcRenderer.invoke('get-list', { table: 'portais', lojaId: currentLoja?.id });
+                
+                const localData = await electronAPI.getList('portais', currentLoja?.id);
                 setItems(localData);
             } catch (e) { }
         } finally {
@@ -79,9 +81,9 @@ const Portais = () => {
         }
 
         try {
-            const { ipcRenderer } = window.require('electron');
+            
             // Salvamento Local (Cache) + Nuvem Automático (Main Process)
-            await ipcRenderer.invoke('add-item', {
+            await electronAPI.addItem({
                 table: 'portais',
                 data: {
                     nome: newItem.nome.trim().toUpperCase(),
@@ -115,8 +117,8 @@ const Portais = () => {
         }
 
         try {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('update-item', {
+            
+            await electronAPI.updateItem({
                 table: 'portais',
                 oldNome,
                 data: {
@@ -137,8 +139,8 @@ const Portais = () => {
 
     const toggleAtivo = async (nome, current) => {
         try {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('toggle-item', { table: 'portais', nome, ativo: !current, loja_id: currentLoja?.id });
+            
+            await electronAPI.toggleItem({ table: 'portais', nome, ativo: !current, loja_id: currentLoja?.id });
             addToast(current ? "Portal desativado" : "Portal ativado");
             loadItems();
         } catch (err) { console.error(err); }
@@ -147,8 +149,8 @@ const Portais = () => {
     const handleExecuteDelete = async () => {
         if (!deleteModal.nome) return;
         try {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('delete-item', { table: 'portais', nome: deleteModal.nome, loja_id: currentLoja?.id });
+            
+            await electronAPI.deleteItem({ table: 'portais', nome: deleteModal.nome, loja_id: currentLoja?.id });
             addToast("Portal removido");
             loadItems();
             setDeleteModal({ isOpen: false, nome: null });

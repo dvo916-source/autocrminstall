@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Target, Users, TrendingUp, Calendar, Lock, Unlock, Save, Trophy, Medal, Zap, BarChart3, Rocket } from 'lucide-react';
 import { useLoja } from '../context/LojaContext';
+import { electronAPI } from '@/lib/electron-api';
 
 const ProgressBar = ({ value, max, label, color }) => {
     const percent = Math.min(Math.round((value / max) * 100), 100) || 0;
@@ -128,15 +129,15 @@ const Metas = () => {
 
     const loadData = async () => {
         try {
-            const { ipcRenderer } = window.require('electron');
+            
             const role = localStorage.getItem('userRole');
             setUserRole(role);
 
-            const config = await ipcRenderer.invoke('get-config-meta', currentLoja?.id);
+            const config = await electronAPI.getConfigMeta(currentLoja?.id);
             setMetas(config);
             setTempMetas(config);
 
-            const perf = await ipcRenderer.invoke('get-sdr-performance', currentLoja?.id);
+            const perf = await electronAPI.getSdrPerformance(currentLoja?.id);
             if (role !== 'admin' && role !== 'master' && role !== 'developer') {
                 const myUser = localStorage.getItem('username');
                 setPerformance(perf.filter(p => p.username === myUser));
@@ -152,8 +153,8 @@ const Metas = () => {
 
     const handleSave = async () => {
         try {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('set-config-meta', {
+            
+            await electronAPI.setConfigMeta({
                 visita: tempMetas.visita_semanal,
                 venda: tempMetas.venda_mensal,
                 lojaId: currentLoja?.id

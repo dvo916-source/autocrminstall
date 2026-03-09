@@ -5,6 +5,7 @@ import { toLocalISOString } from '../lib/utils';
 import PremiumSelect from './PremiumSelect';
 import PremiumDatePicker from './PremiumDatePicker';
 import { useLoja } from '../context/LojaContext';
+import { electronAPI } from '@/lib/electron-api';
 
 const TEMPERATURAS = [
     { value: 'Quente', label: '🔥 Quente' },
@@ -175,14 +176,15 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
 
     useEffect(() => {
         try {
-            const { ipcRenderer } = window.require('electron');
+            
             const handleRefresh = (event, table) => {
                 if (['estoque', 'vendedores', 'portais'].includes(table)) {
                     loadData();
                 }
             };
-            ipcRenderer.on('refresh-data', handleRefresh);
-            return () => ipcRenderer.removeListener('refresh-data', handleRefresh);
+            electronAPI.onRefreshData(handleRefresh);
+            const unsub = electronAPI.onRefreshData(handleRefresh);
+            return () => { if (unsub) unsub(); };
         } catch (e) { }
     }, []);
 
@@ -200,12 +202,12 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
     const loadData = async () => {
         try {
             setLoading(true);
-            const { ipcRenderer } = window.require('electron');
+            
             const [localPortais, localVendedores, localEstoque, localUsers] = await Promise.all([
-                ipcRenderer.invoke('get-list', { table: 'portais', lojaId: currentLoja?.id }),
-                ipcRenderer.invoke('get-list', { table: 'vendedores', lojaId: currentLoja?.id }),
-                ipcRenderer.invoke('get-list', { table: 'estoque', lojaId: currentLoja?.id }),
-                ipcRenderer.invoke('get-list-users', currentLoja?.id)
+                electronAPI.getList('portais', currentLoja?.id),
+                electronAPI.getList('vendedores', currentLoja?.id),
+                electronAPI.getList('estoque', currentLoja?.id),
+                electronAPI.getListUsers(currentLoja?.id)
             ]);
 
             setPortais(localPortais ? localPortais.filter(i => i.ativo) : []);
@@ -292,7 +294,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
 
         try {
             setLoading(true);
-            const { ipcRenderer } = window.require('electron');
+            
             let finalNegociacao = formData.negociacao;
 
             // 📝 Sugestão 3: Log Automático de Evolução
@@ -331,9 +333,9 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone =
             };
 
             if (editingTask?.id) {
-                await ipcRenderer.invoke('update-visita-full', payload);
+                await electronAPI.updateVisitaFull(payload);
             } else {
-                await ipcRenderer.invoke('add-visita', payload);
+                await electronAPI.addVisita(payload);
             }
 
             const repassMessage = `*📅 NOVO AGENDAMENTO VEXCORE*

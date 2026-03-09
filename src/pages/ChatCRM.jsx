@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { electronAPI } from '@/lib/electron-api';
 
 const ChatCRM = () => {
     const { currentLoja } = useLoja();
@@ -56,13 +57,13 @@ const ChatCRM = () => {
         if (!currentLoja?.id) return;
         const loadAuxData = async () => {
             try {
-                if (!window.require) return;
-                const { ipcRenderer } = window.require('electron');
+                if (!electronAPI) return;
+                
                 const username = localStorage.getItem('username');
 
                 const [scriptsData, estoqueData] = await Promise.all([
-                    ipcRenderer.invoke('get-scripts', { username, lojaId: currentLoja.id }),
-                    ipcRenderer.invoke('get-list', { table: 'estoque', lojaId: currentLoja.id })
+                    electronAPI.getScripts({ username, lojaId: currentLoja.id }),
+                    electronAPI.getList('estoque', currentLoja.id)
                 ]);
 
                 if (scriptsData) setScripts(scriptsData);
@@ -242,7 +243,7 @@ const ChatCRM = () => {
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto custom-scrollbar px-4 space-y-2">
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 space-y-2">
                     {loading && <div className="text-center py-10"><Activity className="animate-spin mx-auto text-cyan-500" /></div>}
                     {conversations.map(conv => {
                         const initial = (conv.name || conv.phone || '?')?.charAt(0)?.toUpperCase() || '?';
@@ -340,7 +341,7 @@ const ChatCRM = () => {
                             </header>
 
                             {/* Messages Area */}
-                            <div className="flex-1 overflow-y-auto p-10 space-y-8 custom-scrollbar relative">
+                            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 custom-scrollbar relative">
                                 {/* Neural Background Pattern */}
                                 <div className="absolute inset-0 opacity-[0.02] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#06b6d4 1px, transparent 1px)', backgroundSize: '30px 30px' }} />
 
@@ -516,7 +517,7 @@ const ChatCRM = () => {
                                 </div>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-4">
+                            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-6 space-y-4">
                                 {activeTab === 'templates' ? (
                                     <>
                                         {scripts.map((item) => (

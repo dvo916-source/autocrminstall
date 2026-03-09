@@ -1,5 +1,5 @@
 // --- CONFIGURAÇÃO DE AMBIENTE ---
-import 'dotenv/config';
+import { envConfig } from './electron-env.config.js';
 
 // --- IMPORTAÇÕES CORE DO ELECTRON ---
 import { app, BrowserWindow, ipcMain, Notification, dialog, shell } from 'electron';
@@ -120,9 +120,10 @@ function createWindow() {
         autoHideMenuBar: true, // Esconde a barra de menu (Arquivo, Editar...)
         resizable: true,
         webPreferences: {
-            nodeIntegration: true, // Permite usar funções do Node no React (CUIDADO: Use apenas em apps confiáveis)
-            contextIsolation: false, // Necessário para o nodeIntegration funcionar direto
-            webviewTag: true, // Habilita a tag <webview> usada no WhatsApp
+            nodeIntegration: false, // ✅ SEGURO: Desabilita acesso direto ao Node no front
+            contextIsolation: true, // ✅ SEGURO: Ativa isolamento de contexto
+            webviewTag: true,
+            preload: path.join(__dirname, 'preload.js') // ✅ PONTE SEGURA
         },
         backgroundColor: '#0f172a',
         show: false, // Criar escondida e mostrar só quando estiver pronta (ready-to-show)
@@ -232,7 +233,16 @@ function createWindow() {
     });
 
     win.on('close', () => {
-        win.webContents.executeJavaScript('localStorage.clear();').catch(() => { });
+        // Preserva dados de sessão para que o WhatsApp e o login sobrevivam ao fechamento
+        win.webContents.executeJavaScript(`
+            (() => {
+                const keep = ['vexcore_user', 'active_loja_id', 'username', 'userRole', 'crm_period_filter'];
+                const preserved = {};
+                keep.forEach(k => { const v = localStorage.getItem(k); if (v) preserved[k] = v; });
+                localStorage.clear();
+                Object.entries(preserved).forEach(([k, v]) => localStorage.setItem(k, v));
+            })();
+        `).catch(() => { });
     });
 
     // Evento disparado quando a página começa a carregar
@@ -245,49 +255,6 @@ function createWindow() {
     autoUpdater.logger = console;
     autoUpdater.autoDownload = true; // Garante que o download comece sozinho
     autoUpdater.autoInstallOnAppQuit = false; // DESABILITADO - Vamos controlar manualmente
-
-    let updateWindow = null;
-
-    // Função para criar janela de atualização
-    function createUpdateWindow(info) {
-        if (updateWindow) return;
-
-        updateWindow = new BrowserWindow({
-            width: 500,
-            height: 400,
-            frame: false,
-            resizable: false,
-            transparent: false,
-            alwaysOnTop: true,
-            webPreferences: {
-                nodeIntegration: true,
-                contextIsolation: false
-            }
-        });
-
-        updateWindow.loadFile(path.join(__dirname, 'UpdateWindow.html'));
-
-        updateWindow.once('ready-to-show', () => {
-            updateWindow.show();
-            if (info) {
-                updateWindow.webContents.send('update-starting', info);
-            }
-        });
-
-        updateWindow.on('closed', () => {
-            updateWindow = null;
-        });
-    }
-
-    autoUpdater.on('checking-for-update', () => {
-        console.log('[Updater] Verificando se há atualizações...');
-    });
-
-    autoUpdater.on('error', (err) => {
-        console.error('[Updater] Erro no processo de atualização:', err);
-        if (mainWindow) mainWindow.webContents.send('update-error', err.message);
-        if (updateWindow) updateWindow.close();
-    });
 
     // Quando o React termina de carregar, esperamos 3 segundos e checamos atualizações
     win.webContents.on('did-finish-load', () => {
@@ -306,19 +273,12 @@ function createWindow() {
 
     autoUpdater.on('download-progress', (progress) => {
         console.log(`[Updater] Download: ${Math.round(progress.percent)}%`);
-        if (updateWindow) {
-            updateWindow.webContents.send('update-progress', progress.percent);
-        }
+        // Aqui você pode enviar progresso global se quiser
+        win.webContents.send('update-progress', progress.percent);
     });
 
     autoUpdater.on('update-downloaded', (info) => {
         console.log('[Updater] Download concluído. Versão:', info.version);
-
-        // Mostra "Instalando..." na janela de atualização
-        if (updateWindow) {
-            updateWindow.webContents.send('update-installing', info);
-        }
-
         // Aguarda 2 segundos para o usuário ver a mensagem, depois instala
         setTimeout(() => {
             console.log('[Updater] Iniciando instalação...');
@@ -328,68 +288,6 @@ function createWindow() {
 }
 
 // 📡 COMUNICAÇÃO IPC (INTER-PROCESS COMMUNICATION)
-// Aqui definimos os "canais" de rádio que o React usa para falar com o Electron.
-
-// 'on' -> Escuta uma mensagem (geralmente sem esperar resposta direta)
-ipcMain.on('focus-window', (event) => {
-    if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.focus();
-    }
-});
-
-// HANDSHAKE: WhatsApp avisando que a <webview> está carregada e pronta
-ipcMain.on('whatsapp-view-ready', (event) => {
-    whatsappViewReady = true;
-    console.log('[Handshake] WhatsApp View está PRONTA');
-    // Se tinha algum clique de notificação esperando, dispara ele agora
-    if (pendingWhatsappClickId && mainWindow) {
-        mainWindow.webContents.send('trigger-whatsapp-click', pendingWhatsappClickId);
-        pendingWhatsappClickId = null;
-    }
-});
-
-// Handler para Notificações Nativas (COM REF GLOBAL PARA PREVENIR GC)
-ipcMain.on('show-native-notification', (event, { title, body, icon, id, clientName }) => {
-    const notif = new Notification({
-        title: title || 'VexCORE',
-        body: body || '',
-        icon: path.join(__dirname, '../public/icon.png'),
-        silent: false,
-        urgency: 'normal',
-        timeoutType: 'default'
-    });
-
-    notif.on('click', () => {
-        console.log(`[Main] 🔔 Notificação clicada! Cliente: ${clientName || 'Desconhecido'}`);
-        if (mainWindow) {
-            // Restaura e foca a janela
-            if (mainWindow.isMinimized()) mainWindow.restore();
-            mainWindow.show();
-            mainWindow.focus();
-
-            // Navega para WhatsApp
-            mainWindow.webContents.send('navigate-to', '/whatsapp');
-
-            // Aguarda um pouco e tenta abrir o chat
-            setTimeout(() => {
-                if (whatsappViewReady) {
-                    console.log(`[Main] ✅ Abrindo chat do cliente...`);
-                    mainWindow.webContents.send('trigger-whatsapp-click', id);
-                } else {
-                    console.log(`[Main] ⏳ WhatsApp não está pronto. Guardando para depois...`);
-                    pendingWhatsappClickId = id;
-                }
-            }, 500);
-        }
-    });
-
-    notif.on('close', () => activeNotifications.delete(notif));
-    activeNotifications.add(notif);
-    notif.show();
-});
-
-// --- COMUNICAÇÃO IPC (INTER-PROCESS COMMUNICATION) ---
 
 // Autenticação e Usuários
 ipcMain.handle('update-user-field', async (e, { userId, field, value }) => await db.updateUserField(userId, field, value));
@@ -398,14 +296,10 @@ ipcMain.handle('login', async (e, { username, password }) => {
     if (user && user.loja_id) {
         console.log(`🚀 [Main] Login detectado para loja ${user.loja_id}. Forçando sincronização imediata...`);
         try {
-            // Aguarda a sincronização da loja para garantir que a loja exista no banco local ANTES do React carregar
-            // Isso previne que a Raianny seja deslogada ou bloqueada de ver seus módulos!
             await db.syncConfig(user.loja_id);
         } catch (err) {
             console.error('[LoginSync] Erro crítico no syncConfig durante o login:', err);
         }
-
-        // Dispara sync em background do resto (XML, etc) mas não bloqueia o login
         db.syncXml(user.loja_id).catch(err => console.error('[LoginSync] Erro no syncXml:', err));
     }
     return user;
@@ -423,6 +317,7 @@ ipcMain.handle('full-cloud-sync', async (event, lojaId) => {
 
 ipcMain.handle('get-app-version', () => app.getVersion());
 ipcMain.handle('get-user-data-path', () => app.getPath('userData'));
+ipcMain.handle('open-external', (e, url) => shell.openExternal(url));
 ipcMain.handle('change-password', async (e, { username, newPassword }) => await db.changePassword(username, newPassword));
 ipcMain.handle('update-user-password', async (e, { username, newPassword }) => await db.changePassword(username, newPassword)); // Alias
 ipcMain.handle('add-user', async (e, user) => await db.addUser(user));
@@ -430,7 +325,6 @@ ipcMain.handle('update-user', async (e, user) => await db.updateUser(user));
 ipcMain.handle('delete-user', async (e, username) => await db.deleteUser(username));
 ipcMain.handle('get-list-users', async (e, lojaId) => await db.getListUsers(lojaId));
 ipcMain.handle('validate-session', async (e, { username, sessionId }) => {
-    // Validação simples de sessão - pode ser expandida no futuro
     const user = await db.getUserByUsername(username);
     return user && user.session_id === sessionId;
 });
@@ -440,6 +334,7 @@ ipcMain.handle('get-visitas-secure', (e, { role, username, lojaId }) => db.getVi
 ipcMain.handle('add-visita', async (e, v) => await db.addVisita(v));
 ipcMain.handle('update-visita-status', async (e, { id, status, pipeline }) => await db.updateVisitaStatusQuick({ id, status, pipeline }));
 ipcMain.handle('update-visita-sdr', async (e, { id, sdr, lojaId }) => await db.updateVisitaSdrQuick({ id, sdr, lojaId }));
+ipcMain.handle('update-visita-sdr-quick', async (e, { id, field, value, lojaId }) => await db.updateVisitaFieldQuick({ id, field, value, lojaId }));
 ipcMain.handle('update-visita-visitou-loja', async (e, { id, valor, lojaId }) => await db.updateVisitaVisitouLoja({ id, valor, lojaId }));
 ipcMain.handle('update-visita-nao-compareceu', async (e, { id, valor, lojaId }) => await db.updateVisitaNaoCompareceu({ id, valor, lojaId }));
 ipcMain.handle('delete-visita', async (e, { id, lojaId }) => await db.deleteVisita(id, lojaId));
@@ -452,6 +347,10 @@ ipcMain.handle('create-store-with-admin', async (e, { loja, admin }) => await db
 ipcMain.handle('update-store', async (e, store) => await db.updateStore(store));
 ipcMain.handle('delete-store', async (e, id) => await db.deleteStore(id));
 ipcMain.handle('sync-all-stores', async () => await db.syncAllStoresFromCloud());
+
+// Novos Handlers de Módulos (Sync granular)
+ipcMain.handle('update-loja-modules', async (e, { lojaId, modules }) => await db.updateLojaModules(lojaId, modules));
+ipcMain.handle('create-loja', async (e, { storeData, adminData }) => await db.createLojaWithAdmin(storeData, adminData));
 
 // CRUD Genérico (Tabelas: estoque, portais, vendedores, etc)
 ipcMain.handle('get-list', async (e, { table, lojaId }) => await db.getList(table, lojaId));
@@ -481,78 +380,30 @@ ipcMain.handle('get-visits-by-vehicle', async (e, { name, lojaId }) => db.getVis
 ipcMain.handle('sync-xml', (e, lojaId) => db.syncXml(lojaId));
 ipcMain.handle('sync-essential', async (e, lojaId) => await db.syncConfig(lojaId));
 
-// 🔥 HEARTBEAT DE LICENCIAMENTO (A cada 30 minutos)
-// Garante que se o Diego desativar um módulo ou loja no Supabase, o PC local bloqueie em até 30 min.
-setInterval(async () => {
-    try {
-        const activeLojaId = db.getActiveStoreId(); // Função que vou garantir que existe ou criar
-        if (activeLojaId) {
-            console.log(`💓 [Heartbeat] Revalidando licença para loja: ${activeLojaId}`);
-            await db.syncConfig(activeLojaId);
-        }
-    } catch (e) {
-        console.error('❌ [Heartbeat] Erro na revalidação automática:', e.message);
-    }
-}, 30 * 60 * 1000);
 ipcMain.handle('install-update', (event, info) => {
     console.log('[Updater] Usuário confirmou atualização. Iniciando download...');
-
-    // Cria a janela de progresso
-    const updateWindow = new BrowserWindow({
-        width: 500,
-        height: 400,
-        frame: false,
-        resizable: false,
-        transparent: false,
-        alwaysOnTop: true,
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false
-        }
-    });
-
-    updateWindow.loadFile(path.join(__dirname, 'UpdateWindow.html'));
-
-    updateWindow.once('ready-to-show', () => {
-        updateWindow.show();
-        if (info) {
-            updateWindow.webContents.send('update-starting', info);
-        }
-    });
-
-    // Encaminha eventos de progresso para a janela de atualização
-    autoUpdater.on('download-progress', (progress) => {
-        if (updateWindow && !updateWindow.isDestroyed()) {
-            updateWindow.webContents.send('update-progress', progress.percent);
-        }
-    });
-
+    autoUpdater.downloadUpdate();
     return true;
 });
 
-// Utilitário para ler arquivos do sistema (usado na Central de Migração)
+// Utilitário para ler arquivos do sistema
 ipcMain.handle('read-file-content', async (e, fileName) => {
     try {
         const filePath = path.join(__dirname, '..', fileName);
-        const content = await fs.readFile(filePath, 'utf-8');
-        return content;
+        return await fs.readFile(filePath, 'utf-8');
     } catch (err) {
         console.error(`Erro ao ler arquivo ${fileName}:`, err);
         throw err;
     }
 });
 
-// 🔄 FORÇA SINCRONIZAÇÃO DO ESTOQUE (SUPABASE -> LOCAL)
+// 🔄 FORÇA SINCRONIZAÇÃO DO ESTOQUE
 ipcMain.handle('force-sync-estoque', async (e, lojaId) => {
     try {
-        console.log(`🔄 [Force Sync] Sincronizando estoque para loja: ${lojaId}`);
         const result = await db.syncXml(lojaId);
-
-        // Notifica o frontend para atualizar
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('refresh-data', 'estoque');
         }
-
         return { success: true, count: result.syncedCount || 0, message: result.message };
     } catch (err) {
         console.error('❌ [Force Sync] Erro:', err);
@@ -560,20 +411,16 @@ ipcMain.handle('force-sync-estoque', async (e, lojaId) => {
     }
 });
 
-// 📤 UPLOAD DE DADOS LOCAIS PARA SUPABASE (MIGRAÇÃO)
+// 📤 UPLOAD DE DADOS LOCAIS PARA SUPABASE
 ipcMain.handle('upload-data-to-supabase', async (e) => {
     try {
-        console.log('📤 [Upload] Iniciando upload de dados locais para Supabase...');
         const { uploadAllDataToSupabase } = await import('./uploadData.js');
-        const result = await uploadAllDataToSupabase(db.getDbInstance());
-        return result;
+        return await uploadAllDataToSupabase(db.getDbInstance());
     } catch (err) {
         console.error('❌ [Upload] Erro:', err);
         return { success: false, error: err.message };
     }
 });
-
-
 
 // Utilitários de Mídia
 ipcMain.handle('get-image-base64', async (e, url) => {
@@ -582,7 +429,7 @@ ipcMain.handle('get-image-base64', async (e, url) => {
     return `data:${response.headers.get('content-type') || 'image/jpeg'};base64,${buffer.toString('base64')}`;
 });
 
-// 📄 SALVAR PDF (abre diálogo de salvar nativo do SO)
+// 📄 SALVAR PDF
 ipcMain.handle('save-pdf', async (e, { base64Data, defaultFileName }) => {
     try {
         const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
@@ -591,16 +438,10 @@ ipcMain.handle('save-pdf', async (e, { base64Data, defaultFileName }) => {
             filters: [{ name: 'PDF', extensions: ['pdf'] }],
             properties: ['showOverwriteConfirmation']
         });
-
         if (canceled || !filePath) return { success: false, canceled: true };
-
-        // Converte base64 em buffer e salva
         const buffer = Buffer.from(base64Data, 'base64');
         await fs.writeFile(filePath, buffer);
-
-        // Abre a pasta onde o arquivo foi salvo
         shell.showItemInFolder(filePath);
-
         return { success: true, filePath };
     } catch (err) {
         console.error('Erro ao salvar PDF:', err);
@@ -608,9 +449,67 @@ ipcMain.handle('save-pdf', async (e, { base64Data, defaultFileName }) => {
     }
 });
 
+// 📱 WHATSAPP & NOTIFICAÇÕES
+ipcMain.handle('whatsapp-view-ready', (event) => {
+    whatsappViewReady = true;
+    console.log('📱 [WhatsApp] View Ready Handshake recebido do Renderer');
+    if (pendingWhatsappClickId && mainWindow) {
+        mainWindow.webContents.send('trigger-whatsapp-click', pendingWhatsappClickId);
+        pendingWhatsappClickId = null;
+    }
+    return true;
+});
+
+ipcMain.handle('show-native-notification', (event, { title, body, icon, id, clickAction, clientName }) => {
+    try {
+        const notif = new Notification({
+            title: title || 'VexCORE',
+            body: body || '',
+            icon: path.join(__dirname, '../public/icon.png'),
+            silent: false,
+            timeoutType: 'default'
+        });
+
+        notif.on('click', () => {
+            console.log(`[Main] 🔔 Notificação clicada! Cliente: ${clientName || 'Desconhecido'}`);
+            if (mainWindow) {
+                if (mainWindow.isMinimized()) mainWindow.restore();
+                mainWindow.show();
+                mainWindow.focus();
+                if (clickAction === 'open-chat') {
+                    mainWindow.webContents.send('navigate-to', '/whatsapp');
+                    setTimeout(() => {
+                        if (whatsappViewReady) {
+                            mainWindow.webContents.send('trigger-whatsapp-click', id);
+                        } else {
+                            pendingWhatsappClickId = id;
+                        }
+                    }, 500);
+                }
+            }
+        });
+
+        notif.on('close', () => activeNotifications.delete(notif));
+        activeNotifications.add(notif);
+        notif.show();
+        return true;
+    } catch (err) {
+        console.error('Erro ao mostrar notificação nativa:', err);
+        return false;
+    }
+});
+
+ipcMain.handle('focus-window', (event) => {
+    if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+    }
+    return true;
+});
+
 app.whenReady().then(createWindow);
 
-// Tratamento de fechamento da janela no macOS (Darwin)
 app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
         createWindow();

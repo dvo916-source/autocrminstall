@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Save, Clock, AlertCircle, Phone, MessageCircle, StickyNote, Plus, Calendar, Check } from 'lucide-react';
 import { useLoja } from '../context/LojaContext';
+import { electronAPI } from '@/lib/electron-api';
 
 const NewNoteModal = ({ isOpen, onClose, onSuccess, initialDate, user, targetUser, editingNote = null }) => {
     const { currentLoja } = useLoja();
@@ -78,7 +79,7 @@ const NewNoteModal = ({ isOpen, onClose, onSuccess, initialDate, user, targetUse
 
         try {
             setLoading(true);
-            const { ipcRenderer } = window.require('electron');
+            
 
             // Construct Final Text with Type
             const typeLabel = isCustomType ? (customType.trim() || 'Nota') : noteType;
@@ -102,14 +103,14 @@ const NewNoteModal = ({ isOpen, onClose, onSuccess, initialDate, user, targetUse
 
             // Electron Interact
             if (editingNote) {
-                await ipcRenderer.invoke('update-nota', {
+                await electronAPI.updateNota({
                     id: editingNote.id,
                     texto: finalText,
                     data_nota: finalDateStr,
                     lojaId: currentLoja?.id
                 });
             } else {
-                await ipcRenderer.invoke('add-nota', {
+                await electronAPI.addNota({
                     sdr_username: targetUser || user.username,
                     texto: finalText,
                     data_nota: finalDateStr,

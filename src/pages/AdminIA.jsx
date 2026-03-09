@@ -4,6 +4,7 @@ import { Save, Bot, MessageSquare, Key, Shield, Zap, CheckCircle2, AlertCircle, 
 import { supabase } from '../lib/supabase';
 import { useLoja } from '../context/LojaContext';
 import FAQManager from '../components/FAQManager';
+import { electronAPI } from '@/lib/electron-api';
 
 const AdminIA = () => {
     const { currentLoja } = useLoja();
@@ -38,8 +39,8 @@ const AdminIA = () => {
 
     const loadConfigs = async () => {
         try {
-            const { ipcRenderer } = window.require('electron');
-            const data = await ipcRenderer.invoke('get-all-settings', currentLoja?.id);
+            
+            const data = await electronAPI.getAllSettings(currentLoja?.id);
 
             if (data && data.length > 0) {
                 const metaSettings = {};
@@ -63,7 +64,7 @@ const AdminIA = () => {
         setSaving(true);
         setStatus(null);
         try {
-            const { ipcRenderer } = window.require('electron');
+            
             const upserts = [];
 
             Object.entries(metaConfig).forEach(([key, value]) => {
@@ -73,7 +74,7 @@ const AdminIA = () => {
                 upserts.push({ category: 'diego_ai', key, value });
             });
 
-            await ipcRenderer.invoke('save-settings-batch', { settings: upserts, lojaId: currentLoja?.id });
+            await electronAPI.saveSettingsBatch(upserts, currentLoja?.id);
 
             setStatus({ type: 'success', message: 'Protocolos atualizados com sucesso.' });
             setTimeout(() => setStatus(null), 3000);
@@ -106,11 +107,12 @@ const AdminIA = () => {
     );
 
     return (
-        <div className="h-full bg-[#050b1a] relative overflow-hidden font-inter">
+        <div className="h-full flex flex-col bg-[#050b1a] relative overflow-hidden font-inter">
+            {/* Background elements */}
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,#1e293b_0%,#050b1a_100%)]" />
             <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar relative z-10 p-0 pb-32">
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar relative z-10 p-0 pb-20">
                 <header className="mb-12">
                     <div className="flex items-center gap-5 mb-4">
                         <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-cyan-600 to-blue-600 flex items-center justify-center shadow-2xl shadow-cyan-500/20">

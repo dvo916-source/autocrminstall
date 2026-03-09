@@ -6,6 +6,7 @@ import PremiumSelect from './PremiumSelect';
 import PremiumDatePicker from './PremiumDatePicker';
 import { useLoja } from '../context/LojaContext';
 import { useUI } from '../context/UIContext';
+import { electronAPI } from '@/lib/electron-api';
 
 const TEMPERATURAS = [
     { value: 'Quente', label: '🔥 Quente' },
@@ -130,12 +131,12 @@ const QuickVisitForm = ({ onClose }) => {
 
     const loadData = async () => {
         try {
-            const { ipcRenderer } = window.require('electron');
+            
             const [localPortais, localVendedores, localEstoque, localUsers] = await Promise.all([
-                ipcRenderer.invoke('get-list', { table: 'portais', lojaId: currentLoja?.id }),
-                ipcRenderer.invoke('get-list', { table: 'vendedores', lojaId: currentLoja?.id }),
-                ipcRenderer.invoke('get-list', { table: 'estoque', lojaId: currentLoja?.id }),
-                ipcRenderer.invoke('get-list-users', currentLoja?.id)
+                electronAPI.getList('portais', currentLoja?.id),
+                electronAPI.getList('vendedores', currentLoja?.id),
+                electronAPI.getList('estoque', currentLoja?.id),
+                electronAPI.getListUsers(currentLoja?.id)
             ]);
 
             setPortais(localPortais ? localPortais.filter(i => i.ativo) : []);
@@ -181,7 +182,7 @@ const QuickVisitForm = ({ onClose }) => {
 
         try {
             setLoading(true);
-            const { ipcRenderer } = window.require('electron');
+            
 
             let finalNegociacao = formData.negociacao;
             if (formData.status_pipeline === 'Pendente' && recontatoDate) {
@@ -206,7 +207,7 @@ const QuickVisitForm = ({ onClose }) => {
                 loja_id: currentLoja?.id
             };
 
-            await ipcRenderer.invoke('add-visita', payload);
+            await electronAPI.addVisita(payload);
 
             if (repass) {
                 const dateObj = new Date(payload.data_agendamento);

@@ -8,13 +8,14 @@ import Database from 'better-sqlite3'; // Driver de alta performance para SQLite
 import path from 'path';
 import { app, BrowserWindow } from 'electron';
 import bcrypt from 'bcryptjs'; // Para criptografia de senhas
+import { envConfig } from './electron-env.config.js';
 import { createClient } from '@supabase/supabase-js'; // Cliente Supabase
 import { v4 as uuidv4 } from 'uuid'; // Para gerar IDs únicos
 // 🔐 CONFIGURAÇÃO DE SEGURANÇA (SUPABASE)
 // Prioriza o arquivo .env, mas mantém fallback para compatibilidade em máquinas novas sem .env.
 const SUPABASE_CONFIG = {
-    url: process.env.VITE_SUPABASE_URL || "https://mtbfzimnyactwhdonkgy.supabase.co",
-    key: process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10YmZ6aW1ueWFjdHdoZG9ua2d5Iiwicm9sZESImFub24iLCJpYXQiOjE3NzA0NzAwMTYsImV4cCI6MjA4NjA0NjAxNn0.drl9-iMcddxdyKSR5PnUoKoSdzU3Fw2n00MFd9p9uys"
+    url: envConfig.supabaseUrl,
+    key: envConfig.supabaseAnonKey
 };
 
 // Log de diagnóstico de inicialização (Apenas no console do desenvolvedor)
@@ -406,21 +407,12 @@ export function checkVersionAndReset() {
         const lastVersion = row ? row.valor : "0.0.0";
 
         if (lastVersion !== currentInternalVersion) {
-            console.log(`📡 [Reset Lógico] Detectada nova versão (${currentInternalVersion}). Realizando limpeza seletiva...`);
-
-            // 🛡️ LIMPA USUÁRIOS (Preserva as credenciais básicas por segurança, mas o sync vai sobrescrever tudo)
-            db.prepare("DELETE FROM usuarios WHERE username NOT IN ('diego', 'admin')").run();
-
-            // 🛡️ LIMPA TABELA DE LOJAS para garantir que os módulos venham do Supabase
-            db.prepare("DELETE FROM lojas").run();
-
-            // 🛡️ LIMPA CRM_SETTINGS para forçar prompts novos
-            db.prepare("DELETE FROM crm_settings").run();
+            console.log(`📡 [Reset Lógico] Detectada nova versão (${currentInternalVersion}). Atualizando flag de versão...`);
 
             // Atualiza a flag de versão (Global)
             db.prepare("INSERT OR REPLACE INTO config (chave, loja_id, valor) VALUES (?, ?, ?)").run('internal_db_version', 'SYSTEM', currentInternalVersion);
 
-            console.log(`✅ [Reset Lógico] Tabelas críticas limpas. O próximo syncConfig será MANDATÓRIO.`);
+            console.log(`✅ [Reset Lógico] Versão atualizada. O próximo syncConfig garantirá dados frescos da nuvem.`);
             return true;
         }
     } catch (e) {
@@ -1576,6 +1568,22 @@ export async function updateVisitaSdrQuick({ id, sdr, lojaId }) {
 }
 
 // ✅ Marca/desmarca presença física na loja (independente do pipeline)
+export async function updateVisitaFieldQuick({ id, field, value, lojaId }) {
+    const allowed = ['vendedor_sdr', 'vendedor', 'temperatura', 'status_pipeline', 'data_recontato'];
+    if (!allowed.includes(field)) throw new Error(`Campo não permitido: ${field}`);
+    const activeLojaId = lojaId || DEFAULT_STORE_ID;
+    const now = new Date().toISOString();
+    db.prepare(`UPDATE visitas SET ${field} = ?, updated_at = ? WHERE id = ?`).run(value, now, id);
+    try {
+        const client = getSupabaseClient(activeLojaId);
+        if (client) {
+            markVisitaSaved(id);
+            await client.from('visitas').update({ [field]: value, updated_at: now }).eq('id', id);
+        }
+    } catch (e) { console.error('Erro Supabase updateVisitaFieldQuick:', e.message); }
+    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'visitas'));
+}
+
 export async function updateVisitaVisitouLoja({ id, valor, lojaId }) {
     const activeLojaId = lojaId || DEFAULT_STORE_ID;
     const now = new Date().toISOString();
@@ -2285,7 +2293,7 @@ export function getAgendamentosDetalhes(username = null, lojaId = DEFAULT_STORE_
 
         query += " ORDER BY data_agendamento DESC, datahora DESC LIMIT 500";
 
-        return db.prepare(query).all(...params);
+        return db.prepare(query).all(params);
     } catch (err) {
         console.error("Erro ao buscar detalhes de agendamentos:", err);
         return [];
@@ -3041,6 +3049,39 @@ export async function validateCpfUnique(cpf) {
 }
 
 /**
+ * Atualiza apenas os módulos de uma loja
+ */
+export async function updateLojaModules(lojaId, modules) {
+    try {
+        const modulesString = JSON.stringify(modules);
+        const crmAtivo = modules.includes('crm') ? 1 : 0;
+
+        const result = db.prepare('UPDATE lojas SET modulos = ?, crm_ativo = ? WHERE id = ?').run(modulesString, crmAtivo, lojaId);
+
+        // SYNC SUPABASE
+        const client = getSupabaseClient(null);
+        if (client) {
+            await client.from('lojas').update({
+                modulos: modulesString,
+                crm_ativo: !!crmAtivo
+            }).eq('id', lojaId);
+        }
+
+        return { success: true, ...result };
+    } catch (err) {
+        console.error('[updateLojaModules] Erro:', err);
+        throw err;
+    }
+}
+
+/**
+ * Alias para manter compatibilidade com o plano (create-loja -> createLojaWithAdmin)
+ */
+export async function createLojaWithAdmin(storeData, adminData) {
+    return await createStoreWithAdmin(storeData, adminData);
+}
+
+/**
  * Cria uma loja e seu usuário administrador em transação atômica
  */
 export async function createStoreWithAdmin(loja, admin) {
@@ -3053,7 +3094,7 @@ export async function createStoreWithAdmin(loja, admin) {
 
         // 2. Gerar IDs
         const lojaId = loja.id || toPerfectSlug(loja.nome);
-        const adminUsername = `admin_${lojaId} `;
+        const adminUsername = `admin_${lojaId}`;
         const cleanCpf = admin.cpf ? admin.cpf.replace(/\D/g, '') : null;
 
         // 3. Hash da senha
@@ -3121,7 +3162,7 @@ export async function createStoreWithAdmin(loja, admin) {
 
     } catch (err) {
         console.error('[createStoreWithAdmin] Erro:', err);
-        throw new Error(`Erro ao criar loja: ${err.message} `);
+        throw new Error(`Erro ao criar loja: ${err.message}`);
     }
 }
 
@@ -3310,13 +3351,16 @@ export async function fullCloudSync(lojaId = DEFAULT_STORE_ID) {
                                 });
                             } else if (table === 'scripts') {
                                 db.prepare(`
-                                    INSERT OR REPLACE INTO scripts(nome, texto, categoria, ativo, loja_id)
-                                    VALUES(@nome, @texto, @categoria, @ativo, @loja_id)
+                                    INSERT OR REPLACE INTO scripts(id, titulo, mensagem, is_system, link, username, ordem, loja_id)
+                                    VALUES(@id, @titulo, @mensagem, @is_system, @link, @username, @ordem, @loja_id)
                                 `).run({
-                                    nome: item.nome,
-                                    texto: item.texto || '',
-                                    categoria: item.categoria || 'Geral',
-                                    ativo: item.ativo ? 1 : 0,
+                                    id: item.id,
+                                    titulo: item.titulo || item.nome || '',
+                                    mensagem: item.mensagem || item.texto || '',
+                                    is_system: item.is_system ? 1 : 0,
+                                    link: item.link || '',
+                                    username: item.username || '',
+                                    ordem: item.ordem || 0,
                                     loja_id: item.loja_id || DEFAULT_STORE_ID
                                 });
                             } else if (table === 'estoque') {

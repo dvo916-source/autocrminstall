@@ -3,6 +3,7 @@ import { X, FileText, Download, Check, ChevronDown, BarChart2, Users, CheckCircl
 import { motion, AnimatePresence } from 'framer-motion';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { electronAPI } from '@/lib/electron-api';
 
 const ALL_STATUSES = [
     { id: 'all', label: 'Todos os Status' },
@@ -550,9 +551,9 @@ const ReportModal = ({ isOpen, onClose, visitas = [], availableMonths = [], loja
                 .replace(/\s+/g, '_');
             const fileName = `Relatorio_Visitas_${safePeriod}_IRW.pdf`;
 
-            const { ipcRenderer } = window.require('electron');
+            
             const base64Data = doc.output('datauristring').split(',')[1];
-            const result = await ipcRenderer.invoke('save-pdf', { base64Data, defaultFileName: fileName });
+            const result = await electronAPI.savePdf({ base64Data, defaultFileName: fileName });
 
             if (result?.success) {
                 window.dispatchEvent(new CustomEvent('show-notification', {

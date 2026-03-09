@@ -11,9 +11,11 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "electron:dev": "vite",
-    "electron:build": "vite build && electron-builder",
-    "build:portable": "vite build && electron-builder --win portable",
-    "build:installer": "vite build && electron-builder --win nsis"
+    "prebuild": "node check-env.js",
+    "electron:build": "node check-env.js && vite build && electron-builder",
+    "build:portable": "node check-env.js && vite build && electron-builder --win portable",
+    "build:installer": "node check-env.js && vite build && electron-builder --win nsis",
+    "postinstall": "electron-rebuild -f -w better-sqlite3"
   },
   "build": {
     "appId": "com.vexcore.app",
@@ -57,8 +59,7 @@
       "dist/**/*",
       "electron/**/*",
       "package.json",
-      "icon.png",
-      ".env"
+      "icon.png"
     ]
   },
   "dependencies": {
@@ -66,7 +67,6 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@supabase/supabase-js": "^2.93.1",
-    "@tailwindcss/postcss": "^4.1.18",
     "@tailwindcss/vite": "^4.1.18",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.6.0",

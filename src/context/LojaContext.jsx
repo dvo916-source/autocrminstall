@@ -10,9 +10,8 @@
 // 2. ADMIN da loja → Vê todos os módulos ativos no plano da loja
 // 3. USUÁRIO comum → Vê apenas os módulos que o ADMIN liberou em suas permissões individuais
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { electronAPI } from '@/lib/electron-api';
 
-// Importamos o ipcRenderer para falar com o processo principal do Electron
-const { ipcRenderer } = window.require('electron');
 
 // Criamos o objeto do contexto (o recipiente dos dados)
 const LojaContext = createContext();
@@ -29,7 +28,7 @@ export const LojaProvider = ({ children }) => {
     const loadLojas = async () => {
         try {
             console.log('🏪 [LojaContext] Carregando lojas...');
-            const result = await ipcRenderer.invoke('get-stores');
+            const result = await electronAPI.getStores();
             const resultList = result || [];
             setLojas(resultList);
 
@@ -70,21 +69,33 @@ export const LojaProvider = ({ children }) => {
         // Não damos reload aqui para permitir navegação fluida de volta à central
     };
 
+    // Debounce para evitar múltiplas chamadas
+    const debouncedLoadLojas = (() => {
+        let loadLojasTimeout = null;
+        return () => {
+            if (loadLojasTimeout) clearTimeout(loadLojasTimeout);
+            loadLojasTimeout = setTimeout(() => {
+                loadLojas();
+            }, 300);
+        };
+    })();
+
     // Carrega os dados assim que o Provider nasce e escuta atualizações realtime
     useEffect(() => {
         loadLojas();
 
-        const handleRefresh = (e, table) => {
+        const handleRefresh = (payload) => {
+            const table = typeof payload === 'string' ? payload : payload?.table;
             if (table === 'lojas' || table === 'all') {
                 console.log(`🔄 [LojaContext] Sincronizando lojas devido a mudança realtime em: ${table}`);
-                loadLojas();
+                debouncedLoadLojas();
             }
         };
 
-        ipcRenderer.on('refresh-data', handleRefresh);
+        const unsubscribe = electronAPI.onRefreshData(handleRefresh);
 
         return () => {
-            ipcRenderer.removeListener('refresh-data', handleRefresh);
+            if (unsubscribe) unsubscribe();
         };
     }, []);
 

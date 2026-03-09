@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Lock, ChevronRight, AlertCircle, Key, ShieldCheck } from 'lucide-react';
+import { electronAPI } from '@/lib/electron-api';
 
 const ResetPassword = ({ user, onComplete }) => {
     const [password, setPassword] = useState('');
@@ -23,8 +24,8 @@ const ResetPassword = ({ user, onComplete }) => {
         setError('');
 
         try {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('change-password', { username: user.username, newPassword: password });
+            
+            await electronAPI.changePassword({ username: user.username, newPassword: password });
             onComplete({ ...user, reset_password: 0 });
         } catch (err) {
             setError('Erro ao atualizar a senha.');

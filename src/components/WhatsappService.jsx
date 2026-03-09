@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
+import { electronAPI } from '@/lib/electron-api';
 
 // Componente persistente que gerencia o WhatsApp em segundo plano
 const WhatsappService = ({ isVisible, isActive }) => {
@@ -54,8 +55,8 @@ const WhatsappService = ({ isVisible, isActive }) => {
         const handleDomReady = () => {
             console.log('🌐 [WhatsappService] DOM Ready - Injetando Hooks...');
             try {
-                const { ipcRenderer } = window.require('electron');
-                ipcRenderer.send('whatsapp-view-ready');
+                // USANDO electronAPI EM VEZ DE ipcRenderer
+                electronAPI.whatsappViewReady();
 
                 webview.insertCSS(`
                     body { background-color: #0f172a !important; }
@@ -97,14 +98,14 @@ const WhatsappService = ({ isVisible, isActive }) => {
                 try {
                     const raw = e.message.replace('__WA_NOTIFICATION__:', '');
                     const payload = JSON.parse(raw);
-                    const { ipcRenderer } = window.require('electron');
+
 
                     // Extrai nome e mensagem
                     const clientName = payload.title || 'Cliente';
                     const message = payload.options.body || '';
 
-                    // Monta notificação melhorada
-                    ipcRenderer.send('show-native-notification', {
+                    // Monta notificação melhorada USANDO electronAPI
+                    electronAPI.showNotification({
                         title: `💬 Nova Mensagem - ${clientName}`,
                         body: message,
                         icon: 'whatsapp',
@@ -222,13 +223,85 @@ const WhatsappService = ({ isVisible, isActive }) => {
             const phone = e.detail;
             if (!webviewRef.current || !phone) return;
 
-            console.log("🚀 [Service] Abrindo chat direto para:", phone);
-            // Formata para o link direto do WhatsApp (55 + DDD + Numero)
             const cleanPhone = phone.replace(/\D/g, '');
             const finalPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
 
-            // Navega o webview sem recarregar o app
-            webviewRef.current.loadURL(`https://web.whatsapp.com/send?phone=${finalPhone}`);
+            console.log("🚀 [Service] Iniciando Chat Direto Silencioso:", finalPhone);
+
+            // Tenta abrir o chat injetando interação na UI do WhatsApp — SEM RELOAD
+            const script = `
+                (async () => {
+                    try {
+                        const targetPhone = "${finalPhone}";
+                        const cleanPhone = "${cleanPhone}";
+
+                        // 1. Limpa qualquer estado anterior de busca
+                        const clearSearch = () => {
+                            const btn = document.querySelector('[data-testid="x-alt"]') || 
+                                      document.querySelector('[data-icon="x-alt"]');
+                            if (btn) btn.click();
+                        }
+                        clearSearch();
+
+                        // 2. Encontra a caixa de pesquisa principal
+                        let search = document.querySelector('div[contenteditable="true"][data-tab="3"]') ||
+                                     document.querySelector('[data-testid="chat-list-search"]');
+
+                        if (!search) {
+                            // Tenta abrir a barra de pesquisa se estiver oculta
+                            const newChatBtn = document.querySelector('[data-icon="chat"]') || 
+                                             document.querySelector('[data-testid="newsletter-list-add-icon"]');
+                            if (newChatBtn) {
+                                newChatBtn.click();
+                                await new Promise(r => setTimeout(r, 400));
+                                search = document.querySelector('div[contenteditable="true"][data-tab="3"]');
+                            }
+                        }
+
+                        if (search) {
+                            search.focus();
+                            document.execCommand('selectAll', false, null);
+                            document.execCommand('insertText', false, cleanPhone);
+                            search.dispatchEvent(new Event('input', { bubbles: true }));
+                            
+                            // 3. Aguarda o WhatsApp processar a busca (timing crucial)
+                            await new Promise(r => setTimeout(r, 1200));
+
+                            // 4. Procura o resultado em dois lugares: Lista ou "Novo Chat"
+                            const result = 
+                                // Caso seja contato ou conversa existente
+                                document.querySelector('[data-testid="cell-frame-container"]') ||
+                                document.querySelector('#pane-side div[role="listitem"]') ||
+                                // Caso seja um número NOVO (Botão "Conversar com...")
+                                document.querySelector('div[role="button"] span[title="' + targetPhone + '"]') ||
+                                Array.from(document.querySelectorAll('div[role="button"]')).find(el => el.innerText.includes(cleanPhone));
+
+                            if (result) {
+                                // Clica no elemento mais próximo da raiz que seja clicável
+                                (result.closest('div[role="row"]') || result).click();
+                                
+                                // Limpeza sutil pós-clique
+                                setTimeout(() => {
+                                    document.activeElement.blur();
+                                }, 300);
+                                return "SUCCESS";
+                            }
+                        }
+
+                        console.log("⚠️ Chat não encontrado instantaneamente na busca.");
+                        return "NOT_FOUND";
+
+                    } catch(err) {
+                        console.error("Erro no Zap Direto:", err);
+                        return "ERR";
+                    }
+                })();
+                true;
+            `;
+
+            webviewRef.current.executeJavaScript(script).catch(err => {
+                console.error("❌ Erro ao executar script de Chat Direto:", err);
+            });
         };
 
         const handleRepassLead = (e) => {

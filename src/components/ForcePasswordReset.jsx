@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Lock, CheckCircle, AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { electronAPI } from '@/lib/electron-api';
 
-const { ipcRenderer } = window.require('electron');
+
 
 const ForcePasswordReset = ({ username, onComplete, onCancel }) => {
     const [newPassword, setNewPassword] = useState('');
@@ -26,7 +27,7 @@ const ForcePasswordReset = ({ username, onComplete, onCancel }) => {
         setError('');
 
         try {
-            const success = await ipcRenderer.invoke('update-user-password', {
+            const success = await electronAPI.updateUserPassword({
                 username,
                 newPassword,
                 forceReset: false // Desmarca o flag
