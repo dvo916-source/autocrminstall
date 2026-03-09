@@ -192,7 +192,6 @@ const Shell = ({ children, user, onLogout }) => {
         { to: '/diario', label: 'MEU DIÁRIO', icon: <Calendar className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'diario' },
         { to: '/whatsapp', label: 'WHATSAPP', icon: <MessageSquare className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'whatsapp' },
         { to: '/estoque', label: 'TABELA', icon: <Car className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'estoque' },
-        { to: '/metas', label: 'METAS', icon: <Target className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'metas' },
         { to: '/portais', label: 'PORTAIS', icon: <Globe className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'portais' },
         {
             to: '/crm',

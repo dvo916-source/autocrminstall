@@ -484,8 +484,6 @@ const Usuarios = ({ user }) => {
                                                     {AVAILABLE_PERMISSIONS.filter(p => {
                                                         const storeModules = currentLoja?.modulos ? (typeof currentLoja.modulos === 'string' ? JSON.parse(currentLoja.modulos) : currentLoja.modulos) : [];
                                                         const moduleKey = p.id.replace('/', '');
-                                                        // Fallback para permitir que permissões legadas de 'visitas' funcionem no 'crm'
-                                                        if (moduleKey === 'crm' && storeModules.includes('visitas')) return true;
                                                         return storeModules.includes(moduleKey);
                                                     }).map((page) => {
                                                         const isChecked = newUser.permissions?.includes(page.id);

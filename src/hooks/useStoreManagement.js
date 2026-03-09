@@ -65,7 +65,7 @@ export const useStoreManagement = () => {
         const validMods = mods.filter(m => SYSTEM_MODULES.some(av => av.id === m && !av.disabled));
         if (!validMods || validMods.length === 0) return null;
 
-        const priorityMap = ['diario', 'whatsapp', 'estoque', 'crm', 'visitas', 'metas', 'portais', 'ia-chat', 'usuarios', 'ia-agente'];
+        const priorityMap = ['diario', 'whatsapp', 'estoque', 'crm', 'portais', 'ia-chat', 'usuarios', 'ia-agente'];
         const firstMod = priorityMap.find(m => validMods.includes(m)) || '';
         return firstMod ? `/${firstMod}` : '/';
     }, []);

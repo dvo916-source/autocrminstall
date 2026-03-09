@@ -10,7 +10,6 @@ import ResetPassword from './pages/ResetPassword';
 import Login from './pages/Login';
 
 import Whatsapp from './pages/Whatsapp';
-import Metas from './pages/Metas';
 import AdminIA from './pages/AdminIA';
 import ChatCRM from './pages/ChatCRM';
 import CRM from './pages/CRM';
@@ -177,7 +176,6 @@ const MainContent = ({ user, handleLogout }) => {
 
         <Route path="/whatsapp" element={<RouteGuard path="/whatsapp" element={<Whatsapp />} />} />
         <Route path="/estoque" element={<RouteGuard path="/estoque" element={<Estoque user={user} />} />} />
-        <Route path="/metas" element={<RouteGuard path="/metas" element={<Metas />} />} />
         <Route path="/portais" element={<RouteGuard path="/portais" element={<Portais />} />} />
         <Route path="/ia-chat" element={<RouteGuard path="/ia-chat" element={<IaChat />} />} />
         <Route path="/usuarios" element={<RouteGuard path="/usuarios" element={<Usuarios user={user} />} />} />

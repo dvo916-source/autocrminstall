@@ -5,7 +5,6 @@ export const SYSTEM_MODULES = [
     { id: 'crm', label: 'CRM (Gestão de Leads)', icon: 'Zap', description: 'Gestão completa de leads e pipeline de vendas' },
     { id: 'ia-agente', label: 'IA Agente (Em Desenvolvimento)', icon: 'Brain', description: 'Agente de IA para atendimento', disabled: true },
     { id: 'ia-chat', label: 'IA Chat', icon: 'MessageSquare', description: 'Chat com IA configurável' },
-    { id: 'metas', label: 'Metas', icon: 'Target', description: 'Definição e acompanhamento de metas' },
     { id: 'diario', label: 'Meu Diário', icon: 'BookOpen', description: 'Agenda diária de atividades' },
     { id: 'portais', label: 'Portais', icon: 'Globe', description: 'Configuração de integração com portais' },
     { id: 'tabela-virtual', label: 'Tabela Virtual (Em Desenvolvimento)', icon: 'Table', description: 'Tabela virtual de dados', disabled: true },
