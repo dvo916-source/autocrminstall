@@ -2,10 +2,10 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLoja } from '../context/LojaContext';
 import { maskCPF } from '../lib/utils';
-import { electronAPI } from '@/lib/electron-api';
 import { SYSTEM_MODULES } from '../constants/modules';
 
 export const useStoreManagement = () => {
+    const ipcRenderer = window.electronAPI;
     const { lojas, currentLoja, switchLoja, refreshLojas } = useLoja();
     const navigate = useNavigate();
 
@@ -80,7 +80,7 @@ export const useStoreManagement = () => {
 
         setLoading(true);
         try {
-            await electronAPI.invoke('sync-essential', lojaDestino.id);
+            await ipcRenderer.invoke('sync-essential', lojaDestino.id);
             switchLoja(lojaDestino);
             navigate(targetPath);
         } catch (err) {
@@ -99,7 +99,7 @@ export const useStoreManagement = () => {
 
         try {
             if (newAdmin.cpf && newAdmin.cpf.trim()) {
-                const cpfVal = await electronAPI.invoke('validate-cpf', newAdmin.cpf);
+                const cpfVal = await ipcRenderer.invoke('validate-cpf', newAdmin.cpf);
                 if (!cpfVal.valid) {
                     setCpfError(cpfVal.message);
                     setWizardStep(2);
@@ -108,7 +108,7 @@ export const useStoreManagement = () => {
                 }
             }
 
-            const result = await electronAPI.invoke('create-loja', { storeData: newStore, adminData: newAdmin });
+            const result = await ipcRenderer.invoke('create-loja', { storeData: newStore, adminData: newAdmin });
 
             if (result.success) {
                 await refreshLojas();
@@ -142,7 +142,7 @@ export const useStoreManagement = () => {
         setLoading(true);
         try {
             const originalLoja = lojas.find(l => l.id === lojaId);
-            await electronAPI.invoke('update-store', { ...originalLoja, nome: editForm.nome, logo_url: editForm.logo_url, ativo: originalLoja.ativo !== 0 });
+            await ipcRenderer.invoke('update-store', { ...originalLoja, nome: editForm.nome, logo_url: editForm.logo_url, ativo: originalLoja.ativo !== 0 });
             await refreshLojas();
             setEditingId(null);
         } catch (err) {
@@ -155,7 +155,7 @@ export const useStoreManagement = () => {
     const handleUpdateModules = async (lojaId, modules) => {
         setLoading(true);
         try {
-            await electronAPI.invoke('update-loja-modules', { lojaId, modules });
+            await ipcRenderer.invoke('update-loja-modules', { lojaId, modules });
             await refreshLojas();
             setConfigStore(null);
         } catch (err) {
@@ -170,7 +170,7 @@ export const useStoreManagement = () => {
         const confirm = window.confirm("Deseja realmente excluir esta loja? Todos os dados vinculados serão inacessíveis.");
         if (confirm) {
             try {
-                await electronAPI.invoke('delete-store', id);
+                await ipcRenderer.invoke('delete-store', id);
                 await refreshLojas();
             } catch (err) {
                 console.error("Erro ao excluir:", err);
@@ -181,7 +181,7 @@ export const useStoreManagement = () => {
     const handleSyncAll = async () => {
         setLoading(true);
         try {
-            const res = await electronAPI.invoke('full-cloud-sync', null);
+            const res = await ipcRenderer.invoke('full-cloud-sync', null);
             if (res.success) {
                 await refreshLojas();
             } else {
