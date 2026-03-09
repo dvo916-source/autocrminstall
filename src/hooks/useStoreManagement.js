@@ -65,9 +65,19 @@ export const useStoreManagement = () => {
         const validMods = mods.filter(m => SYSTEM_MODULES.some(av => av.id === m && !av.disabled));
         if (!validMods || validMods.length === 0) return null;
 
-        const priorityMap = ['diario', 'whatsapp', 'estoque', 'crm', 'portais', 'usuarios'];
-        const firstMod = priorityMap.find(m => validMods.includes(m)) || '';
-        return firstMod ? `/${firstMod}` : '/';
+        const routes = {
+            'diario': '/',
+            'whatsapp': '/whatsapp',
+            'tabela-virtual': '/estoque',
+            'crm': '/crm',
+            'portais': '/portais',
+            'usuarios': '/usuarios'
+        };
+
+        const priorityOrder = ['diario', 'whatsapp', 'tabela-virtual', 'crm', 'portais', 'usuarios'];
+        const firstMod = priorityOrder.find(m => validMods.includes(m));
+
+        return firstMod ? routes[firstMod] : '/';
     }, []);
 
     const handleAcessarLoja = useCallback(async (lojaDestino) => {
