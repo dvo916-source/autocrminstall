@@ -35,6 +35,7 @@ const VexCalendar = ({ selectedDate, onSelectDate, onAddNote, isOpen, onClose, e
         const newDate = new Date(viewDate);
         newDate.setMonth(newDate.getMonth() + delta);
         setViewDate(newDate);
+        if (onMonthChange) onMonthChange(newDate);
     };
 
     const isSameDay = (d1, d2) => {

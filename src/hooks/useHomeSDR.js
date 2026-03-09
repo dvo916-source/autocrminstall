@@ -11,6 +11,7 @@ export const useHomeSDR = (user) => {
     const { performanceMode } = useUI();
 
     const [selectedDate, setSelectedDate] = useState(new Date());
+    const [viewDate, setViewDate] = useState(new Date());
     const [loading, setLoading] = useState(true);
     const [dailyTasks, setDailyTasks] = useState([]);
     const [dailyNotes, setDailyNotes] = useState([]);
@@ -48,17 +49,23 @@ export const useHomeSDR = (user) => {
     const loadData = useCallback(async (showLoading = true) => {
         try {
             if (showLoading) setLoading(true);
-                        const dateStr = selectedDate.toLocaleDateString('en-CA');
+            const dateStr = selectedDate.toLocaleDateString('en-CA');
             const targetUser = selectedUserView === 'ALL' ? null : selectedUserView;
             // Developer sem loja selecionada usa a primeira loja disponível
             const storeId = currentLoja?.id || (lojas && lojas.length > 0 ? lojas[0].id : 'irw-motors-main');
 
-            const [allAgendamentos, teamSummary, allNotesData, estoqueData, usuariosData] = await Promise.all([
+            const [allAgendamentos, teamSummary, allNotesData, estoqueData, usuariosData, homeStats] = await Promise.all([
                 electronAPI.getAgendamentosDetalhes({ username: targetUser, lojaId: storeId }),
                 electronAPI.getAgendamentosResumo(storeId),
                 electronAPI.getNotas({ username: targetUser, lojaId: storeId }),
                 electronAPI.getList('estoque', storeId),
-                electronAPI.getListUsers(storeId)
+                electronAPI.getListUsers(storeId),
+                electronAPI.getHomeSDRStats({
+                    lojaId: storeId,
+                    month: viewDate.getMonth() + 1,
+                    year: viewDate.getFullYear(),
+                    username: targetUser
+                })
             ]);
 
             setEstoque(estoqueData || []);
@@ -74,26 +81,6 @@ export const useHomeSDR = (user) => {
                 return noteDate === dateStr;
             });
 
-            const currentMonth = new Date().getMonth() + 1;
-            const searchName = (targetUser || user?.username || '').toLowerCase().trim();
-            const userInRanking = (teamSummary || []).find(u => (u.nome || u.username || '').toLowerCase().trim() === searchName);
-
-            const visitsTotal = selectedUserView === 'ALL'
-                ? (teamSummary || []).reduce((acc, u) => acc + (u.total || u.count || 0), 0)
-                : (userInRanking ? (userInRanking.total || userInRanking.count || 0) : 0);
-
-            const salesTotal = (allAgendamentos || []).filter(v => {
-                const m = v.mes || (v.datahora ? new Date(v.datahora).getMonth() + 1 : null);
-                const status = (v.status_pipeline || v.status || '').toLowerCase();
-                return m === currentMonth && (status.includes('vendido') || status.includes('concluída'));
-            }).length;
-
-            // Visitas confirmadas no mês (visitou_loja = 1)
-            const visitsConfirmed = (allAgendamentos || []).filter(v => {
-                const m = v.mes || (v.datahora ? new Date(v.datahora).getMonth() + 1 : null);
-                return m === currentMonth && (v.visitou_loja === 1 || v.visitou_loja === true);
-            }).length;
-
             const now = new Date();
             const todayISO = now.toISOString().split('T')[0];
 
@@ -106,6 +93,7 @@ export const useHomeSDR = (user) => {
                 })
                 .sort((a, b) => new Date(a.data_agendamento) - new Date(b.data_agendamento));
             setNextTask(upcomingToday[0] || null);
+
             const pendingList = (allAgendamentos || []).filter(v => (v.status_pipeline || v.status || '').toLowerCase() === 'pendente');
 
             const overdue = [];
@@ -126,24 +114,8 @@ export const useHomeSDR = (user) => {
             const todayTasks = (allAgendamentos || []).filter(v => (v.data_agendamento || v.datahora || '').includes(todayISO));
             const tomorrowTasks = (allAgendamentos || []).filter(v => (v.data_agendamento || v.datahora || '').includes(tomorrowStr));
 
-            const activeEventDays = new Set();
-            const activePendingDays = new Set();
-
-            (allAgendamentos || []).forEach(v => {
-                const status = (v.status_pipeline || v.status || '').toLowerCase();
-                const dStr = (v.data_agendamento || v.datahora || '').split('T')[0];
-                if (!dStr) return;
-                if (status === 'pendente') activePendingDays.add(dStr);
-                else activeEventDays.add(dStr);
-            });
-
-            (allNotesData || []).forEach(n => {
-                const dStr = (n.data_nota || '').split('T')[0];
-                if (dStr) activeEventDays.add(dStr);
-            });
-
-            setEventDays(Array.from(activeEventDays));
-            setPendingDays(Array.from(activePendingDays));
+            setEventDays(homeStats.eventDays || []);
+            setPendingDays([]); // Agora usamos apenas eventDays para as "bolinhas" conforme solicitado
             setOverdueRecontacts(overdue);
             setDueTodayRecontacts(dueToday);
 
@@ -165,17 +137,26 @@ export const useHomeSDR = (user) => {
             setAllTasks(allAgendamentos || []);
             setAllNotes(allNotesData || []);
             setRankingData((teamSummary || []).filter(u => !['developer', 'master'].includes(u.role) && (u.nome || u.username || '').toLowerCase() !== 'diego'));
-            setStats({ visits: visitsTotal, sales: salesTotal, pending: pendingTotal, today: todayTasks.length, tomorrow: tomorrowTasks.length, visitsConfirmed });
+
+            // 🔥 MÉTRICAS CONSOLIDADAS
+            setStats({
+                visits: homeStats.visitas, // Visitas confirmadas (visitou_loja = 1)
+                sales: homeStats.vendas,
+                pending: homeStats.pendentes,
+                today: todayTasks.length,
+                tomorrow: tomorrowTasks.length,
+                visitsConfirmed: homeStats.visitas
+            });
         } catch (err) {
             console.error("HomeSDR Load Error:", err);
         } finally {
             setLoading(false);
         }
-    }, [selectedDate, selectedUserView, currentLoja?.id, filterMode, user?.username]);
+    }, [selectedDate, viewDate, selectedUserView, currentLoja?.id, filterMode, user?.username]);
 
     useEffect(() => {
         if (isAdmin) {
-                        const sdrStoreId = currentLoja?.id || (lojas && lojas.length > 0 ? lojas[0].id : 'irw-motors-main');
+            const sdrStoreId = currentLoja?.id || (lojas && lojas.length > 0 ? lojas[0].id : 'irw-motors-main');
             electronAPI.getListUsers(sdrStoreId).then(users => {
                 const sdrs = (users || []).filter(u => ['sdr', 'vendedor', 'admin', 'master', 'gerente'].includes(u.role));
                 setSdrUsers(sdrs);
@@ -197,12 +178,12 @@ export const useHomeSDR = (user) => {
 
     useEffect(() => {
         loadData(true);
-                const handleRefresh = (event, table) => {
+        const handleRefresh = (event, table) => {
             if (table === 'visitas' || table === 'notas') loadData(false);
         };
         electronAPI.onRefreshData(handleRefresh);
         const unsub = electronAPI.onRefreshData(handleRefresh);
-            return () => { if (unsub) unsub(); };
+        return () => { if (unsub) unsub(); };
     }, [loadData]);
 
     const handleDeleteClick = (id) => {
@@ -296,6 +277,7 @@ export const useHomeSDR = (user) => {
 
     return {
         selectedDate, setSelectedDate,
+        viewDate, setViewDate,
         loading,
         dailyTasks, dailyNotes,
         allTasks, allNotes,

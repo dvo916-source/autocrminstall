@@ -102,6 +102,7 @@ const ALLOWED_CHANNELS = {
         // 🪟 JANELA
         'focus-window',
         'show-native-notification',
+        'get-home-sdr-stats',
 
         // 🚗 RASPAGEM E CACHE
         'scrap-car-details',

@@ -15,6 +15,7 @@ import { electronAPI } from '@/lib/electron-api';
 const HomeVex = ({ user }) => {
     const {
         selectedDate, setSelectedDate,
+        viewDate, setViewDate,
         loading,
         dailyTasks, dailyNotes,
         confirmDelete, setConfirmDelete,
@@ -104,10 +105,12 @@ const HomeVex = ({ user }) => {
                 />
 
                 <div className="w-[272px] shrink-0 flex flex-col min-h-0 overflow-y-auto custom-scrollbar">
-                    <SDRStatsGrid stats={stats} />
+                    <SDRStatsGrid stats={stats} viewDate={viewDate} />
                     <SDRSidebar
                         selectedDate={selectedDate}
                         setSelectedDate={setSelectedDate}
+                        viewDate={viewDate}
+                        setViewDate={setViewDate}
                         eventDays={eventDays}
                         pendingDays={pendingDays}
                         rankingData={rankingData}
@@ -140,7 +143,7 @@ const HomeVex = ({ user }) => {
                                         className="py-3 rounded-xl bg-white/5 text-slate-400 font-bold text-xs uppercase tracking-widest hover:bg-white/10 transition-all">
                                         Cancelar
                                     </button>
-                                    <button onClick={() => {  electronAPI.deleteVisita({ id: confirmDelete.task.id, lojaId: currentLoja?.id }).then(() => { loadData(); setConfirmDelete({ show: false, task: null }); }); }}
+                                    <button onClick={() => { electronAPI.deleteVisita({ id: confirmDelete.task.id, lojaId: currentLoja?.id }).then(() => { loadData(); setConfirmDelete({ show: false, task: null }); }); }}
                                         className="py-3 rounded-xl bg-red-500 text-white font-black text-xs uppercase tracking-widest hover:bg-red-600 transition-all">
                                         Excluir
                                     </button>

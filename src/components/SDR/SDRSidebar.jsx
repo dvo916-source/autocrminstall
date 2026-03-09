@@ -7,6 +7,8 @@ import { getFirstName } from '../../lib/utils';
 const SDRSidebar = ({
     selectedDate,
     setSelectedDate,
+    viewDate,
+    setViewDate,
     eventDays,
     pendingDays,
     rankingData,
@@ -80,6 +82,7 @@ const SDRSidebar = ({
                     onClose={() => { }}
                     selectedDate={selectedDate}
                     onSelectDate={setSelectedDate}
+                    onMonthChange={setViewDate}
                     eventDays={eventDays}
                     pendingDays={pendingDays}
                 />

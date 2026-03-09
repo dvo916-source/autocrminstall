@@ -2322,6 +2322,66 @@ export function getAgendamentosPorUsuario(lojaId = DEFAULT_STORE_ID) {
                     `).all(lojaId, currentMonth, lojaId, currentMonth, lojaId);
 }
 
+/**
+ * 📊 ESTATÍSTICAS CONSOLIDADAS PARA O DIÁRIO (HomeSDR)
+ * Retorna Visitas, Vendas, Pendentes e Dias com eventos no calendário.
+ */
+export function getHomeSDRStats({ lojaId = DEFAULT_STORE_ID, month, year, username = null }) {
+    try {
+        const targetMonth = month || (new Date().getMonth() + 1);
+        const targetYear = year || new Date().getFullYear();
+        const monthStr = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
+
+        const params = [lojaId, monthStr];
+        let userFilter = "";
+        if (username) {
+            userFilter = " AND (vendedor_sdr = ? COLLATE NOCASE OR vendedor = ? COLLATE NOCASE)";
+            params.push(username, username);
+        }
+
+        // 1. Visitas Confirmadas (visitou_loja = 1) no mês do agendamento
+        const visitas = db.prepare(`
+            SELECT COUNT(*) as count FROM visitas 
+            WHERE loja_id = ? AND strftime('%Y-%m', data_agendamento) = ?
+            AND visitou_loja = 1 ${userFilter}
+        `).get(...params).count;
+
+        // 2. Vendas (Ganho) no mês de criação
+        const vendas = db.prepare(`
+            SELECT COUNT(*) as count FROM visitas 
+            WHERE loja_id = ? AND strftime('%Y-%m', created_at) = ?
+            AND (status_pipeline = 'Ganho' OR status = 'Ganho') ${userFilter}
+        `).get(...params).count;
+
+        // 3. Pendentes (Sem status final) no mês de criação
+        const pendentes = db.prepare(`
+            SELECT COUNT(*) as count FROM visitas 
+            WHERE loja_id = ? AND strftime('%Y-%m', created_at) = ?
+            AND status_pipeline NOT IN ('Ganho', 'Perdido', 'Cancelado') ${userFilter}
+        `).get(...params).count;
+
+        // 4. Dias com Eventos (Calendário)
+        const eventDays = db.prepare(`
+            SELECT DISTINCT strftime('%Y-%m-%d', created_at) as day FROM visitas
+            WHERE loja_id = ? AND strftime('%Y-%m', created_at) = ? ${userFilter}
+            UNION
+            SELECT DISTINCT strftime('%Y-%m-%d', data_agendamento) as day FROM visitas
+            WHERE loja_id = ? AND strftime('%Y-%m', data_agendamento) = ? ${userFilter}
+        `).all(lojaId, monthStr, ...(username ? [username, username] : []), lojaId, monthStr, ...(username ? [username, username] : []))
+            .map(row => row.day);
+
+        return {
+            visitas,
+            vendas,
+            pendentes,
+            eventDays
+        };
+    } catch (err) {
+        console.error("Erro ao buscar estatísticas do Diário:", err);
+        return { visitas: 0, vendas: 0, pendentes: 0, eventDays: [] };
+    }
+}
+
 export function getAgendamentosDetalhes(username = null, lojaId = DEFAULT_STORE_ID) {
     try {
         let query = `

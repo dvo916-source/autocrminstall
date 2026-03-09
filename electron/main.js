@@ -371,6 +371,7 @@ ipcMain.handle('get-competition', async (e, lojaId) => await db.getCompetitionDa
 ipcMain.handle('get-config-meta', async (e, lojaId) => await db.getConfigMeta(lojaId));
 ipcMain.handle('get-sdr-performance', async (e, lojaId) => await db.getSdrPerformance(lojaId));
 ipcMain.handle('set-config-meta', async (e, { visita, venda, lojaId }) => await db.setConfigMeta(visita, venda, lojaId));
+ipcMain.handle('get-home-sdr-stats', async (e, options) => await db.getHomeSDRStats(options));
 
 // Estatísticas de Veículos (Estoque Digital)
 ipcMain.handle('get-vehicles-stats', async (e, lojaId) => db.getVehiclesStats(lojaId));

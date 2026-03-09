@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle2, TrendingUp, AlertCircle, BarChart2 } from 'lucide-react';
 
-const SDRStatsGrid = ({ stats }) => {
+const SDRStatsGrid = ({ stats, viewDate }) => {
     const navigate = useNavigate();
 
     const statCards = [
@@ -34,7 +34,7 @@ const SDRStatsGrid = ({ stats }) => {
         {
             label: 'Conversão',
             value: `${stats.visitsConfirmed > 0 && stats.sales > 0
-                ? Math.round((stats.sales / stats.visitsConfirmed) * 100)
+                ? ((stats.sales / stats.visitsConfirmed) * 100).toFixed(1)
                 : 0}%`,
             color: 'indigo',
             icon: BarChart2,
@@ -45,14 +45,16 @@ const SDRStatsGrid = ({ stats }) => {
 
     const colorMap = {
         orange: { border: 'border-orange-500/15', label: 'text-orange-400', hover: 'hover:border-orange-500/40 hover:bg-orange-500/[0.06]' },
-        green:  { border: 'border-green-500/15',  label: 'text-green-400',  hover: 'hover:border-green-500/40 hover:bg-green-500/[0.06]' },
-        red:    { border: 'border-red-500/15',     label: 'text-red-400',    hover: 'hover:border-red-500/40 hover:bg-red-500/[0.06]' },
-        indigo: { border: 'border-indigo-500/15',  label: 'text-indigo-400', hover: '' },
+        green: { border: 'border-green-500/15', label: 'text-green-400', hover: 'hover:border-green-500/40 hover:bg-green-500/[0.06]' },
+        red: { border: 'border-red-500/15', label: 'text-red-400', hover: 'hover:border-red-500/40 hover:bg-red-500/[0.06]' },
+        indigo: { border: 'border-indigo-500/15', label: 'text-indigo-400', hover: '' },
     };
 
     return (
         <div className="p-4 border-b border-white/[0.05] shrink-0">
-            <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-3">Mês atual</p>
+            <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-3">
+                {viewDate?.toLocaleDateString('pt-BR', { month: 'long' }) || 'Mês atual'}
+            </p>
             <div className="grid grid-cols-2 gap-2">
                 {statCards.map(s => {
                     const c = colorMap[s.color];

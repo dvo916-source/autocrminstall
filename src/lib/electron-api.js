@@ -207,6 +207,10 @@ export const electronAPI = {
         ensureElectron();
         return window.electronAPI.invoke('get-sdr-performance', lojaId);
     },
+    getHomeSDRStats: async (options) => {
+        ensureElectron();
+        return window.electronAPI.invoke('get-home-sdr-stats', options);
+    },
 
     // 🔄 SINCRONIZAÇÃO
     fullCloudSync: async (lojaId) => {
