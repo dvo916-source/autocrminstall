@@ -1,697 +1,442 @@
 import React, { useState, useEffect } from 'react';
-import { X, CheckCircle, Car, Clock, Users, Calendar as CalendarIcon, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { toLocalISOString } from '../lib/utils';
-import PremiumSelect from './PremiumSelect';
-import PremiumDatePicker from './PremiumDatePicker';
+import { X, Calendar, User, Phone, Car, DollarSign, Flame, Clock, MessageSquare } from 'lucide-react';
 import { useLoja } from '../context/LojaContext';
 import { electronAPI } from '@/lib/electron-api';
+import { toLocalISOString, formatCurrency } from '@/lib/utils';
 
-const TEMPERATURAS = [
-    { value: 'Quente', label: '🔥 Quente' },
-    { value: 'Morno', label: '☕ Morno' },
-    { value: 'Frio', label: '🧊 Frio' }
-];
-
-const FORMAS_PAGAMENTO = [
-    { value: 'A Vista', label: '💵 A Vista' },
-    { value: 'Financiamento', label: '🏦 Financiamento' },
-    { value: 'Veículo na Troca', label: '🚗 Veículo na Troca' },
-    { value: 'Troca com Troco', label: '💰 Troca com Troco' },
-    { value: 'Consórcio', label: '📝 Consórcio' },
-    { value: 'Cartão de Crédito', label: '💳 Cartão de Crédito' },
-    { value: 'PIX', label: '📲 PIX' },
-    { value: 'Transferência Bancária', label: '🏦 Transferência Bancária' }
-];
-
-const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, initialPhone = '', targetUser, editingTask = null }) => {
+const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, editingTask, targetUser }) => {
     const { currentLoja } = useLoja();
-    const [loading, setLoading] = useState(true);
-    const [portais, setPortais] = useState([]);
-    const [vendedores, setVendedores] = useState([]);
     const [estoque, setEstoque] = useState([]);
     const [usuarios, setUsuarios] = useState([]);
-    const [currentUser, setCurrentUser] = useState(null);
+    const [vendedores, setVendedores] = useState([]);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedVehicle, setSelectedVehicle] = useState(null);
+    const [isVehicleDropdownOpen, setIsVehicleDropdownOpen] = useState(false);
+    const dropdownRef = React.useRef(null);
 
-    const [successState, setSuccessState] = useState(null); // { message: string }
-    const [recontatoDate, setRecontatoDate] = useState('');
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsVehicleDropdownOpen(false);
+            }
+        };
+
+        if (isVehicleDropdownOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [isVehicleDropdownOpen]);
+
     const [formData, setFormData] = useState({
-        cliente: '', telefone: initialPhone || '', cpf_cliente: '',
-        portal: '', temperatura: 'Morno',
-        data_agendamento: '',
-        veiculo_interesse: '', veiculo_troca: '', valor_proposta: '', forma_pagamento: '',
-        vendedor_sdr: '',
-        vendedor: '',
-        negociacao: '', motivo_perda: '', status_pipeline: 'Novos Leads'
+        cliente: '',
+        telefone: '',
+        origem: 'OLX',
+        veiculo_interesse: '',
+        veiculo_id: '',
+        pagamento: 'À Vista',
+        valor_veiculo: '',
+        data_agendamento: initialDate ? toLocalISOString(initialDate) : '',
+        status_pipeline: 'Agendado',
+        temperatura: 'Frio',
+        sdr: targetUser || '',
+        vendedor_patio: '',
+        notas: ''
     });
 
-    const toTitleCase = (str) => {
-        if (!str) return '';
-        // Capitaliza apenas a primeira letra da string ou após um espaço.
-        // Evita o erro com acentos onde \b falha (ex: NatáLia).
-        return str.replace(/(^|\s)\S/g, l => l.toUpperCase());
-    };
-
-    // Formatter helpers
-    function maskPhone(val) {
-        let v = val.replace(/\D/g, '');
-        if (v.length > 11) v = v.substring(0, 11);
-        if (v.length > 10) return `(${v.substring(0, 2)}) ${v.substring(2, 3)} ${v.substring(3, 7)}-${v.substring(7)}`;
-        if (v.length > 6) return `(${v.substring(0, 2)}) ${v.substring(2, 6)}-${v.substring(6)}`;
-        if (v.length > 2) return `(${v.substring(0, 2)}) ${v.substring(2)}`;
-        return v;
-    }
-
-    function maskCPF(val) {
-        let v = val.replace(/\D/g, '');
-        if (v.length > 11) v = v.substring(0, 11);
-        if (v.length > 9) return `${v.substring(0, 3)}.${v.substring(3, 6)}.${v.substring(6, 9)}-${v.substring(9)}`;
-        if (v.length > 6) return `${v.substring(0, 3)}.${v.substring(3, 6)}.${v.substring(6)}`;
-        if (v.length > 3) return `${v.substring(0, 3)}.${v.substring(3)}`;
-        return v;
-    }
-
-    function maskCurrency(value) {
-        if (!value) return 'R$ 0,00'; // Valor padrão
-        const numeric = String(value).replace(/\D/g, '');
-        if (!numeric) return 'R$ 0,00';
-        const float = parseFloat(numeric) / 100;
-        return new Intl.NumberFormat('pt-BR', {
-            style: 'currency',
-            currency: 'BRL'
-        }).format(float);
-    }
-
-    function handleVehicleChange(val) {
-        const vehicle = estoque.find(v => v.nome === val);
-        if (!vehicle) {
-            setFormData(prev => ({ ...prev, veiculo_interesse: val }));
-            return;
+    useEffect(() => {
+        if (isOpen && currentLoja?.id) {
+            electronAPI.getList('estoque', currentLoja.id).then(setEstoque);
+            electronAPI.getListUsers(currentLoja.id).then(setUsuarios);
+            electronAPI.getList('vendedores', currentLoja.id).then(setVendedores);
         }
+    }, [isOpen, currentLoja]);
 
-        let valStr = String(vehicle.valor || '0').replace('R$', '').trim();
-        let num = 0;
+    useEffect(() => {
+        if (editingTask) {
+            setFormData({
+                cliente: editingTask.cliente || '',
+                telefone: editingTask.telefone || '',
+                origem: editingTask.portal || editingTask.origem || 'OLX',
+                veiculo_interesse: editingTask.veiculo_interesse || '',
+                veiculo_id: editingTask.veiculo_id || '', 
+                pagamento: editingTask.forma_pagamento || editingTask.pagamento || 'À Vista',
+                valor_veiculo: editingTask.valor_proposta || editingTask.valor_veiculo || '',
+                data_agendamento: editingTask.data_agendamento ? toLocalISOString(new Date(editingTask.data_agendamento)) : '',
+                status_pipeline: editingTask.status_pipeline || 'Agendado',
+                temperatura: editingTask.temperatura || 'Quente',
+                sdr: editingTask.vendedor_sdr || editingTask.sdr || targetUser || '',
+                vendedor_patio: editingTask.vendedor || '',
+                notas: editingTask.historico_log || editingTask.notas || ''
+            });
 
-        // Lógica Robusta de Parsing de Moeda
-        if (valStr.includes(',') && valStr.includes('.')) {
-            num = parseFloat(valStr.replace(/\./g, '').replace(',', '.'));
-        } else if (valStr.includes(',')) {
-            num = parseFloat(valStr.replace(',', '.'));
-        } else if (valStr.includes('.')) {
-            if (/\.\d{2}$/.test(valStr)) {
-                num = parseFloat(valStr);
-            } else {
-                num = parseFloat(valStr.replace(/\./g, ''));
+            if (editingTask.veiculo_id && estoque.length > 0) {
+                const vehicle = estoque.find(v => v.id === editingTask.veiculo_id);
+                if (vehicle) setSelectedVehicle(vehicle);
+            } else if (editingTask.veiculo_interesse && estoque.length > 0) {
+                const vehicle = estoque.find(v => v.nome === editingTask.veiculo_interesse);
+                if (vehicle) setSelectedVehicle(vehicle);
             }
         } else {
-            num = parseFloat(valStr);
+            setFormData({
+                cliente: '',
+                telefone: '',
+                origem: 'OLX',
+                veiculo_interesse: '',
+                veiculo_id: '',
+                pagamento: 'À Vista',
+                valor_veiculo: '',
+                data_agendamento: initialDate ? toLocalISOString(initialDate) : '',
+                status_pipeline: 'Agendado',
+                temperatura: 'Frio',
+                sdr: targetUser || '',
+                vendedor_patio: '',
+                notas: ''
+            });
+            setSelectedVehicle(null);
         }
-
-        if (isNaN(num)) num = 0;
-        const centsString = Math.round(num * 100).toString();
-
-        setFormData(prev => ({
-            ...prev,
-            veiculo_interesse: val,
-            valor_proposta: maskCurrency(centsString)
-        }));
-    }
-
-    useEffect(() => {
-        if (isOpen) {
-            loadData();
-            const storedUser = JSON.parse(localStorage.getItem('vexcore_user') || '{"username":"VEX","role":"vendedor"}');
-            setCurrentUser(storedUser);
-
-            if (editingTask) {
-                setFormData({
-                    ...editingTask,
-                    data_agendamento: editingTask.data_agendamento || toLocalISOString(new Date()),
-                    valor_proposta: editingTask.valor_proposta || ''
-                });
-
-                // Tentar extrair data de recontato das notas
-                if (editingTask.negociacao) {
-                    const regex = /\[RECONTATO AGENDADO PARA: (\d{2}\/\d{2}\/\d{4}) às (\d{2}:\d{2})\]/g;
-                    const matches = [...editingTask.negociacao.matchAll(regex)];
-                    if (matches.length > 0) {
-                        const lastMatch = matches[matches.length - 1];
-                        const [_, datePart, timePart] = lastMatch;
-                        const [day, month, year] = datePart.split('/');
-                        const [hours, minutes] = timePart.split(':');
-                        const d = new Date(year, month - 1, day, hours, minutes);
-                        if (!isNaN(d.getTime())) {
-                            setRecontatoDate(d.toISOString());
-                        } else {
-                            setRecontatoDate('');
-                        }
-                    } else {
-                        setRecontatoDate('');
-                    }
-                } else {
-                    setRecontatoDate('');
-                }
-            } else {
-                setFormData({
-                    cliente: '',
-                    telefone: initialPhone || '',
-                    cpf_cliente: '',
-                    portal: '',
-                    temperatura: 'Morno',
-                    data_agendamento: initialDate ? toLocalISOString(initialDate) : toLocalISOString(new Date()),
-                    veiculo_interesse: '',
-                    veiculo_troca: '',
-                    valor_proposta: '',
-                    forma_pagamento: '',
-                    vendedor_sdr: ['developer', 'master'].includes(storedUser.role) ? '' : (targetUser || storedUser.username),
-                    vendedor: (['developer', 'admin', 'master', 'gerente'].includes(storedUser.role)) ? '' : storedUser.username,
-                    negociacao: '',
-                    motivo_perda: '',
-                    status_pipeline: 'Novos Leads'
-                });
-                setRecontatoDate('');
-            }
-        }
-    }, [isOpen, initialPhone, targetUser, editingTask, initialDate]);
-
-    useEffect(() => {
-        try {
-            
-            const handleRefresh = (event, table) => {
-                if (['estoque', 'vendedores', 'portais'].includes(table)) {
-                    loadData();
-                }
-            };
-            electronAPI.onRefreshData(handleRefresh);
-            const unsub = electronAPI.onRefreshData(handleRefresh);
-            return () => { if (unsub) unsub(); };
-        } catch (e) { }
-    }, []);
-
-    // ⌨️ ESCAPE KEY LISTENER
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (e.key === 'Escape' && isOpen) {
-                onClose();
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isOpen, onClose]);
-
-    const loadData = async () => {
-        try {
-            setLoading(true);
-            
-            const [localPortais, localVendedores, localEstoque, localUsers] = await Promise.all([
-                electronAPI.getList('portais', currentLoja?.id),
-                electronAPI.getList('vendedores', currentLoja?.id),
-                electronAPI.getList('estoque', currentLoja?.id),
-                electronAPI.getListUsers(currentLoja?.id)
-            ]);
-
-            setPortais(localPortais ? localPortais.filter(i => i.ativo) : []);
-            setVendedores(localVendedores ? localVendedores.filter(i => i.ativo) : []);
-            setEstoque(localEstoque ? localEstoque.filter(i => i.ativo) : []);
-            setUsuarios((localUsers || []).filter(u => ['sdr', 'vendedor', 'admin', 'gerente'].includes(u.role) && !['developer', 'master'].includes(u.role)));
-        } catch (err) {
-            console.error('Erro ao carregar dados do modal:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const renderVehicleOption = (option) => {
-        const v = option.data;
-        if (!v) return <span className="text-sm">{option.label}</span>;
-
-        let photoUrl = '';
-        try {
-            const fotos = typeof v.fotos === 'string' ? JSON.parse(v.fotos) : v.fotos;
-            if (Array.isArray(fotos) && fotos.length > 0) photoUrl = fotos[0];
-            else if (v.foto) photoUrl = v.foto;
-        } catch (e) { photoUrl = v.foto || ''; }
-
-        return (
-            <div className="flex items-center gap-3 w-full group py-0.5">
-                <div className="w-10 h-10 rounded-lg bg-black/40 border border-white/10 overflow-hidden flex-shrink-0 relative">
-                    {photoUrl ? (
-                        <img src={photoUrl} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-700">
-                            <Car size={14} />
-                        </div>
-                    )}
-                </div>
-                <div className="flex flex-col flex-1 min-w-0">
-                    <span className="text-[11px] font-bold text-white truncate leading-tight group-hover:text-blue-400 transition-colors">
-                        {v.nome}
-                    </span>
-                    <div className="flex items-center gap-2 text-[10px] font-black tracking-wider text-gray-400 mt-0.5 uppercase">
-                        {v.placa && <span className="text-gray-400">{v.placa}</span>}
-                        {v.cor && <span>{v.cor}</span>}
-                        {v.ano && <span>{v.ano}</span>}
-                    </div>
-                </div>
-            </div>
-        );
-    };
+    }, [editingTask, initialDate, targetUser, estoque]);
 
     const handleSubmit = async (e) => {
-        e.preventDefault();
-        const required = {
-            cliente: 'Nome do Cliente',
-            portal: 'Origem',
-            telefone: 'WhatsApp',
-            veiculo_interesse: 'Carro Desejado',
-            vendedor: 'Consultor',
-            data_agendamento: 'Data & Hora'
-        };
-
-        if ((formData.status_pipeline === 'Perdido' || formData.status_pipeline === 'Cancelado') && !formData.motivo_perda) {
-            window.dispatchEvent(new CustomEvent('show-notification', {
-                detail: {
-                    message: "⚠️ Informe o motivo do cancelamento/finalização.",
-                    type: 'error'
-                }
-            }));
+        if (e) e.preventDefault();
+        console.log('🚀 [handleSubmit] Iniciando salvamento...', formData);
+        
+        if (!currentLoja?.id) {
+            console.error('❌ Loja não identificada');
             return;
         }
 
-        const missing = Object.entries(required)
-            .filter(([key]) => !formData[key])
-            .map(([_, label]) => label);
+        // Validação manual
+        if (!formData.cliente) return alert('Nome do cliente é obrigatório');
+        if (!formData.telefone) return alert('WhatsApp é obrigatório');
+        if (!formData.origem) return alert('Origem é obrigatória');
+        if (!formData.veiculo_interesse && !selectedVehicle) return alert('Carro de interesse é obrigatório');
+        if (!formData.pagamento) return alert('Forma de pagamento é obrigatória');
+        if (!formData.valor_veiculo) return alert('Valor do veículo é obrigatório');
+        if (!formData.data_agendamento) return alert('Data e hora são obrigatórios');
+        if (!formData.sdr) return alert('Responsável pelo agendamento é obrigatório');
+        if (!formData.vendedor_patio) return alert('Vendedor de pátio é obrigatório');
 
-        if (missing.length > 0) {
-            window.dispatchEvent(new CustomEvent('show-notification', {
-                detail: {
-                    message: `⚠️ Campos obrigatórios faltando: ${missing.join(', ')}`,
-                    type: 'error'
-                }
-            }));
-            return;
-        }
+        console.log('✅ Validação manual passou');
 
         try {
-            setLoading(true);
-            
-            let finalNegociacao = formData.negociacao;
-
-            // 📝 Sugestão 3: Log Automático de Evolução
-            if (editingTask?.id && (editingTask.status_pipeline || '').toLowerCase() === 'novos leads' && formData.status_pipeline.toLowerCase() !== 'novos leads') {
-                const now = new Date().toLocaleString('pt-BR');
-                const evolutionNote = `[EVOLUÇÃO AUTOMÁTICA: Lead evoluído de Novos Leads para ${formData.status_pipeline} em ${now}]`;
-                if (!finalNegociacao || !finalNegociacao.includes(evolutionNote)) {
-                    finalNegociacao = `${evolutionNote}\n\n${finalNegociacao || ''}`.trim();
-                }
-            }
-
-            if (formData.status_pipeline === 'Recontatos' && recontatoDate) {
-                const dateLabel = new Date(recontatoDate).toLocaleString('pt-BR', {
-                    day: '2-digit', month: '2-digit', year: 'numeric',
-                    hour: '2-digit', minute: '2-digit'
-                }).replace(',', ' às');
-
-                const recontatoNote = `[RECONTATO AGENDADO PARA: ${dateLabel}]`;
-
-                // Só adiciona se a última nota de recontato for diferente da atual
-                if (!finalNegociacao || !finalNegociacao.includes(recontatoNote)) {
-                    finalNegociacao = `${finalNegociacao || ''}\n\n${recontatoNote}`.trim();
-                }
-            }
-
+            const base = editingTask || {};
             const payload = {
-                ...formData,
-                id: editingTask?.id, // Garantir que o ID seja enviado para o update
-                data_agendamento: (formData.status_pipeline === 'Recontatos' && recontatoDate) ? recontatoDate : formData.data_agendamento,
-                negociacao: finalNegociacao,
-                mes: new Date().getMonth() + 1,
-                datahora: formData.datahora || new Date().toISOString(),
-                status: formData.status || 'Pendente',
-                historico_log: finalNegociacao,
-                loja_id: currentLoja?.id || 'irw-motors-main'
+                cli_id: base.id,
+                cliente: formData.cliente || '',
+                telefone: formData.telefone || '',
+                portal: formData.origem || base.portal || '',
+                veiculo_interesse: selectedVehicle?.nome || formData.veiculo_interesse || '',
+                veiculo_id: selectedVehicle?.id || formData.veiculo_id || null,
+                veiculo_troca: base.veiculo_troca || '',
+                vendedor: formData.vendedor_patio || base.vendedor || '',
+                vendedor_sdr: formData.sdr || base.vendedor_sdr || '',
+                negociacao: base.negociacao || '',
+                data_agendamento: formData.data_agendamento || null,
+                temperatura: formData.temperatura || null,
+                status_pipeline: formData.status_pipeline || base.status_pipeline || 'Agendado',
+                forma_pagamento: formData.pagamento || base.forma_pagamento || null,
+                valor_proposta: formData.valor_veiculo || base.valor_proposta || null,
+                historico_log: formData.notas || base.historico_log || null,
+                motivo_perda: base.motivo_perda || null,
+                status: base.status || 'Pendente',
+                cpf_cliente: base.cpf_cliente || null,
+                loja_id: currentLoja.id
             };
 
-            if (editingTask?.id) {
-                await electronAPI.updateVisitaFull(payload);
+            console.log('📡 [handleSubmit] Enviando payload:', payload);
+
+            if (editingTask) {
+                await electronAPI.updateVisitaFull({ ...base, ...payload, id: editingTask.id });
             } else {
                 await electronAPI.addVisita(payload);
             }
+            console.log('✅ [handleSubmit] Sucesso!');
 
-            const repassMessage = `*📅 NOVO AGENDAMENTO VEXCORE*
-            
-👤 *CLIENTE:* ${formData.cliente}
-🚗 *CARRO:* ${formData.veiculo_interesse}
-💰 *VALOR DO VEÍCULO:* ${formData.valor_proposta || 'Consulte'}
-⏰ *DATA/HORA:* ${new Date(formData.data_agendamento).toLocaleString('pt-BR')}
-👨‍💼 *CONSULTOR:* ${formData.vendedor}
-🔄 *TROCA:* ${formData.veiculo_troca || ''}
-📝 *NOTAS:* ${finalNegociacao || ''}`;
-
-            setSuccessState({ repassMessage });
-            setLoading(false);
+            onSuccess();
+            onClose();
         } catch (err) {
-            alert('Erro ao salvar: ' + (err.message || 'Erro desconhecido'));
-            setLoading(false);
+            console.error('Erro ao salvar agendamento:', err);
+            alert('Erro ao salvar agendamento');
         }
     };
 
-    const handleSuccessAction = (shouldRepass) => {
-        if (shouldRepass && successState?.repassMessage && typeof window.onAppointmentSaved === 'function') {
-            window.onAppointmentSaved(successState.repassMessage);
-        }
-        setSuccessState(null);
-        onClose();
-        if (typeof onSuccess === 'function') onSuccess();
+    const handleVehicleSelect = (vehicle) => {
+        setSelectedVehicle(vehicle);
+        setFormData(prev => ({
+            ...prev,
+            veiculo_interesse: vehicle.nome,
+            veiculo_id: vehicle.id,
+            valor_veiculo: vehicle.valor || prev.valor_veiculo
+        }));
+        setIsVehicleDropdownOpen(false);
+        setSearchTerm('');
     };
+
+    const filteredVehicles = estoque.filter(v =>
+        v.nome?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    if (!isOpen) return null;
 
     return (
         <AnimatePresence>
-            {isOpen && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        onClick={onClose}
-                        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-                    />
-
-                    <motion.div
-                        initial={{ scale: 0.95, opacity: 0, y: 20 }}
-                        animate={{ scale: 1, opacity: 1, y: 0 }}
-                        exit={{ scale: 0.95, opacity: 0, y: 20 }}
-                        className="relative w-full max-w-5xl bg-[#0f172a]/95 border border-white/10 rounded-[2.5rem] shadow-2xl overflow-hidden backdrop-blur-3xl flex flex-col max-h-[92vh]"
-                    >
-                        {successState ? (
-                            <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
-                                <motion.div
-                                    initial={{ scale: 0 }} animate={{ scale: 1 }}
-                                    className="w-24 h-24 bg-green-500/20 rounded-full flex items-center justify-center mb-6 text-green-400 border border-green-500/30 shadow-[0_0_30px_rgba(34,197,94,0.3)]"
-                                >
-                                    <CheckCircle size={48} strokeWidth={3} />
-                                </motion.div>
-                                <h2 className="text-4xl font-black text-white mb-2 tracking-tight">
-                                    {editingTask ? 'Status Atualizado!' : 'Agendamento Criado!'}
-                                </h2>
-                                <p className="text-gray-400 text-lg mb-6 max-w-md">
-                                    {editingTask ? 'As informações do cliente foram registradas com sucesso.' : 'O cliente foi registrado com sucesso no sistema.'}
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                    className="w-full max-w-4xl bg-[#0f172a] border border-white/10 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+                >
+                    {/* HEADER */}
+                    <div className="p-6 border-b border-white/5 bg-gradient-to-r from-cyan-500/10 to-transparent shrink-0">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="text-xl font-black text-white uppercase tracking-tight">
+                                    {editingTask ? 'Editar Agendamento' : 'Novo Agendamento'}
+                                </h3>
+                                <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-1">
+                                    {currentLoja?.nome || 'IRW MOTORS'} • CRM INTELLIGENCE
                                 </p>
+                            </div>
+                            <button onClick={onClose} className="p-2 text-slate-500 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
+                                <X size={20} />
+                            </button>
+                        </div>
+                    </div>
 
-                                {recontatoDate && formData.status_pipeline === 'Recontatos' && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                                        className="mb-10 px-6 py-3 bg-blue-500/10 border border-blue-500/20 rounded-2xl flex items-center gap-3 text-blue-400"
-                                    >
-                                        <Clock size={16} className="animate-pulse" />
-                                        <span className="text-sm font-bold uppercase tracking-wider">
-                                            Recontato: {new Date(recontatoDate).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ' às')}
-                                        </span>
-                                    </motion.div>
-                                )}
+                    {/* FORM */}
+                    <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                        {/* CLIENTE & TELEFONE */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                    <User size={12} /> Nome do Cliente
+                                </label>
+                                <input
+                                    type="text"
+                                    value={formData.cliente}
+                                    onChange={e => setFormData(prev => ({ ...prev, cliente: e.target.value.toUpperCase() }))}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/50 transition-all font-medium text-sm"
+                                    placeholder="Digite o nome..."
+                                />
+                            </div>
 
-                                <div className="flex gap-4 w-full max-w-md">
-                                    <button
-                                        onClick={() => handleSuccessAction(false)}
-                                        className="flex-1 py-4 px-6 rounded-2xl font-bold text-gray-400 bg-white/5 hover:bg-white/10 hover:text-white transition-all border border-white/5"
-                                    >
-                                        Fechar
-                                    </button>
-                                    <button
-                                        onClick={() => handleSuccessAction(true)}
-                                        className="flex-1 py-4 px-6 rounded-2xl font-bold text-white bg-green-600 hover:bg-green-500 hover:scale-105 transition-all shadow-lg shadow-green-600/20 flex items-center justify-center gap-2"
-                                    >
-                                        <Users size={20} />
-                                        Repassar (Zap)
-                                    </button>
+                            <div className="space-y-2">
+                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                    <Phone size={12} /> WhatsApp
+                                </label>
+                                <input
+                                    type="tel"
+                                    value={formData.telefone}
+                                    onChange={e => setFormData(prev => ({ ...prev, telefone: e.target.value }))}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/50 transition-all font-medium text-sm"
+                                    placeholder="(00) 00000-0000"
+                                />
+                            </div>
+                        </div>
+
+                        {/* ORIGEM & VEÍCULO */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Origem (Portal)</label>
+                                <select
+                                    value={formData.origem}
+                                    onChange={e => setFormData(prev => ({ ...prev, origem: e.target.value }))}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500/50 transition-all font-medium text-sm"
+                                >
+                                    <option value="OLX" className="bg-[#1a1c23] text-white">OLX</option>
+                                    <option value="WebMotors" className="bg-[#1a1c23] text-white">WebMotors</option>
+                                    <option value="iCarros" className="bg-[#1a1c23] text-white">iCarros</option>
+                                    <option value="Indicação" className="bg-[#1a1c23] text-white">Indicação</option>
+                                    <option value="WhatsApp" className="bg-[#1a1c23] text-white">WhatsApp</option>
+                                    <option value="Instagram" className="bg-[#1a1c23] text-white">Instagram</option>
+                                    <option value="Outro" className="bg-[#1a1c23] text-white">Outro</option>
+                                </select>
+                            </div>
+
+                            <div className="space-y-2 relative">
+                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                    <Car size={12} /> Carro de Interesse
+                                </label>
+                                <div className="relative" ref={dropdownRef}>
+                                    <input
+                                        type="text"
+                                        value={selectedVehicle ? selectedVehicle.nome : formData.veiculo_interesse}
+                                        onChange={e => {
+                                            setSearchTerm(e.target.value);
+                                            setFormData(prev => ({ ...prev, veiculo_interesse: e.target.value, veiculo_id: null }));
+                                            setSelectedVehicle(null);
+                                            setIsVehicleDropdownOpen(true);
+                                        }}
+                                        onFocus={() => setIsVehicleDropdownOpen(true)}
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/50 transition-all font-medium text-sm"
+                                        placeholder="Digite ou selecione..."
+                                    />
+                                    {isVehicleDropdownOpen && filteredVehicles.length > 0 && (
+                                        <div className="absolute z-[110] w-full mt-2 bg-[#1a1c23] border border-white/10 rounded-xl shadow-2xl max-h-60 overflow-y-auto">
+                                            {filteredVehicles.map(vehicle => (
+                                                <button
+                                                    key={vehicle.id}
+                                                    type="button"
+                                                    onClick={() => handleVehicleSelect(vehicle)}
+                                                    className="w-full px-4 py-3 text-left hover:bg-cyan-500/10 transition-colors border-b border-white/5 last:border-0 flex items-center gap-3"
+                                                >
+                                                    {vehicle.foto && (
+                                                        <img src={vehicle.foto} alt="" className="w-12 h-12 rounded-lg object-cover" />
+                                                    )}
+                                                    <div className="flex-1">
+                                                        <p className="text-white font-bold text-sm">{vehicle.nome}</p>
+                                                        <p className="text-slate-500 text-xs">{vehicle.ano} • {formatCurrency(vehicle.valor)}</p>
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                        ) : (
-                            <>
-                                <div className="flex items-center justify-between px-10 py-7">
-                                    <div>
-                                        <h2 className="text-3xl font-black text-white tracking-tighter">Novo Agendamento</h2>
-                                        <div className="flex items-center gap-2 mt-2">
-                                            <div className="w-8 h-1 bg-gradient-to-r from-blue-500 to-cyan-400 rounded-full"></div>
-                                            <span className="text-gray-400 font-bold text-[10px] tracking-[0.2em] uppercase">Irw Motors • CRM Intelligence</span>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={onClose}
-                                        className="w-12 h-12 flex items-center justify-center rounded-2xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all group border border-white/5"
-                                    >
-                                        <X size={24} className="group-hover:rotate-90 transition-transform" />
-                                    </button>
+                        </div>
+
+                        {/* PAGAMENTO & VALOR */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                    <DollarSign size={12} /> Pagamento
+                                </label>
+                                <select
+                                    value={formData.pagamento}
+                                    onChange={e => setFormData(prev => ({ ...prev, pagamento: e.target.value }))}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500/50 transition-all font-medium text-sm"
+                                >
+                                    <option value="À Vista" className="bg-[#1a1c23] text-white">À Vista</option>
+                                    <option value="Financiamento" className="bg-[#1a1c23] text-white">Financiamento</option>
+                                    <option value="Consórcio" className="bg-[#1a1c23] text-white">Consórcio</option>
+                                </select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Valor do Veículo</label>
+                                <input
+                                    type="text"
+                                    value={formData.valor_veiculo}
+                                    onChange={e => setFormData(prev => ({ ...prev, valor_veiculo: e.target.value }))}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/50 transition-all font-medium text-sm"
+                                    placeholder="R$ 0,00"
+                                />
+                            </div>
+                        </div>
+
+                        {/* DATA & HORA */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                    <Calendar size={12} /> Data & Hora
+                                </label>
+                                <input
+                                    type="datetime-local"
+                                    value={formData.data_agendamento}
+                                    onChange={e => setFormData(prev => ({ ...prev, data_agendamento: e.target.value }))}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500/50 transition-all font-medium text-sm"
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                    <User size={12} /> Responsável pelo Agendamento
+                                </label>
+                                <select
+                                    value={formData.sdr}
+                                    onChange={e => setFormData(prev => ({ ...prev, sdr: e.target.value }))}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500/50 transition-all font-medium text-sm uppercase"
+                                >
+                                    <option value="" className="bg-[#1a1c23] text-slate-400">SELECIONE UM RESPONSÁVEL</option>
+                                    {usuarios.filter(u => u.ativo !== 0).map((u, idx) => (
+                                        <option key={'usr-' + (u.id || u.username || idx)} value={u.username} className="bg-[#1a1c23] text-white">
+                                            {u.nome_completo ? u.nome_completo.toUpperCase() : u.username.toUpperCase()}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* TEMPERATURA & ATENDIMENTO */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                    <Flame size={12} /> Temperatura
+                                </label>
+                                <div className="flex gap-3">
+                                    {['Frio', 'Morno', 'Quente'].map(temp => (
+                                        <button
+                                            key={temp}
+                                            type="button"
+                                            onClick={() => setFormData(prev => ({ ...prev, temperatura: temp }))}
+                                            className={`flex-1 py-3 h-[46px] rounded-xl font-bold text-sm uppercase tracking-wider transition-all ${
+                                                formData.temperatura === temp
+                                                    ? temp === 'Quente' ? 'bg-red-500 text-white'
+                                                    : temp === 'Morno' ? 'bg-yellow-500 text-black'
+                                                    : 'bg-blue-500 text-white'
+                                                    : 'bg-white/5 text-slate-500 hover:bg-white/10'
+                                            }`}
+                                        >
+                                            {temp}
+                                        </button>
+                                    ))}
                                 </div>
+                            </div>
+                            
+                            <div className="space-y-2">
+                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                    <User size={12} /> Atendimento Presencial Por:
+                                </label>
+                                <select
+                                    value={formData.vendedor_patio}
+                                    onChange={e => setFormData(prev => ({ ...prev, vendedor_patio: e.target.value }))}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 h-[46px] text-white focus:outline-none focus:border-cyan-500/50 transition-all font-medium text-sm uppercase"
+                                >
+                                    <option value="" className="bg-[#1a1c23] text-slate-400">NENHUM SELECIONADO</option>
+                                    {vendedores.map((v, idx) => (
+                                        <option key={'v-salao-' + (v.id || idx)} value={v.nome} className="bg-[#1a1c23] text-white">
+                                            {v.nome} {v.sobrenome || ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
 
-                                <div className="px-10 pb-10 overflow-y-auto custom-scrollbar flex-1">
-                                    <form onSubmit={handleSubmit} className="space-y-8">
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                            <div>
-                                                <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Nome do Cliente</label>
-                                                <input
-                                                    className="w-full h-14 bg-white/[0.03] border border-white/10 rounded-2xl px-5 text-white text-base font-bold tracking-tight outline-none focus:border-blue-500/50 focus:bg-white/5 transition-all placeholder:text-gray-600"
-                                                    placeholder="Nome completo..."
-                                                    value={formData.cliente}
-                                                    onChange={e => setFormData(prev => ({ ...prev, cliente: toTitleCase(e.target.value) }))}
-                                                    autoFocus
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">WhatsApp</label>
-                                                <input
-                                                    className="w-full h-14 bg-white/[0.03] border border-white/10 rounded-2xl px-5 text-white text-base font-bold font-mono tracking-tight outline-none focus:border-blue-500/50 focus:bg-white/5 transition-all placeholder:text-gray-600"
-                                                    placeholder="(00) 0 0000-0000"
-                                                    value={formData.telefone}
-                                                    onChange={e => setFormData({ ...formData, telefone: maskPhone(e.target.value) })}
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Origem (Portal)</label>
-                                                <PremiumSelect
-                                                    options={portais.map(p => ({ value: p.nome, label: p.nome }))}
-                                                    value={formData.portal}
-                                                    onChange={val => setFormData({ ...formData, portal: val })}
-                                                    placeholder="Selecione..."
-                                                />
-                                            </div>
-                                        </div>
+                        {/* NOTAS */}
+                        <div className="space-y-2">
+                            <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                <MessageSquare size={12} /> Notas da Conversa
+                            </label>
+                            <textarea
+                                value={formData.notas}
+                                onChange={e => setFormData(prev => ({ ...prev, notas: e.target.value }))}
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/50 transition-all font-medium text-sm min-h-[100px] resize-none"
+                                placeholder="Detalhes da conversa..."
+                            />
+                        </div>
+                    </form>
 
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                            <div>
-                                                <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Carro de Interesse</label>
-                                                <PremiumSelect
-                                                    options={estoque.map(c => ({
-                                                        value: c.nome,
-                                                        label: c.nome,
-                                                        data: c
-                                                    }))}
-                                                    value={formData.veiculo_interesse}
-                                                    onChange={handleVehicleChange}
-                                                    placeholder="Pesquisar estoque..."
-                                                    searchable
-                                                    creatable
-                                                    autoCapitalize={true}
-                                                    itemRenderer={renderVehicleOption}
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Pagamento</label>
-                                                <PremiumSelect
-                                                    options={FORMAS_PAGAMENTO}
-                                                    value={formData.forma_pagamento}
-                                                    onChange={(val) => setFormData(prev => ({ ...prev, forma_pagamento: Array.isArray(val) ? val.join(', ') : val }))}
-                                                    placeholder="Meios de Pagamento"
-                                                    multiSelect={true}
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Valor do Veículo</label>
-                                                <input
-                                                    className="w-full h-14 bg-white/[0.03] border border-white/10 rounded-2xl px-5 text-white text-base font-bold tracking-tight outline-none focus:border-blue-500/50 focus:bg-white/5 transition-all placeholder:text-gray-600"
-                                                    placeholder="R$ 0,00"
-                                                    value={formData.valor_proposta}
-                                                    onChange={e => setFormData({ ...formData, valor_proposta: maskCurrency(e.target.value) })}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div className="p-8 rounded-[2rem] bg-white/[0.02] border border-white/5 space-y-6">
-                                            <div className="flex flex-col gap-4">
-                                                <label className="text-[11px] text-gray-400 font-black ml-1 tracking-[0.2em] uppercase">Marcar Status do Negócio</label>
-                                                <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
-                                                    {[
-                                                        { id: 'Novos Leads', label: 'NOVOS LEADS', color: 'cyan', desc: 'Portal / Entrada' },
-                                                        { id: 'Primeiro Contato', label: '1º CONTATO', color: 'blue', desc: '1º Contato Feito' },
-                                                        { id: 'Em Negociação', label: 'NEGOCIAÇÃO', color: 'amber', desc: 'Sondagem Ativa' },
-                                                        { id: 'Agendado', label: 'AGENDADO', color: 'orange', desc: 'Visita Marcada' },
-                                                        { id: 'Recontato', label: 'RECONTATO', color: 'purple', desc: 'Follow-up' },
-                                                        { id: 'Ganho', label: 'GANHO', color: 'green', desc: 'Fechamento ✓' },
-                                                        { id: 'Perdido', label: 'PERDIDO', color: 'red', desc: 'Não Fechou' },
-                                                        { id: 'Cancelado', label: 'CANCELADO', color: 'gray', desc: 'Pós-Desistência' },
-                                                    ].map((s) => (
-                                                        <button
-                                                            key={s.id}
-                                                            type="button"
-                                                            onClick={() => setFormData({ ...formData, status_pipeline: s.id })}
-                                                            className={`
-                                                                relative overflow-hidden group flex flex-col items-center justify-center p-4 rounded-2xl border transition-all duration-300
-                                                                ${formData.status_pipeline === s.id
-                                                                    ? `bg-${s.color}-500/10 border-${s.color}-500/40 shadow-[0_0_20px_rgba(var(--${s.color}-rgb),0.2)]`
-                                                                    : 'bg-black/20 border-white/5 hover:bg-white/5 hover:border-white/10'
-                                                                }
-                                                            `}
-                                                        >
-                                                            <div className={`w-2 h-2 rounded-full mb-2 ${formData.status_pipeline === s.id ? `bg-${s.color}-400 animate-pulse shadow-[0_0_10px_rgba(var(--${s.color}-rgb),0.8)]` : 'bg-gray-600'}`} />
-                                                            <span className={`text-[10px] font-black tracking-widest ${formData.status_pipeline === s.id ? `text-${s.color}-400` : 'text-gray-400'}`}>{s.label}</span>
-                                                            <span className="text-[9px] text-gray-600 font-bold uppercase mt-0.5 text-center leading-tight">{s.desc}</span>
-
-                                                            {formData.status_pipeline === s.id && (
-                                                                <motion.div layoutId="status-glow" className={`absolute inset-0 border-2 border-${s.color}-500/20 rounded-2xl pointer-events-none`} />
-                                                            )}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-white/5">
-                                                <div>
-                                                    <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Data & Hora</label>
-                                                    <PremiumDatePicker
-                                                        value={formData.data_agendamento}
-                                                        onChange={val => setFormData({ ...formData, data_agendamento: val })}
-                                                        allowPastDates={true}
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Responsável pelo Atendimento</label>
-                                                    <PremiumSelect
-                                                        options={vendedores.map(v => ({ value: v.nome, label: v.nome }))}
-                                                        value={formData.vendedor}
-                                                        onChange={val => setFormData({ ...formData, vendedor: val })}
-                                                        placeholder="Responsável..."
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Temperatura</label>
-                                                    <div className="flex bg-black/20 p-1 rounded-2xl gap-1 h-14 items-center">
-                                                        {TEMPERATURAS.map(t => (
-                                                            <button
-                                                                key={t.value}
-                                                                type="button"
-                                                                onClick={() => setFormData({ ...formData, temperatura: t.value })}
-                                                                className={`
-                                                                    flex-1 h-12 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all
-                                                                    ${formData.temperatura === t.value
-                                                                        ? 'bg-blue-600 text-white shadow-lg'
-                                                                        : 'text-gray-500 hover:text-gray-300'
-                                                                    }
-                                                                `}
-                                                            >
-                                                                {t.label.split(' ')[1]}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {(formData.status_pipeline === 'Perdido' || formData.status_pipeline === 'Cancelado') && (
-                                                <motion.div
-                                                    initial={{ opacity: 0, scale: 0.95 }}
-                                                    animate={{ opacity: 1, scale: 1 }}
-                                                    className="p-6 border rounded-2xl bg-red-900/20 border-red-700/30"
-                                                >
-                                                    <label className="text-[11px] text-red-400 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">
-                                                        ⚠️ Motivo {formData.status_pipeline === 'Cancelado' ? 'do Cancelamento' : 'da Perda'} (OBRIGATÓRIO)
-                                                    </label>
-                                                    <textarea
-                                                        className="w-full h-24 bg-black/20 border border-red-500/20 rounded-xl p-4 text-white text-sm font-bold tracking-tight outline-none focus:border-red-500/50 transition-all placeholder:text-red-900/40 resize-none"
-                                                        placeholder={formData.status_pipeline === 'Cancelado' ? 'Ex: Cliente fechou e depois cancelou por...' : 'Ex: Cliente desistiu por preço, encontrou outro veículo...'}
-                                                        value={formData.motivo_perda}
-                                                        onChange={e => setFormData({ ...formData, motivo_perda: e.target.value })}
-                                                    />
-                                                </motion.div>
-                                            )}
-
-                                            {formData.status_pipeline === 'Recontatos' && (
-                                                <motion.div
-                                                    initial={{ opacity: 0, scale: 0.95 }}
-                                                    animate={{ opacity: 1, scale: 1 }}
-                                                    className="p-6 bg-blue-500/10 border border-blue-500/20 rounded-2xl"
-                                                >
-                                                    <label className="text-[11px] text-blue-400 font-black ml-1 mb-2 block tracking-[0.2em] uppercase flex items-center gap-2">
-                                                        <Clock size={14} /> Marcar Recontato (Opcional)
-                                                    </label>
-                                                    <div className="flex gap-4 items-center">
-                                                        <div className="flex-1">
-                                                            <PremiumDatePicker
-                                                                value={recontatoDate}
-                                                                onChange={val => setRecontatoDate(val)}
-                                                                allowPastDates={false}
-                                                            />
-                                                        </div>
-                                                        {recontatoDate && (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setRecontatoDate('')}
-                                                                className="px-4 h-14 bg-white/5 border border-white/10 rounded-2xl text-red-400 hover:bg-red-500/10 transition-colors font-bold text-xs uppercase"
-                                                            >
-                                                                Limpar
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                    <p className="text-[10px] text-gray-500/60 font-bold mt-2 ml-1 uppercase tracking-wider italic">
-                                                        * Se selecionada, a data será anexada automaticamente às notas da conversa.
-                                                    </p>
-                                                </motion.div>
-                                            )}
-                                        </div>
-
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                            <div className="flex flex-col">
-                                                <label className="text-[10px] text-gray-500 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Notas da Conversa</label>
-                                                <textarea
-                                                    className="w-full h-44 bg-white/[0.03] border border-white/10 rounded-2xl p-5 text-white text-sm font-medium outline-none focus:border-blue-500/50 focus:bg-white/5 transition-all placeholder:text-gray-600 resize-none"
-                                                    placeholder="Detalhes rápidos..."
-                                                    value={formData.negociacao}
-                                                    onChange={e => setFormData({ ...formData, negociacao: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="flex flex-col justify-between">
-                                                {['admin', 'master', 'developer', 'gerente'].includes(currentUser?.role) && (
-                                                    <div>
-                                                        <label className="text-[10px] text-blue-400 font-black ml-1 mb-2 block tracking-[0.2em] uppercase">Responsável pelo Agendamento</label>
-                                                        <PremiumSelect
-                                                            options={usuarios.map(u => ({ value: u.username, label: u.nome_completo || u.username }))}
-                                                            value={formData.vendedor_sdr}
-                                                            onChange={val => setFormData({ ...formData, vendedor_sdr: val })}
-                                                            placeholder="SDR Responsável..."
-                                                        />
-                                                    </div>
-                                                )}
-                                                <button
-                                                    type="submit"
-                                                    disabled={loading}
-                                                    className="w-full h-20 bg-gradient-to-r from-blue-700 to-blue-500 hover:from-blue-600 hover:to-blue-400 text-white font-black tracking-[0.3em] text-sm rounded-2xl transition-all shadow-xl hover:shadow-blue-500/20 active:scale-[0.98] border-t border-white/20 uppercase flex items-center justify-center gap-4 group disabled:opacity-50 disabled:cursor-not-allowed mt-auto"
-                                                >
-                                                    {loading ? (
-                                                        <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                                    ) : (
-                                                        <>
-                                                            <CheckCircle size={22} className="group-hover:scale-110 transition-transform" />
-                                                            {editingTask ? 'Salvar Alterações' : 'Gravar Agendamento'}
-                                                        </>
-                                                    )}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </form>
-                                </div>
-                            </>
-                        )}
-                    </motion.div>
-                </div>
-            )}
+                    {/* FOOTER */}
+                    <div className="p-6 bg-white/[0.02] border-t border-white/5 flex gap-3 shrink-0">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white rounded-xl font-bold text-sm uppercase tracking-widest transition-all"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleSubmit}
+                            className="flex-1 px-4 py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl font-black text-sm uppercase tracking-widest shadow-lg shadow-cyan-900/20 transition-all"
+                        >
+                            {editingTask ? 'Salvar Alterações' : 'Salvar Agendamento'}
+                        </button>
+                    </div>
+                </motion.div>
+            </div>
         </AnimatePresence>
     );
 };

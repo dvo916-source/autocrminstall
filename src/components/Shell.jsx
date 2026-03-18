@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
     BarChart3, Users, Car, Globe, Target, Bot,
@@ -212,6 +212,7 @@ const Shell = ({ children, user, onLogout }) => {
             ),
             module: 'crm'
         },
+        { to: '/ia-chat', label: 'VEX A.I.', icon: <Bot className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'ia-chat' },
         { to: '/usuarios', label: 'USUÁRIOS', icon: <Shield className="w-[1.375rem] h-[1.375rem]" strokeWidth={1.5} />, module: 'usuarios' }
     );
 

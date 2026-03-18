@@ -27,7 +27,10 @@ let whatsappViewReady = false; // Flag que indica se a view do WhatsApp já deu 
 
 // 🧠 INICIALIZAÇÃO DOS MOTORES
 db.initDb(); // Cria as tabelas se não existirem
-db.enableRealtimeSync(); // Liga a escuta de mudanças em tempo real (Supabase)
+// Pega loja ativa do SQLite e passa pro Realtime Sync
+const startupLojaId = db.getActiveStoreId();
+db.enableRealtimeSync(startupLojaId); // ✅ Agora com lojaId correto
+console.log('[Main] Realtime Sync habilitado para loja:', startupLojaId);
 aiservice.initAi(); // Prepara a conexão com a OpenAI
 
 // 🛠️ TRATAMENTO DE ERROS GLOBAIS (DEBUG)
@@ -332,7 +335,10 @@ ipcMain.handle('validate-session', async (e, { username, sessionId }) => {
 // Comandos de Visitas (CRM)
 ipcMain.handle('get-visitas-secure', (e, { role, username, lojaId }) => db.getVisitas(role, username, lojaId));
 ipcMain.handle('add-visita', async (e, v) => await db.addVisita(v));
-ipcMain.handle('update-visita-status', async (e, { id, status, pipeline }) => await db.updateVisitaStatusQuick({ id, status, pipeline }));
+ipcMain.handle('update-visita-status', async (e, params) => {
+    console.log('📡 [Main.js] IPC update-visita-status recebido:', params);
+    return await db.updateVisitaStatusQuick(params);
+});
 ipcMain.handle('update-visita-sdr', async (e, { id, sdr, lojaId }) => await db.updateVisitaSdrQuick({ id, sdr, lojaId }));
 ipcMain.handle('update-visita-sdr-quick', async (e, { id, field, value, lojaId }) => await db.updateVisitaFieldQuick({ id, field, value, lojaId }));
 ipcMain.handle('update-visita-visitou-loja', async (e, { id, valor, lojaId }) => await db.updateVisitaVisitouLoja({ id, valor, lojaId }));

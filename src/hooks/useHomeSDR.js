@@ -68,6 +68,9 @@ export const useHomeSDR = (user) => {
                 })
             ]);
 
+            console.log('📊 [DEBUG Diario] homeStats recebido:', homeStats);
+            console.log('🔍 [DEBUG Diario] Filtros:', { storeId, targetUser, viewDate: viewDate.toISOString() });
+
             setEstoque(estoqueData || []);
             setUsuarios(usuariosData || []);
 

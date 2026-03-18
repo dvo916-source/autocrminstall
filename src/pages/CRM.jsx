@@ -21,6 +21,7 @@ import ReportModal from '../components/ReportModal';
 import VisitListItem from '../components/CRM/VisitListItem';
 import PendingAlert from '../components/CRM/PendingAlert';
 import KanbanCard from '../components/CRM/KanbanCard';
+import LostLeadModal from '../components/CRM/LostLeadModal';
 import { electronAPI } from '@/lib/electron-api';
 
 export const PIPELINE_STATUSES = [
@@ -51,7 +52,8 @@ export default function CRM({ user }) {
         fetch();
     }, [currentLoja?.id]);
 
-    const [viewMode, setViewMode] = useState('kanban');
+    const [viewMode, setViewMode] = useState(() => localStorage.getItem('crm-view-mode') || 'kanban');
+    const setViewModePersisted = (mode) => { setViewMode(mode); localStorage.setItem('crm-view-mode', mode); };
     const [searchTerm, setSearchTerm] = useState('');
     const [activeTab, setActiveTab] = useState('TODOS');
     const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -61,6 +63,7 @@ export default function CRM({ user }) {
     const [editingLead, setEditingLead] = useState(null);
     const [activeStatusDropdown, setActiveStatusDropdown] = useState(null);
     const [activeId, setActiveId] = useState(null);
+    const [lostLeadModal, setLostLeadModal] = useState({ open: false, lead: null, targetStatus: null });
     const filterRef = useRef(null);
     const statusRef = useRef(null);
 
@@ -137,17 +140,51 @@ export default function CRM({ user }) {
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     );
 
-    const handleUpdateLeadStatus = async (leadId, newStatus) => {
+    const handleUpdateLeadStatus = async (leadId, newStatus, motivo = null, detalhes = null) => {
         try {
-            await electronAPI.updateVisitaStatus({ id: leadId, status: newStatus, pipeline: newStatus });
+            const lead = filteredLeads.find(l => l.id === leadId);
+            if (!lead) return;
+
+            if (newStatus === 'Perdido' && !motivo) {
+                setLostLeadModal({ open: true, lead, targetStatus: newStatus });
+                return;
+            }
+
+            console.log('📝 [CRM.jsx] handleUpdateLeadStatus Payload:', {
+                id: leadId,
+                status: newStatus,
+                motivo_perda: motivo,
+                detalhes_perda: detalhes
+            });
+
+            await electronAPI.updateVisitaStatus({
+                id: leadId,
+                status: newStatus,
+                pipeline: newStatus,
+                motivo_perda: motivo,
+                detalhes_perda: detalhes
+            });
             refreshData();
+
+            if (newStatus === 'Perdido') {
+                window.dispatchEvent(new CustomEvent('show-notification', {
+                    detail: { message: 'Lead arquivado como perdido.', type: 'info' }
+                }));
+            }
         } catch (err) { console.error(err); }
+    };
+
+    const handleConfirmLost = async (motivo, detalhes) => {
+        const { lead, targetStatus } = lostLeadModal;
+        console.log('✅ [CRM.jsx] handleConfirmLost Modal confirmed:', { motivo, detalhes, leadId: lead?.id });
+        await handleUpdateLeadStatus(lead.id, targetStatus, motivo, detalhes);
+        setLostLeadModal({ open: false, lead: null, targetStatus: null });
     };
 
     const handleDeleteLead = async (id) => {
         if (window.confirm('Tem certeza que deseja excluir este lead permanentemente?')) {
             try {
-                await electronAPI.deleteVisita(id);
+                await electronAPI.deleteVisita({ id, lojaId: currentLoja?.id });
                 refreshData();
                 window.dispatchEvent(new CustomEvent('show-notification', { detail: { message: 'Lead excluído!', type: 'success' } }));
             } catch (err) { console.error(err); }
@@ -189,10 +226,10 @@ export default function CRM({ user }) {
                             </h1>
                         </div>
                         <div className={`flex bg-black/40 p-2 rounded-2xl border border-white/10 shadow-inner transition-all flex-row items-center ${!performanceMode ? 'hover:border-cyan-500/20' : ''}`}>
-                            <button onClick={() => setViewMode('kanban')} className={`flex items-center gap-3 px-8 py-3 rounded-xl text-[12px] font-black uppercase tracking-widest transition-all ${viewMode === 'kanban' ? 'bg-cyan-500 text-black shadow-[0_0_25px_rgba(6,181,212,0.5)]' : 'text-slate-500 hover:text-white'}`}>
+                            <button onClick={() => setViewModePersisted('kanban')} className={`flex items-center gap-3 px-8 py-3 rounded-xl text-[12px] font-black uppercase tracking-widest transition-all ${viewMode === 'kanban' ? 'bg-cyan-500 text-black shadow-[0_0_25px_rgba(6,181,212,0.5)]' : 'text-slate-500 hover:text-white'}`}>
                                 <LayoutGrid size={18} /> Kanban
                             </button>
-                            <button onClick={() => setViewMode('list')} className={`flex items-center gap-3 px-8 py-3 rounded-xl text-[12px] font-black uppercase tracking-widest transition-all ${viewMode === 'list' ? 'bg-cyan-500 text-black shadow-[0_0_25px_rgba(6,181,212,0.5)]' : 'text-slate-500 hover:text-white'}`}>
+                            <button onClick={() => setViewModePersisted('list')} className={`flex items-center gap-3 px-8 py-3 rounded-xl text-[12px] font-black uppercase tracking-widest transition-all ${viewMode === 'list' ? 'bg-cyan-500 text-black shadow-[0_0_25px_rgba(6,181,212,0.5)]' : 'text-slate-500 hover:text-white'}`}>
                                 <ListIcon size={18} /> Lista
                             </button>
                         </div>
@@ -343,6 +380,7 @@ export default function CRM({ user }) {
                                             activeStatusDropdown={activeStatusDropdown} setActiveStatusDropdown={setActiveStatusDropdown}
                                             usuarios={usuarios} loadData={refreshData}
                                             handleDeleteClick={handleDeleteLead}
+                                            handleUpdateStatus={handleUpdateLeadStatus}
                                         />
                                     );
                                 }) : (
@@ -364,6 +402,12 @@ export default function CRM({ user }) {
 
             <ReportModal isOpen={isReportOpen} onClose={() => setIsReportOpen(false)} visitas={filteredLeads} availableMonths={availableMonths} lojaName={currentLoja?.nome || 'IRW Motors'} />
             <NewVisitModal isOpen={isVisitModalOpen} editingTask={editingLead} onClose={() => { setIsVisitModalOpen(false); setEditingLead(null); }} onSuccess={refreshData} />
+
+            <LostLeadModal
+                lead={lostLeadModal.lead}
+                onConfirm={handleConfirmLost}
+                onCancel={() => setLostLeadModal({ open: false, lead: null, targetStatus: null })}
+            />
         </div>
     );
 }

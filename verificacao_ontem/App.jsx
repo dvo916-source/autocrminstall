@@ -11,7 +11,6 @@ import Login from './pages/Login';
 
 import Whatsapp from './pages/Whatsapp';
 import CRM from './pages/CRM';
-import IaChat from './pages/IaChat';
 import MigracaoSupabase from './pages/MigracaoSupabase';
 import { AlertCircle, RotateCcw } from 'lucide-react';
 import { LojaProvider, useLoja } from './context/LojaContext';
@@ -176,7 +175,6 @@ const MainContent = ({ user, handleLogout }) => {
         <Route path="/portais" element={<RouteGuard path="/portais" element={<Portais />} />} />
         <Route path="/usuarios" element={<RouteGuard path="/usuarios" element={<Usuarios user={user} />} />} />
         <Route path="/crm" element={<RouteGuard path="/crm" element={<CRM user={user} />} />} />
-        <Route path="/ia-chat" element={<RouteGuard path="/ia-chat" element={<IaChat user={user} />} />} />
 
         <Route path="/central-lojas" element={user?.role === 'developer' ? <StoreManagement /> : <Navigate to="/" />} />
         <Route path="/migrar-supabase/:lojaId?" element={user?.role === 'developer' ? <MigracaoSupabase /> : <Navigate to="/" />} />

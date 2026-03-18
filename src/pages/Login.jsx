@@ -24,7 +24,6 @@ const Login = ({ onLogin }) => {
 
     useEffect(() => {
         try {
-            
             electronAPI.getAppVersion().then(setAppVersion).catch(() => setAppVersion('v1.1.2'));
         } catch (e) {
             setAppVersion('v1.1.2');
@@ -40,6 +39,23 @@ const Login = ({ onLogin }) => {
         setToasts(prev => prev.filter(t => t.id !== id));
     }, []);
 
+    // Helper: descobre primeira rota disponível com base nos módulos da loja
+    const getFirstRoute = (modulos) => {
+        const routes = {
+            'diario': '/',
+            'whatsapp': '/whatsapp',
+            'crm': '/crm',
+            'tabela-virtual': '/estoque',
+            'portais': '/portais',
+            'usuarios': '/usuarios'
+        };
+        const priority = ['diario', 'whatsapp', 'crm', 'tabela-virtual', 'portais', 'usuarios'];
+        for (const mod of priority) {
+            if (modulos.includes(mod)) return routes[mod];
+        }
+        return '/';
+    };
+
     const handleSubmit = async (e) => {
         if (e) e.preventDefault();
         if (!username.trim() || !password.trim()) {
@@ -50,7 +66,6 @@ const Login = ({ onLogin }) => {
         setLoading(true);
 
         try {
-            
             const user = await electronAPI.login(username, password);
 
             if (user) {
@@ -61,15 +76,61 @@ const Login = ({ onLogin }) => {
                     return;
                 }
 
-                localStorage.setItem('username', user.username);
-                localStorage.setItem('userRole', user.role);
-                localStorage.setItem('sessionId', user.session_id);
-
+                // Salva sessão no sessionStorage
+                sessionStorage.setItem('username', user.username);
+                sessionStorage.setItem('userRole', user.role);
+                sessionStorage.setItem('sessionId', user.session_id);
                 if (user.loja_id) {
                     localStorage.setItem('active_loja_id', user.loja_id);
                 }
 
-                onLogin(user);
+                // Developer → vai direto pra Central de Lojas
+                if (user.role === 'developer') {
+                    onLogin({ ...user, firstRoute: '/store-management' });
+                    return;
+                }
+
+                // Usuário comum → carrega loja e calcula firstRoute baseado em módulos
+                try {
+                    const lojas = await electronAPI.getStores();
+                    const userLoja = lojas.find(l => l.id === user.loja_id);
+
+                    if (!userLoja) {
+                        addToast('Loja não encontrada. Contate o administrador.', 'error');
+                        return;
+                    }
+
+                    const modulos = typeof userLoja.modulos === 'string'
+                        ? JSON.parse(userLoja.modulos)
+                        : (userLoja.modulos || []);
+
+                    if (!modulos || modulos.length === 0) {
+                        addToast('Sua loja não possui módulos ativos. Contate o administrador.', 'error');
+                        return;
+                    }
+
+                    // Filtra por permissões do usuário (se não for admin/master)
+                    let availableModules = modulos;
+                    if (!['admin', 'master'].includes(user.role)) {
+                        const userModulos = user.modulos || modulos;
+                        availableModules = modulos.filter(m => userModulos.includes(m));
+                    }
+
+                    if (availableModules.length === 0) {
+                        addToast('Você não tem permissão para acessar nenhum módulo. Contate o administrador.', 'error');
+                        return;
+                    }
+
+                    const firstRoute = getFirstRoute(availableModules);
+                    console.log('✅ [Login] firstRoute calculado:', firstRoute, '| módulos:', availableModules);
+                    onLogin({ ...user, firstRoute, availableModules });
+
+                } catch (lojaErr) {
+                    console.error('[Login] Erro ao carregar loja:', lojaErr);
+                    // Fallback: login normal sem firstRoute calculado
+                    onLogin(user);
+                }
+
             } else {
                 addToast('Credenciais inválidas ou conta pausada.', 'error');
             }
@@ -181,7 +242,7 @@ const Login = ({ onLogin }) => {
                             onComplete={(newPass) => {
                                 setNeedsReset(false);
                                 if (newPass) setPassword(newPass);
-                                // A g u a r d a o estado atualizar para disparar o login automático
+                                // Aguarda o estado atualizar para disparar o login automático
                                 setTimeout(() => {
                                     handleSubmit();
                                 }, 100);

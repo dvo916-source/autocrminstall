@@ -1426,16 +1426,16 @@ export async function addVisita(visita) {
 
     const stmt = db.prepare(`
         INSERT INTO visitas(
-            mes, datahora, cliente, telefone, portal,
-            veiculo_interesse, veiculo_id, veiculo_troca, vendedor, vendedor_sdr, negociacao,
-            status, data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline, valor_proposta, cpf_cliente, historico_log, loja_id, created_at
-        )
-        VALUES(
-            @mes, @datahora, @cliente, @telefone, @portal,
-            @veiculo_interesse, @veiculo_id, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao,
-            'Pendente', @data_agendamento, @temperatura, @motivo_perda, @forma_pagamento,
-            @status_pipeline, @valor_proposta, @cpf_cliente, @historico_log, @loja_id, datetime('now', 'localtime')
-        )
+        mes, datahora, cliente, telefone, portal,
+        veiculo_interesse, veiculo_troca, vendedor, vendedor_sdr, negociacao,
+        status, data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline, valor_proposta, cpf_cliente, historico_log, loja_id, created_at
+    )
+VALUES(
+    @mes, @datahora, @cliente, @telefone, @portal,
+    @veiculo_interesse, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao,
+    'Pendente', @data_agendamento, @temperatura, @motivo_perda, @forma_pagamento,
+    @status_pipeline, @valor_proposta, @cpf_cliente, @historico_log, @loja_id, datetime('now', 'localtime')
+)
     `);
     const result = stmt.run(visita);
     const id = result.lastInsertRowid;
@@ -1456,7 +1456,6 @@ export async function addVisita(visita) {
             telefone: visita.telefone || '',
             portal: visita.portal || '',
             veiculo_interesse: visita.veiculo_interesse || '',
-            veiculo_id: visita.veiculo_id || null, // ← NOVO
             veiculo_troca: visita.veiculo_troca || '',
             vendedor: visita.vendedor || '',
             vendedor_sdr: visita.vendedor_sdr || '',
@@ -1524,7 +1523,6 @@ export async function updateVisitaFull(visita) {
             telefone = @telefone,
             portal = @portal,
             veiculo_interesse = @veiculo_interesse,
-            veiculo_id = @veiculo_id, -- ← NOVO
             veiculo_troca = @veiculo_troca,
             vendedor = @vendedor,
             vendedor_sdr = @vendedor_sdr,
@@ -1540,18 +1538,17 @@ export async function updateVisitaFull(visita) {
             loja_id = @loja_id,
             cpf_cliente = @cpf_cliente,
             updated_at = datetime('now', 'localtime')
-        WHERE id = @id
+        WHERE id = @id AND loja_id = @loja_id
     `);
-    const payload = { 
-        ...visita, 
-        veiculo_id: visita.veiculo_id || null, // Garante que não seja undefined
-        updated_at: now 
-    };
+    const payload = { ...visita, updated_at: now };
     const result = stmt.run(payload);
     console.log(`💾 [SQLite] Visita ${visita.id} atualizada: ${result.changes} linha(s) modificada(s).`);
 
     if (result.changes === 0) {
-        console.warn(`⚠️ [SQLite] NENHUMA linha alterada para visita ${visita.id}! O registro pode não existir localmente.`);
+        console.warn(`⚠️ [SQLite] NENHUMA linha alterada para visita ${visita.id}! Verificar loja_id: ${visita.loja_id}`);
+        // Tenta sem filtro de loja_id como fallback
+        db.prepare(`UPDATE visitas SET status_pipeline = @status_pipeline, status = @status, updated_at = @updated_at WHERE id = @id`)
+            .run({ status_pipeline: visita.status_pipeline, status: visita.status, updated_at: now, id: visita.id });
     }
 
     // ☁️ SYNC SUPABASE — marca ANTES de enviar para garantir proteção imediata
@@ -1563,9 +1560,7 @@ export async function updateVisitaFull(visita) {
             // Envia apenas campos conhecidos para evitar erros de coluna desconhecida
             const supabasePayload = {
                 cliente: payload.cliente, telefone: payload.telefone, portal: payload.portal,
-                veiculo_interesse: payload.veiculo_interesse, 
-                veiculo_id: payload.veiculo_id || null, // ← NOVO
-                veiculo_troca: payload.veiculo_troca,
+                veiculo_interesse: payload.veiculo_interesse, veiculo_troca: payload.veiculo_troca,
                 vendedor: payload.vendedor, vendedor_sdr: payload.vendedor_sdr,
                 negociacao: payload.negociacao, data_agendamento: payload.data_agendamento,
                 temperatura: payload.temperatura, status_pipeline: payload.status_pipeline,
@@ -2401,28 +2396,27 @@ export function getHomeSDRStats({ lojaId = DEFAULT_STORE_ID, month, year, userna
 
         console.log('🔍 [DB Stats] Params:', { lojaId, monthStr, username, params });
 
-        // 1. Visitas (visitou_loja = 1 OU qualquer Venda Concluída/Ganho) no mês alvo
+        // 1. Visitas Confirmadas (visitou_loja = 1) no mês do agendamento
         const visitasRes = db.prepare(`
             SELECT COUNT(*) as count FROM visitas 
-            WHERE loja_id = ? AND strftime('%Y-%m', COALESCE(data_agendamento, created_at, datahora)) = ?
-            AND (visitou_loja = 1 OR visitou_loja = '1' OR status_pipeline IN ('Ganho', 'Vendido', 'Venda Concluída') OR status IN ('Ganho', 'Vendido', 'Venda Concluída')) ${userFilter}
+            WHERE loja_id = ? AND strftime('%Y-%m', data_agendamento) = ?
+            AND (visitou_loja = 1 OR visitou_loja = '1') ${userFilter}
         `).get(...params);
         const visitas = visitasRes?.count || 0;
 
-        // 2. Vendas (Ganho/Venda Concluída) no mês alvo
+        // 2. Vendas (Ganho) no mês de criação
         const vendasRes = db.prepare(`
             SELECT COUNT(*) as count FROM visitas 
-            WHERE loja_id = ? AND strftime('%Y-%m', COALESCE(data_agendamento, created_at, datahora)) = ?
-            AND (status_pipeline IN ('Ganho', 'Vendido', 'Venda Concluída') OR status IN ('Ganho', 'Vendido', 'Venda Concluída')) ${userFilter}
+            WHERE loja_id = ? AND strftime('%Y-%m', COALESCE(created_at, datahora)) = ?
+            AND (status_pipeline = 'Ganho' OR status = 'Ganho') ${userFilter}
         `).get(...params);
         const vendas = vendasRes?.count || 0;
 
-        // 3. Pendentes (Agendados, Pendentes, em negociação) no mês alvo
+        // 3. Pendentes (Sem status final) no mês de criação
         const pendentesRes = db.prepare(`
             SELECT COUNT(*) as count FROM visitas 
-            WHERE loja_id = ? AND strftime('%Y-%m', COALESCE(data_agendamento, created_at, datahora)) = ?
-            AND status_pipeline NOT IN ('Ganho', 'Vendido', 'Venda Concluída', 'Perdido', 'Cancelado') 
-            AND status NOT IN ('Ganho', 'Vendido', 'Venda Concluída', 'Perdido', 'Cancelado') ${userFilter}
+            WHERE loja_id = ? AND strftime('%Y-%m', COALESCE(created_at, datahora)) = ?
+            AND status_pipeline NOT IN ('Ganho', 'Perdido', 'Cancelado') ${userFilter}
         `).get(...params);
         const pendentes = pendentesRes?.count || 0;
 

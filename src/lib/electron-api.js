@@ -67,37 +67,46 @@ export const electronAPI = {
         ensureElectron();
         return window.electronAPI.invoke('add-visita', visita);
     },
-    updateVisitaStatus: async (id, status, pipeline) => {
+    updateVisitaStatus: async (idOrObj, status, pipeline, motivo_perda, detalhes_perda) => {
         ensureElectron();
-        return window.electronAPI.invoke('update-visita-status', { id, status, pipeline });
+        const payload = (typeof idOrObj === 'object' && !status)
+            ? idOrObj
+            : { id: idOrObj, status, pipeline, motivo_perda, detalhes_perda };
+        return window.electronAPI.invoke('update-visita-status', payload);
     },
-    updateVisitaSdr: async (id, sdr, lojaId) => {
+    updateVisitaSdr: async (idOrObj, sdr, lojaId) => {
         ensureElectron();
-        return window.electronAPI.invoke('update-visita-sdr', { id, sdr, lojaId });
+        const payload = (typeof idOrObj === 'object' && !sdr) ? idOrObj : { id: idOrObj, sdr, lojaId };
+        return window.electronAPI.invoke('update-visita-sdr', payload);
     },
-    updateVisitaSdrQuick: async (id, field, value, lojaId) => {
+    updateVisitaSdrQuick: async (idOrObj, field, value, lojaId) => {
         ensureElectron();
-        return window.electronAPI.invoke('update-visita-sdr-quick', { id, field, value, lojaId });
+        const payload = (typeof idOrObj === 'object' && !field) ? idOrObj : { id: idOrObj, field, value, lojaId };
+        return window.electronAPI.invoke('update-visita-sdr-quick', payload);
     },
-    updateVisitaVisitouLoja: async (id, valor, lojaId) => {
+    updateVisitaVisitouLoja: async (idOrObj, valor, lojaId) => {
         ensureElectron();
-        return window.electronAPI.invoke('update-visita-visitou-loja', { id, valor, lojaId });
+        const payload = (typeof idOrObj === 'object' && valor === undefined) ? idOrObj : { id: idOrObj, valor, lojaId };
+        return window.electronAPI.invoke('update-visita-visitou-loja', payload);
     },
-    updateVisitaNaoCompareceu: async (id, valor, lojaId) => {
+    updateVisitaNaoCompareceu: async (idOrObj, valor, lojaId) => {
         ensureElectron();
-        return window.electronAPI.invoke('update-visita-nao-compareceu', { id, valor, lojaId });
+        const payload = (typeof idOrObj === 'object' && valor === undefined) ? idOrObj : { id: idOrObj, valor, lojaId };
+        return window.electronAPI.invoke('update-visita-nao-compareceu', payload);
     },
     updateVisitaFull: async (visita) => {
         ensureElectron();
         return window.electronAPI.invoke('update-visita-full', visita);
     },
-    deleteVisita: async (id, lojaId) => {
+    deleteVisita: async (idOrObj, lojaId) => {
         ensureElectron();
-        return window.electronAPI.invoke('delete-visita', { id, lojaId });
+        const payload = (typeof idOrObj === 'object' && !lojaId) ? idOrObj : { id: idOrObj, lojaId };
+        return window.electronAPI.invoke('delete-visita', payload);
     },
-    getVisitsByVehicle: async (name, lojaId) => {
+    getVisitsByVehicle: async (nameOrObj, lojaId) => {
         ensureElectron();
-        return window.electronAPI.invoke('get-visits-by-vehicle', { name, lojaId });
+        const payload = (typeof nameOrObj === 'object' && !lojaId) ? nameOrObj : { name: nameOrObj, lojaId };
+        return window.electronAPI.invoke('get-visits-by-vehicle', payload);
     },
 
     // 📅 AGENDAMENTOS E NOTAS
