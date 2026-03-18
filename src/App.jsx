@@ -280,7 +280,7 @@ function App() {
               } catch (e) { freshPerms = []; }
             }
             const formatted = { ...freshData, permissions: Array.isArray(freshPerms) ? freshPerms : [] };
-            localStorage.setItem('vexcore_user', JSON.stringify(formatted));
+            sessionStorage.setItem('vexcore_user', JSON.stringify(formatted));
             setUser(formatted);
           }
 

@@ -9,6 +9,13 @@
  * Uso: node check-env.js
  */
 
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const requiredVars = [
     'VITE_SUPABASE_URL',
     'VITE_SUPABASE_ANON_KEY'
@@ -29,8 +36,6 @@ for (const varName of requiredVars) {
         console.log(`✅ ${varName}: Configurada`);
     } else {
         // Tenta carregar do .env se não estiver no sistema (para builds locais)
-        const fs = require('fs');
-        const path = require('path');
         const envPath = path.join(__dirname, '.env');
         if (fs.existsSync(envPath)) {
             const content = fs.readFileSync(envPath, 'utf-8');
