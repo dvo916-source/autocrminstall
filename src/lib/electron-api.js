@@ -144,25 +144,36 @@ export const electronAPI = {
     },
 
     // 🚗 ESTOQUE
-    getList: async (table, lojaId) => {
+    getList: async (tableOrPayload, lojaId) => {
         ensureElectron();
-        return window.electronAPI.invoke('get-list', { table, lojaId });
+        const payload = (typeof tableOrPayload === 'object') ? tableOrPayload : { table: tableOrPayload, lojaId };
+        return window.electronAPI.invoke('get-list', payload);
     },
-    addItem: async (table, data) => {
+    addItem: async (tableOrPayload, data) => {
         ensureElectron();
-        return window.electronAPI.invoke('add-item', { table, data });
+        const payload = (typeof tableOrPayload === 'object') ? tableOrPayload : { table: tableOrPayload, data };
+        return window.electronAPI.invoke('add-item', payload);
     },
-    updateItem: async (table, oldNome, data) => {
+    updateItem: async (table, oldNomeOrData, data) => {
         ensureElectron();
-        return window.electronAPI.invoke('update-item', { table, oldNome, data });
+        const payload = (typeof table === 'object') ? table : 
+                       (typeof oldNomeOrData === 'object' && !data) ? { table, ...oldNomeOrData } : 
+                       { table, oldIdOrNome: oldNomeOrData, oldNome: oldNomeOrData, data };
+        return window.electronAPI.invoke('update-item', payload);
     },
-    deleteItem: async (table, nome, loja_id) => {
+    deleteItem: async (table, nomeOrPayload, loja_id) => {
         ensureElectron();
-        return window.electronAPI.invoke('delete-item', { table, nome, loja_id });
+        const payload = (typeof table === 'object') ? table :
+                       (typeof nomeOrPayload === 'object' && !loja_id) ? { table, ...nomeOrPayload } :
+                       { table, nome: nomeOrPayload, identifier: nomeOrPayload, loja_id };
+        return window.electronAPI.invoke('delete-item', payload);
     },
-    toggleItem: async (table, nome, ativo, loja_id) => {
+    toggleItem: async (table, nomeOrPayload, ativo, loja_id) => {
         ensureElectron();
-        return window.electronAPI.invoke('toggle-item', { table, nome, ativo, loja_id });
+        const payload = (typeof table === 'object') ? table :
+                       (typeof nomeOrPayload === 'object' && ativo === undefined) ? { table, ...nomeOrPayload } :
+                       { table, nome: nomeOrPayload, identifier: nomeOrPayload, ativo, loja_id };
+        return window.electronAPI.invoke('toggle-item', payload);
     },
     syncXml: async (lojaId) => {
         ensureElectron();

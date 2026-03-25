@@ -4,6 +4,7 @@ import { X, Calendar, User, Phone, Car, DollarSign, Flame, Clock, MessageSquare 
 import { useLoja } from '../context/LojaContext';
 import { electronAPI } from '@/lib/electron-api';
 import { toLocalISOString, formatCurrency } from '@/lib/utils';
+import { getPhotoUrl } from '../lib/vehicleUtils';
 
 const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, editingTask, targetUser }) => {
     const { currentLoja } = useLoja();
@@ -41,7 +42,8 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, editingTask, t
         temperatura: 'Frio',
         sdr: targetUser || '',
         vendedor_patio: '',
-        notas: ''
+        notas: '',
+        foto_veiculo: ''
     });
 
     useEffect(() => {
@@ -67,7 +69,8 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, editingTask, t
                 temperatura: editingTask.temperatura || 'Quente',
                 sdr: editingTask.vendedor_sdr || editingTask.sdr || targetUser || '',
                 vendedor_patio: editingTask.vendedor || '',
-                notas: editingTask.historico_log || editingTask.notas || ''
+                notas: editingTask.historico_log || editingTask.notas || '',
+                foto_veiculo: editingTask.foto_veiculo || ''
             });
 
             if (editingTask.veiculo_id && estoque.length > 0) {
@@ -91,7 +94,8 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, editingTask, t
                 temperatura: 'Frio',
                 sdr: targetUser || '',
                 vendedor_patio: '',
-                notas: ''
+                notas: '',
+                foto_veiculo: ''
             });
             setSelectedVehicle(null);
         }
@@ -128,6 +132,7 @@ const NewVisitModal = ({ isOpen, onClose, onSuccess, initialDate, editingTask, t
                 portal: formData.origem || base.portal || '',
                 veiculo_interesse: selectedVehicle?.nome || formData.veiculo_interesse || '',
                 veiculo_id: selectedVehicle?.id || formData.veiculo_id || null,
+                foto_veiculo: getPhotoUrl(selectedVehicle) || base.foto_veiculo || formData.foto_veiculo || null,
                 veiculo_troca: base.veiculo_troca || '',
                 vendedor: formData.vendedor_patio || base.vendedor || '',
                 vendedor_sdr: formData.sdr || base.vendedor_sdr || '',

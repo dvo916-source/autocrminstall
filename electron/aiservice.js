@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import * as db from './db.js';
+import * as db from './db/index.js';
 
 // --- CONFIG ---
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || "https://mtbfzimnyactwhdonkgy.supabase.co";

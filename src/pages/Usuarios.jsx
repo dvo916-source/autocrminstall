@@ -55,6 +55,7 @@ const Usuarios = ({ user }) => {
         permissions: [] // Default permissions for new users (selected manually)
     });
     const [editModal, setEditModal] = useState({ open: false, user: null });
+    const [editVendedorModal, setEditVendedorModal] = useState({ open: false, vendedor: null });
     const [confirmPassword, setConfirmPassword] = useState('');
     const [usernameError, setUsernameError] = useState('');
     const [passwordStrength, setPasswordStrength] = useState({ text: '', color: '' });
@@ -146,9 +147,34 @@ const Usuarios = ({ user }) => {
     const toggleVendedor = async (nome, current) => {
         try {
 
-            await electronAPI.toggleItem({ table: 'vendedores', nome, ativo: !current, loja_id: currentLoja?.id });
+            await electronAPI.toggleItem({ table: 'vendedores', identifier: nome, ativo: !current, loja_id: currentLoja?.id });
             loadAll();
         } catch (err) { console.error(err); }
+    };
+
+    const handleEditVendedor = (vend) => {
+        setEditVendedorModal({
+            open: true,
+            vendedor: { ...vend }
+        });
+    };
+
+    const handleUpdateVendedor = async (vend) => {
+        try {
+            await electronAPI.updateItem({
+                table: 'vendedores',
+                oldNome: vend.nome, // In case name changed, but better use ID if possible
+                data: {
+                    ...vend,
+                    loja_id: currentLoja?.id
+                }
+            });
+            addToast('Consultor atualizado!');
+            setEditVendedorModal({ open: false, vendedor: null });
+            loadAll();
+        } catch (err) {
+            addToast('Erro ao atualizar consultor', 'error');
+        }
     };
 
     // Funções de validação
@@ -281,8 +307,13 @@ const Usuarios = ({ user }) => {
 
             let res;
             if (type === 'vendedor') {
-                res = await electronAPI.deleteItem({ table: 'vendedores', nome: data, loja_id: currentLoja?.id });
-                addToast("Consultor removido");
+            res = await electronAPI.deleteItem({ 
+                table: 'vendedores', 
+                nome: typeof data === 'object' ? data.nome : data,
+                id: data?.id || null,
+                loja_id: currentLoja?.id 
+            });
+            addToast("Consultor removido");
             } else {
                 res = await electronAPI.deleteUser(data);
                 addToast("Usuário removido");
@@ -315,7 +346,7 @@ const Usuarios = ({ user }) => {
                 title="Atenção"
                 message={
                     modal.type === 'vendedor'
-                        ? `Deseja remover ${modal.data} da lista de consultores?`
+                        ? `Deseja remover ${typeof modal.data === 'object' ? modal.data.nome : modal.data} da lista de consultores?`
                         : `Deseja permanentemente remover o acesso de ${modal.data}?`
                 }
             />
@@ -353,9 +384,23 @@ const Usuarios = ({ user }) => {
                         setNewVendedor={setNewVendedor}
                         formatPhone={formatPhone}
                         toggleVendedor={toggleVendedor}
-                        onDelete={(nome) => setModal({ open: true, type: 'vendedor', data: nome })}
+                        onEdit={handleEditVendedor}
+                        onDelete={(vend) => setModal({ open: true, type: 'vendedor', data: vend })}
                     />
                 </div>
+
+                <EditVendedorModal
+                    isOpen={editVendedorModal.open}
+                    initialVendedor={editVendedorModal.vendedor}
+                    onClose={() => setEditVendedorModal({ open: false, vendedor: null })}
+                    onSuccess={(msg) => {
+                        addToast(msg);
+                        setEditVendedorModal({ open: false, vendedor: null });
+                        loadAll();
+                    }}
+                    onError={(msg) => addToast(msg, 'error')}
+                    formatPhone={formatPhone}
+                />
 
                 <ToastContainer toasts={toasts} removeToast={removeToast} />
 
@@ -804,8 +849,116 @@ const EditUserModal = React.memo(({ isOpen, initialUser, onClose, onSuccess, onE
 });
 
 
+// --- COMPONENTE EDIÇÃO VENDEDOR ---
+const EditVendedorModal = React.memo(({ isOpen, initialVendedor, onClose, onSuccess, onError, formatPhone }) => {
+    const [vend, setVend] = useState(null);
+
+    useEffect(() => {
+        if (isOpen && initialVendedor) {
+            setVend({ ...initialVendedor });
+        }
+    }, [isOpen, initialVendedor]);
+
+    if (!isOpen || !vend) return null;
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!vend.nome) {
+            onError('Nome é obrigatório');
+            return;
+        }
+
+        try {
+            await electronAPI.updateItem({
+                table: 'vendedores',
+                oldIdOrNome: initialVendedor.id || initialVendedor.nome,
+                data: {
+                    ...vend,
+                    nome: vend.nome.toUpperCase(),
+                    sobrenome: (vend.sobrenome || '').toUpperCase()
+                }
+            });
+            onSuccess('Dados do consultor atualizados!');
+        } catch (err) {
+            onError('Erro ao atualizar consultor');
+        }
+    };
+
+    return (
+        <AnimatePresence>
+            <div className="fixed inset-0 flex items-center justify-center z-[300] p-4">
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={onClose}
+                    className="absolute inset-0 bg-black/60 backdrop-blur-md"
+                />
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                    className="relative w-full max-w-lg bg-[#1d253a] border border-white/10 rounded-[2.5rem] p-8 shadow-2xl overflow-hidden"
+                >
+                    <div className="absolute top-0 right-0 p-8 opacity-[0.03]">
+                        <Edit size={120} />
+                    </div>
+
+                    <h2 className="text-3xl font-black text-white mb-2 tracking-tighter uppercase">EDITAR <span className="text-blue-400">CONSULTOR</span></h2>
+                    <p className="text-gray-400 text-[11px] font-black tracking-widest mb-8 uppercase">Atualizar informações do vendedor</p>
+
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div className="space-y-1">
+                            <label className="text-[11px] font-bold text-gray-500 ml-2 tracking-widest uppercase">Nome</label>
+                            <input
+                                className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 transition-all font-bold text-sm text-white"
+                                value={vend.nome}
+                                onChange={e => setVend({ ...vend, nome: e.target.value })}
+                                required
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[11px] font-bold text-gray-500 ml-2 tracking-widest uppercase">Sobrenome</label>
+                            <input
+                                className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 transition-all font-bold text-sm text-white"
+                                value={vend.sobrenome}
+                                onChange={e => setVend({ ...vend, sobrenome: e.target.value })}
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[11px] font-bold text-gray-500 ml-2 tracking-widest uppercase">WhatsApp</label>
+                            <input
+                                className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none focus:border-blue-500 transition-all font-bold text-sm text-white"
+                                value={vend.telefone}
+                                onChange={e => setVend({ ...vend, telefone: formatPhone(e.target.value) })}
+                            />
+                        </div>
+
+                        <div className="flex gap-3 pt-6">
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="flex-1 bg-white/5 hover:bg-white/10 text-white font-black py-4 rounded-2xl transition-all text-[11px] tracking-widest uppercase"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="submit"
+                                className="flex-2 bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-500 hover:to-indigo-400 text-white font-black py-4 px-12 rounded-2xl transition-all shadow-xl text-[11px] tracking-widest active:scale-95 uppercase"
+                            >
+                                Salvar
+                            </button>
+                        </div>
+                    </form>
+                </motion.div>
+            </div>
+        </AnimatePresence>
+    );
+});
+
+
 // --- COMPONENTE GESTÃO DE VENDEDORES ---
-const ConsultoresManager = React.memo(({ vendedores, isMasterOrAdmin, handleAddVendedor, newVendedor, setNewVendedor, formatPhone, toggleVendedor, onDelete }) => {
+const ConsultoresManager = React.memo(({ vendedores, isMasterOrAdmin, handleAddVendedor, newVendedor, setNewVendedor, formatPhone, toggleVendedor, onEdit, onDelete }) => {
     const [localVendedor, setLocalVendedor] = useState({ nome: '', sobrenome: '', telefone: '' });
     const [showForm, setShowForm] = useState(false);
     const navigate = useNavigate(); // Initialized navigate
@@ -918,20 +1071,29 @@ const ConsultoresManager = React.memo(({ vendedores, isMasterOrAdmin, handleAddV
                                 </button>
                             )}
                             <button
-                                onClick={() => toggleVendedor(m.nome, m.ativo)}
+                                onClick={() => toggleVendedor(m, m.ativo)}
                                 className={`p-2 rounded-xl transition-all ${m.ativo ? 'text-red-400 hover:bg-red-500/10' : 'text-green-400 hover:bg-green-500/10'}`}
                                 title={m.ativo ? "Pausar Consultor" : "Ativar Consultor"}
                             >
                                 {m.ativo ? <PowerOff size={16} /> : <Power size={16} />}
                             </button>
                             {isMasterOrAdmin && (
-                                <button
-                                    onClick={() => onDelete(m.nome)}
-                                    className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
-                                    title="Excluir"
-                                >
-                                    <Trash2 size={16} />
-                                </button>
+                                <>
+                                    <button
+                                        onClick={() => onEdit(m)}
+                                        className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-xl transition-all"
+                                        title="Editar"
+                                    >
+                                        <Edit size={16} />
+                                    </button>
+                                    <button
+                                        onClick={() => onDelete(m)}
+                                        className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
+                                        title="Excluir"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </>
                             )}
                         </div>
                     </div>

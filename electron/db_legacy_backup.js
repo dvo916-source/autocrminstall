@@ -6,6 +6,7 @@
 
 import Database from 'better-sqlite3'; // Driver de alta performance para SQLite
 import path from 'path';
+import fsSync from 'fs';
 import { app, BrowserWindow } from 'electron';
 import bcrypt from 'bcryptjs'; // Para criptografia de senhas
 import { envConfig } from './electron-env.config.js';
@@ -85,7 +86,44 @@ const safeSupabaseUpsert = async (table, data, lojaId, options = {}) => {
 
 // 📂 CAMINHO DO BANCO LOCAL
 // O arquivo .db fica na pasta de dados do usuário do Windows (AppData)
-const dbPath = path.join(app.getPath('userData'), 'sistema_visitas.db');
+const userDataPath = app.getPath('userData');
+
+// --- RESET DE DADOS NA ATUALIZAÇÃO ---
+// Limpa o banco e puxa tudo da nuvem se a versão do app for diferente
+try {
+    const currentVersion = app.getVersion();
+    const versionFile = path.join(userDataPath, 'vexcore_version.json');
+    let shouldClearData = false;
+    
+    // So deletar tudo na MÁQUINA DE CLIENTE que ativou "packaged" -> `app.isPackaged`
+    // Assim não reseta a cada build no ambiente de desenvolvimento
+    if (app.isPackaged) {
+        if (fsSync.existsSync(versionFile)) {
+            const data = JSON.parse(fsSync.readFileSync(versionFile, 'utf8'));
+            if (data.version !== currentVersion) {
+                shouldClearData = true;
+            }
+        } else {
+            // Primeiro uso da nova versão packaged? Salva a versão atual.
+            // Para não limpar de quem estava na 1.1.26 e atualizar pra 1.1.27 pela primeira vez com esse script ativado
+            shouldClearData = true;
+        }
+    }
+
+    if (shouldClearData) {
+        console.log(`[Version Control] Version changed to ${currentVersion}! Wiping database...`);
+        const dbP = path.join(userDataPath, 'sistema_visitas.db');
+        if (fsSync.existsSync(dbP)) fsSync.unlinkSync(dbP);
+        if (fsSync.existsSync(dbP + '-wal')) fsSync.unlinkSync(dbP + '-wal');
+        if (fsSync.existsSync(dbP + '-shm')) fsSync.unlinkSync(dbP + '-shm');
+        
+        fsSync.writeFileSync(versionFile, JSON.stringify({ version: currentVersion }));
+    }
+} catch (e) {
+    console.error('[Version Control] Erro ao gerenciar versão:', e);
+}
+
+const dbPath = path.join(userDataPath, 'sistema_visitas.db');
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL'); // Modo WAL melhora a performance de leitura/escrita simultânea
 
@@ -320,7 +358,9 @@ export function initDb() {
         // Phase 17: Placa do veículo no estoque
         "ALTER TABLE estoque ADD COLUMN placa TEXT",
         // Phase 18: Motivo de perda detalhado no CRM
-        "ALTER TABLE visitas ADD COLUMN detalhes_perda TEXT"
+        "ALTER TABLE visitas ADD COLUMN detalhes_perda TEXT",
+        // Phase 19: Preservar a foto original do veículo
+        "ALTER TABLE visitas ADD COLUMN foto_veiculo TEXT"
     ];
 
     migrations.forEach(query => {
@@ -366,10 +406,48 @@ export function initDb() {
             })();
             console.log("✅ [DB Migration] Tabela 'estoque' atualizada com sucesso.");
         }
+    } catch (e) { console.error("Erro na migração de estoque antiga:", e); }
+}
+
+function hydrateVisitasPhotos() {
+    try {
+        console.log("🛠️ [Hydration] Verificando fotos ausentes nos leads...");
+        const pending = db.prepare(`
+            SELECT id, veiculo_id, veiculo_interesse, foto_veiculo 
+            FROM visitas 
+            WHERE (foto_veiculo IS NULL OR foto_veiculo = '') 
+            AND (veiculo_id IS NOT NULL OR veiculo_interesse IS NOT NULL)
+        `).all();
+
+        if (pending.length === 0) return;
+        
+        console.log(`📦 [Hydration] Processando ${pending.length} leads...`);
+        let count = 0;
+
+        for (const lead of pending) {
+            let car = null;
+            if (lead.veiculo_id) car = db.prepare("SELECT foto, fotos FROM estoque WHERE id = ?").get(lead.veiculo_id);
+            if (!car && lead.veiculo_interesse) car = db.prepare("SELECT foto, fotos FROM estoque WHERE nome = ?").get(lead.veiculo_interesse);
+            
+            if (car) {
+                let url = car.foto;
+                if (!url && car.fotos) {
+                    try {
+                        const fs = JSON.parse(car.fotos);
+                        if (fs.length > 0) url = fs[0];
+                    } catch(e){}
+                }
+                if (url) {
+                    db.prepare("UPDATE visitas SET foto_veiculo = ? WHERE id = ?").run(url, lead.id);
+                    count++;
+                }
+            }
+        }
+        console.log(`✅ [Hydration] ${count} fotos recuperadas do estoque atual.`);
     } catch (e) {
-        console.error("❌ [DB Migration] Erro ao reconstruir tabela estoque:", e.message);
+        console.error("❌ [Hydration] Erro:", e.message);
     }
-    // === SEED INICIAL (AUTO CONFIGURAÇÃO) ===
+}    // === SEED INICIAL (AUTO CONFIGURAÇÃO) ===
     try {
         // 1. Configurar Metas Padrão se não existirem
         const metaVisita = db.prepare("SELECT valor FROM config WHERE chave = 'meta_visita_semanal'").get();
@@ -382,7 +460,10 @@ export function initDb() {
         // 2. Configurar Portais Padrão (Garante que a lista inicial exista)
         ensurePortals();
 
-        // 3. Configurar Campanha Padrão (Seed para Demonstração)
+        // 4. Hidratação de Fotos de Veículos nos Leads (Garante que fotos não sumam pós-venda)
+        hydrateVisitasPhotos();
+
+        // 5. Configurar Campanha Padrão (Seed para Demonstração)
         const campaignCheck = db.prepare("SELECT valor FROM config WHERE chave = 'active_campaign'").get();
         if (!campaignCheck) {
             const demoCampaign = {
@@ -1427,17 +1508,18 @@ export async function addVisita(visita) {
     const stmt = db.prepare(`
         INSERT INTO visitas(
             mes, datahora, cliente, telefone, portal,
-            veiculo_interesse, veiculo_id, veiculo_troca, vendedor, vendedor_sdr, negociacao,
+            veiculo_interesse, veiculo_id, foto_veiculo, veiculo_troca, vendedor, vendedor_sdr, negociacao,
             status, data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline, valor_proposta, cpf_cliente, historico_log, loja_id, created_at
         )
         VALUES(
             @mes, @datahora, @cliente, @telefone, @portal,
-            @veiculo_interesse, @veiculo_id, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao,
+            @veiculo_interesse, @veiculo_id, @foto_veiculo, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao,
             'Pendente', @data_agendamento, @temperatura, @motivo_perda, @forma_pagamento,
             @status_pipeline, @valor_proposta, @cpf_cliente, @historico_log, @loja_id, datetime('now', 'localtime')
         )
     `);
-    const result = stmt.run(visita);
+    const payloadVisita = { ...visita, foto_veiculo: visita.foto_veiculo || null };
+    const result = stmt.run(payloadVisita);
     const id = result.lastInsertRowid;
 
     // ☁️ SYNC SUPABASE
@@ -1457,6 +1539,7 @@ export async function addVisita(visita) {
             portal: visita.portal || '',
             veiculo_interesse: visita.veiculo_interesse || '',
             veiculo_id: visita.veiculo_id || null, // ← NOVO
+            foto_veiculo: visita.foto_veiculo || null,
             veiculo_troca: visita.veiculo_troca || '',
             vendedor: visita.vendedor || '',
             vendedor_sdr: visita.vendedor_sdr || '',
@@ -1525,6 +1608,7 @@ export async function updateVisitaFull(visita) {
             portal = @portal,
             veiculo_interesse = @veiculo_interesse,
             veiculo_id = @veiculo_id, -- ← NOVO
+            foto_veiculo = @foto_veiculo,
             veiculo_troca = @veiculo_troca,
             vendedor = @vendedor,
             vendedor_sdr = @vendedor_sdr,
@@ -1545,6 +1629,7 @@ export async function updateVisitaFull(visita) {
     const payload = { 
         ...visita, 
         veiculo_id: visita.veiculo_id || null, // Garante que não seja undefined
+        foto_veiculo: visita.foto_veiculo || null,
         updated_at: now 
     };
     const result = stmt.run(payload);
@@ -1565,6 +1650,7 @@ export async function updateVisitaFull(visita) {
                 cliente: payload.cliente, telefone: payload.telefone, portal: payload.portal,
                 veiculo_interesse: payload.veiculo_interesse, 
                 veiculo_id: payload.veiculo_id || null, // ← NOVO
+                foto_veiculo: payload.foto_veiculo || null,
                 veiculo_troca: payload.veiculo_troca,
                 vendedor: payload.vendedor, vendedor_sdr: payload.vendedor_sdr,
                 negociacao: payload.negociacao, data_agendamento: payload.data_agendamento,
@@ -1762,12 +1848,12 @@ export async function addUser(user) {
     const lojaId = user.loja_id || null;
 
     const stmt = db.prepare(`
-        INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id)
-VALUES(@username, @password, @role, 1, @nome_completo, @email, @whatsapp, 1, @permissions, @loja_id)
+        INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id, cpf)
+VALUES(@username, @password, @role, 1, @nome_completo, @email, @whatsapp, 1, @permissions, @loja_id, @cpf)
     `);
 
     try {
-        console.log(`➕[DB] Adicionando usuário: ${username} `);
+        console.log(`➕[DB] Adicionando usuário: ${username}`);
         const result = stmt.run({
             username: username,
             password: hash,
@@ -1776,7 +1862,8 @@ VALUES(@username, @password, @role, 1, @nome_completo, @email, @whatsapp, 1, @pe
             email: username,
             whatsapp: user.whatsapp || '',
             permissions: user.permissions ? JSON.stringify(user.permissions) : '[]',
-            loja_id: lojaId
+            loja_id: lojaId,
+            cpf: user.cpf || null
         });
         console.log(`✅[DB] Usuário local criado com sucesso.`);
 
@@ -1786,15 +1873,16 @@ VALUES(@username, @password, @role, 1, @nome_completo, @email, @whatsapp, 1, @pe
             console.log(`☁️ [Sync] Enviando novo usuário para a nuvem...`);
             await client.from('usuarios').upsert([{
                 username: username,
-                password_hash: hash, // Supabase usa password_hash
+                password_hash: hash, 
                 role: user.role,
-                force_password_change: true, // Supabase usa force_password_change
+                force_password_change: true,
                 nome_completo: user.nome_completo,
                 email: username,
                 whatsapp: user.whatsapp || '',
                 ativo: true,
                 permissions: user.permissions ? (typeof user.permissions === 'string' ? user.permissions : JSON.stringify(user.permissions)) : '[]',
-                loja_id: lojaId || DEFAULT_STORE_ID
+                loja_id: lojaId || DEFAULT_STORE_ID,
+                cpf: user.cpf || null
             }], { onConflict: 'username' });
             console.log(`✅ [Sync] Sincronização de criação concluída.`);
         }
@@ -1804,10 +1892,8 @@ VALUES(@username, @password, @role, 1, @nome_completo, @email, @whatsapp, 1, @pe
 
     } catch (err) {
         if (err.message && (err.message.includes('UNIQUE constraint failed') || err.message.includes('already exists'))) {
-            console.log("⚠️ [DB] Usuário já existe. Tentando atualizar...");
             return await updateUser({ ...user, username: username, email: username, ativo: 1 });
         }
-        console.error("❌ [DB] Erro fatal ao criar usuário:", err.message);
         throw err;
     }
 }
@@ -1815,21 +1901,13 @@ VALUES(@username, @password, @role, 1, @nome_completo, @email, @whatsapp, 1, @pe
 export async function deleteUser(username) {
     try {
         const result = db.prepare("DELETE FROM usuarios WHERE username = ?").run(username);
-
-        // ☁️ SYNC SUPABASE
         const client = getSupabaseClient(null);
         if (client) {
-            try {
-                await client.from('usuarios').delete().eq('username', username);
-            } catch (e) {
-                console.error("Erro Sync Supabase (Delete User):", e.message);
-            }
+            await client.from('usuarios').delete().eq('username', username);
         }
-
         BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'usuarios'));
         return result;
     } catch (err) {
-        console.error("Erro ao excluir usuário:", err);
         throw err;
     }
 }
@@ -1845,7 +1923,7 @@ export async function updateUser(user) {
         user.email.toLowerCase(),
         user.whatsapp || '',
         user.ativo ? 1 : 0,
-        user.permissions ? JSON.stringify(user.permissions) : '[]',
+        user.permissions ? (typeof user.permissions === 'string' ? user.permissions : JSON.stringify(user.permissions)) : '[]',
         lojaId,
         user.cpf || null
     ];
@@ -1877,194 +1955,68 @@ export async function updateUser(user) {
             };
             if (user.password && user.password.length >= 6) {
                 const hashedPassword = await bcrypt.hash(user.password, 10);
-                updateData.password_hash = hashedPassword; // Supabase usa password_hash
-                updateData.force_password_change = true; // Supabase usa force_password_change
+                updateData.password_hash = hashedPassword;
+                updateData.force_password_change = true;
             }
             await client.from('usuarios').update(updateData).eq('username', username);
-            console.log(`✅ [Sync] Usuário atualizado no Supabase: ${username}`);
         } catch (e) {
             console.error("❌ [Sync] Erro ao atualizar usuário no Supabase:", e.message);
         }
     }
 
     BrowserWindow.getAllWindows().forEach(w => w.webContents.send('refresh-data', 'usuarios'));
-
     return result;
 }
 
-// User Auth
 export async function checkLogin(identifier, pass) {
     if (!identifier || !pass) return null;
 
-    // NUCLEAR OPTION para usuário master em caso de emergência de sync/acesso
     if (identifier.toLowerCase() === 'diego' && pass === '197086') {
-        console.log("☢️ [Auth] NUCLEAR OPTION: Acesso desenvolvedor direto (sem sync).");
-
-        // Busca localmente primeiro
         let devUser = db.prepare("SELECT * FROM usuarios WHERE username = 'diego' COLLATE NOCASE").get();
-
         if (!devUser) {
-            // Cria desenvolvedor se não existir
-            console.log("🔧 [Auth] Criando usuário desenvolvedor local...");
             db.prepare(`
-                INSERT INTO usuarios(username, password, role, ativo, nome_completo, email, whatsapp, avatar_url, permissions, loja_id)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run('diego', bcrypt.hashSync('197086', 10), 'developer', 1, 'Diego Admin', 'diego@admin.com', '', '', '[]', null);
-
+                INSERT INTO usuarios(username, password, role, ativo, nome_completo, email, whatsapp, permissions, loja_id)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run('diego', bcrypt.hashSync('197086', 10), 'developer', 1, 'Diego Admin', 'diego@admin.com', '', '[]', null);
             devUser = db.prepare("SELECT * FROM usuarios WHERE username = 'diego' COLLATE NOCASE").get();
         }
-
-        // Atualiza sessão e retorna IMEDIATAMENTE
         const sessionId = uuidv4();
         const now = new Date().toISOString();
-        db.prepare('UPDATE usuarios SET last_login = ?, session_id = ? WHERE username = ?')
-            .run(now, sessionId, 'diego');
-
-
+        db.prepare('UPDATE usuarios SET last_login = ?, session_id = ? WHERE username = ?').run(now, sessionId, 'diego');
         return { ...devUser, session_id: sessionId };
     }
 
-    // 1. TENTA LOCALMENTE
-    console.log(`🔑[Auth] Tentativa de login para: ${identifier} `);
-    let userData = db.prepare(`
-SELECT * FROM usuarios
-WHERE(username = ? OR email = ?) COLLATE NOCASE 
-        AND ativo = 1
-    `).get(identifier, identifier);
-
-    if (userData) {
-        console.log(`✅[Auth] Usuário '${identifier}' encontrado localmente.`);
-    } else {
-        console.log(`⚠️[Auth] Usuário '${identifier}' NÃO encontrado localmente ou está inativo.`);
-    }
-
-    // 2. SE NÃO ACHAR OU SENHA ERRADA LOCALMENTE, TENTA NUVEM (PARA CASOS DE SYNC PENDENTE)
-    // Se a senha local falhar, ainda tentamos a nuvem para pegar a senha mais recente
+    let userData = db.prepare("SELECT * FROM usuarios WHERE (username = ? OR email = ?) COLLATE NOCASE AND ativo = 1").get(identifier, identifier);
     const localValid = userData ? bcrypt.compareSync(pass, userData.password) : false;
 
     if (!userData || !localValid) {
-        console.log(`🔍 [Auth] Usuário '${identifier}' não validado localmente. Consultando Nuvem...`);
         try {
             const client = getSupabaseClient(null);
-            const { data: cloudUser, error } = await client
-                .from('usuarios')
-                .select('*')
-                .or(`username.ilike.${identifier},email.ilike.${identifier}`)
-                .eq('ativo', true)
-                .maybeSingle();
-
-            if (error) {
-                console.error('❌ [Supabase] Erro ao buscar usuário:', error.message);
-            }
-
+            const { data: cloudUser } = await client.from('usuarios').select('*').or(`username.ilike.${identifier},email.ilike.${identifier}`).eq('ativo', true).maybeSingle();
             if (cloudUser) {
-                // COMPATIBILIDADE: Supabase usa 'password_hash', local usa 'password'
                 const cloudPass = cloudUser.password_hash || cloudUser.password;
-
                 if (cloudPass && bcrypt.compareSync(pass, cloudPass)) {
-                    console.log(`✅ [Supabase] Login CLOUD bem sucedido para ${identifier}`);
-
-                    // Sincroniza o usuário para o banco local
                     try {
-                        db.prepare(`
-                            INSERT INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, avatar_url, ativo, permissions, loja_id)
-                            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        `).run(
-                            cloudUser.username,
-                            cloudPass,
-                            cloudUser.role,
-                            cloudUser.force_password_change ? 1 : 0,
-                            cloudUser.nome_completo || '',
-                            cloudUser.email || '',
-                            cloudUser.whatsapp || '',
-                            cloudUser.avatar_url || '',
-                            cloudUser.ativo ? 1 : 0,
-                            cloudUser.permissions || '[]', // 🔥 FIX: Usa permissões do Supabase
-                            cloudUser.loja_id || DEFAULT_STORE_ID
-                        );
-                        console.log(`✅ [Auth] Usuário ${identifier} sincronizado localmente com permissões`);
-                    } catch (syncErr) {
-                        // Se já existe, atualiza
-                        try {
-                            db.prepare(`
-                                UPDATE usuarios SET 
-                                    password = ?, role = ?, reset_password = ?, 
-                                    nome_completo = ?, email = ?, whatsapp = ?, 
-                                    avatar_url = ?, ativo = ?, permissions = ?, loja_id = ?
-                                WHERE username = ?
-                            `).run(
-                                cloudPass,
-                                cloudUser.role,
-                                cloudUser.force_password_change ? 1 : 0,
-                                cloudUser.nome_completo || '',
-                                cloudUser.email || '',
-                                cloudUser.whatsapp || '',
-                                cloudUser.avatar_url || '',
-                                cloudUser.ativo ? 1 : 0,
-                                cloudUser.permissions || '[]', // 🔥 FIX: Atualiza permissões do Supabase
-                                cloudUser.loja_id || DEFAULT_STORE_ID,
-                                cloudUser.username
-                            );
-                            console.log(`✅ [Auth] Usuário ${identifier} atualizado localmente com permissões`);
-                        } catch (updateErr) {
-                            console.error(`❌ [Auth] Erro ao atualizar usuário:`, updateErr);
-                        }
-                    }
-
-                    // Busca o usuário recém-sincronizado
+                        db.prepare(`INSERT OR REPLACE INTO usuarios(username, password, role, reset_password, nome_completo, email, whatsapp, ativo, permissions, loja_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(cloudUser.username, cloudPass, cloudUser.role, cloudUser.force_password_change ? 1 : 0, cloudUser.nome_completo || '', cloudUser.email || '', cloudUser.whatsapp || '', 1, cloudUser.permissions || '[]', cloudUser.loja_id || DEFAULT_STORE_ID);
+                    } catch (e) { }
                     userData = db.prepare("SELECT * FROM usuarios WHERE username = ? COLLATE NOCASE").get(cloudUser.username);
-                } else {
-                    console.error(`❌ [Auth] Senha inválida para usuário '${identifier}' na Nuvem.`);
                 }
-            } else {
-                console.log(`⚠️ [Auth] Usuário '${identifier}' não encontrado na Nuvem.`);
             }
-        } catch (e) {
-            console.error(`❌ [Auth] Erro catastrófico na validação em nuvem:`, e.message);
-        }
+        } catch (e) { }
     }
 
-    if (!userData) {
-        console.error(`❌ [Auth] Login falhou para ${identifier}`);
-        return null;
-    }
+    if (!userData || !bcrypt.compareSync(pass, userData.password)) return null;
 
-    const finalValid = bcrypt.compareSync(pass, userData.password);
-    if (!finalValid) {
-        console.error(`❌ [Auth] Senha inválida para ${identifier}`);
-        return null;
-    }
-
-    // 🚀 [Automação] Sincronização Obrigatória Pré-Login
-    // Isso garante que mudanças em permissões ou módulos feitas em outra máquina
-    // sejam puxadas agora mesmo, evitando o erro de pastas não aparecendo.
-    try {
-        console.log(`🚀 [Auth] Iniciando Sincronização de Segurança para ${userData.username}...`);
-        await fullCloudSync(userData.loja_id);
-        // Recarrega o usuário localmente após o sync massivo para garantir permissões frescas
-        userData = db.prepare("SELECT * FROM usuarios WHERE username = ? COLLATE NOCASE").get(userData.username);
-    } catch (syncErr) {
-        console.error("⚠️ [Auth] Erro no Sincronismo de Segurança, procedendo com dados locais:", syncErr.message);
-    }
+    try { await fullCloudSync(userData.loja_id); } catch (e) { }
+    userData = db.prepare("SELECT * FROM usuarios WHERE username = ? COLLATE NOCASE").get(userData.username);
 
     const sessionId = uuidv4();
     const now = new Date().toISOString();
-
-    // Atualizar local
-    db.prepare('UPDATE usuarios SET last_login = ?, session_id = ? WHERE username = ?')
-        .run(now, sessionId, userData.username);
-
-    // Atualizar Supabase (Background)
+    db.prepare('UPDATE usuarios SET last_login = ?, session_id = ? WHERE username = ?').run(now, sessionId, userData.username);
+    
     const client = getSupabaseClient(userData.loja_id || null);
     if (client) {
-        client.from('usuarios')
-            .update({ last_login: now, session_id: sessionId })
-            .eq('username', userData.username)
-            .then(({ error }) => {
-                if (error) console.error('[Login] Erro ao sincronizar sessão no Supabase:', error);
-            });
-
-        // Ativa o Realtime para esta loja específica
+        client.from('usuarios').update({ last_login: now, session_id: sessionId }).eq('username', userData.username).then(() => {});
         enableRealtimeSync(userData.loja_id);
     }
 
@@ -2083,118 +2035,124 @@ export function getUserByUsername(username) {
     } catch (e) { return null; }
 }
 
-// Generic CRUD
 export function getList(table, lojaId = DEFAULT_STORE_ID) {
-    if (!lojaId) lojaId = DEFAULT_STORE_ID;
-
-    if (!['estoque', 'portais', 'vendedores'].includes(table)) {
-        console.warn(`⚠️[getList] Tabela inválida: ${table} `);
-        return [];
-    }
-
+    if (!['estoque', 'portais', 'vendedores'].includes(table)) return [];
     try {
-        const result = db.prepare(`SELECT * FROM ${table} WHERE loja_id = ? ORDER BY nome`).all(lojaId);
-        console.log(`✅[getList] ${table}: ${result.length} itens(loja: ${lojaId})`);
-
-        if (table === 'estoque' && result.length > 0) {
-            console.log(`🔍[DEBUG] Teste Estoque [0]: placa = "${result[0].placa}"`);
-        }
-
-        return result;
-    } catch (err) {
-        console.error(`❌[getList] Erro ao consultar ${table}: `, err.message);
-        return [];
-    }
+        return db.prepare(`SELECT * FROM ${table} WHERE loja_id = ? ORDER BY nome`).all(lojaId || DEFAULT_STORE_ID);
+    } catch (err) { return []; }
 }
 
 export async function addItem(table, data) {
     if (!['estoque', 'portais', 'vendedores'].includes(table)) return;
-
-    const lojaId = data.loja_id || DEFAULT_STORE_ID;
+    const lojaId = data.loja_id || getActiveStoreId() || DEFAULT_STORE_ID;
     let syncData = { ...data, ativo: true, loja_id: lojaId };
     let stmt;
-
     if (table === 'vendedores') {
-        stmt = db.prepare(`INSERT OR IGNORE INTO ${table} (id, nome, sobrenome, telefone, ativo, loja_id) VALUES(@id, @nome, @sobrenome, @telefone, 1, @loja_id)`);
+        stmt = db.prepare(`INSERT OR REPLACE INTO ${table} (id, nome, sobrenome, telefone, ativo, loja_id) VALUES(@id, @nome, @sobrenome, @telefone, 1, @loja_id)`);
     } else if (table === 'portais') {
-        stmt = db.prepare(`INSERT OR IGNORE INTO ${table} (nome, link, ativo, loja_id) VALUES(@nome, @link, 1, @loja_id)`);
+        stmt = db.prepare(`INSERT OR REPLACE INTO ${table} (nome, link, ativo, loja_id) VALUES(@nome, @link, 1, @loja_id)`);
     } else {
-        stmt = db.prepare(`INSERT OR IGNORE INTO ${table} (nome, ativo, loja_id) VALUES(@nome, 1, @loja_id)`);
+        stmt = db.prepare(`INSERT OR REPLACE INTO ${table} (nome, ativo, loja_id) VALUES(@nome, 1, @loja_id)`);
     }
-
     const result = stmt.run(syncData);
-
-    // ☁️ SYNC SUPABASE
     try {
-        const conflictKey = table === 'estoque' ? 'id' : 'nome';
-        // safeSupabaseUpsert(table, data, lojaId, options)
-        await safeSupabaseUpsert(table, [syncData], lojaId, { onConflict: conflictKey });
-    } catch (e) {
-        console.error(`❌[Supabase] Erro Sync ${table}: `, e.message);
-    }
-
+        await safeSupabaseUpsert(table, [syncData], lojaId, { onConflict: table === 'estoque' ? 'id' : 'nome' });
+    } catch (e) { }
     return result;
 }
 
-export async function updateItem(table, oldNome, data) {
+export async function updateItem(table, oldIdOrNome, data) {
     if (!['estoque', 'portais', 'vendedores'].includes(table)) return;
-
-    const lojaId = data.loja_id || DEFAULT_STORE_ID;
-
-    // Atualização Local
-    const stmt = db.prepare(`UPDATE ${table} SET nome = ?, link = ? WHERE nome = ? AND loja_id = ? `);
-    const result = stmt.run(data.nome, data.link || '', oldNome, lojaId);
-
-    // ☁️ SYNC SUPABASE
+    const lojaId = data.loja_id || getActiveStoreId() || DEFAULT_STORE_ID;
+    let query, params;
+    if (table === 'vendedores') {
+        query = `UPDATE vendedores SET nome = ?, sobrenome = ?, telefone = ?, ativo = ? WHERE (id = ? OR nome = ?) AND loja_id = ?`;
+        params = [data.nome, data.sobrenome || '', data.telefone || '', data.ativo !== undefined ? (data.ativo ? 1 : 0) : 1, data.id || null, oldIdOrNome, lojaId];
+    } else if (table === 'portais') {
+        query = `UPDATE portais SET nome = ?, link = ?, ativo = ? WHERE nome = ? AND loja_id = ?`;
+        params = [data.nome, data.link || '', data.ativo !== undefined ? (data.ativo ? 1 : 0) : 1, oldIdOrNome, lojaId];
+    } else {
+        query = `UPDATE ${table} SET nome = ?, ativo = ? WHERE nome = ? AND loja_id = ?`;
+        params = [data.nome, data.ativo !== undefined ? (data.ativo ? 1 : 0) : 1, oldIdOrNome, lojaId];
+    }
+    const result = db.prepare(query).run(...params);
     try {
         const client = getSupabaseClient(lojaId);
         if (client) {
-            const { error } = await client
-                .from(table)
-                .update({ nome: data.nome, link: data.link })
-                .eq('nome', oldNome)
-                .eq('loja_id', lojaId);
-
-            if (error) throw error;
-            console.log(`✅[Supabase] ${table} '${data.nome}' atualizado na nuvem.`);
-        }
-    } catch (e) {
-        console.error(`❌[Supabase] Erro ao atualizar ${table}: `, e.message);
-    }
-
-    return result;
-}
-
-export async function toggleItem(table, nome, ativo, lojaId) {
-    if (!['estoque', 'portais', 'vendedores'].includes(table)) return;
-    const result = db.prepare(`UPDATE ${table} SET ativo = ? WHERE nome = ? AND loja_id = ? `).run(ativo ? 1 : 0, nome, lojaId);
-
-    // ☁️ SYNC SUPABASE
-    try {
-        const client = getSupabaseClient(lojaId || null);
-        if (client) {
-            await client.from(table).update({ ativo: !!ativo }).eq('nome', nome).eq('loja_id', lojaId);
+            const updatePayload = { nome: data.nome, ativo: data.ativo !== undefined ? !!data.ativo : true };
+            if (table === 'vendedores') {
+                updatePayload.sobrenome = data.sobrenome || '';
+                updatePayload.telefone = data.telefone || '';
+            } else if (table === 'portais') {
+                updatePayload.link = data.link || '';
+            }
+            let syncQuery = client.from(table).update(updatePayload);
+            if (table === 'vendedores' && (data.id || oldIdOrNome.length > 20)) {
+                syncQuery = syncQuery.eq('id', data.id || oldIdOrNome);
+            } else {
+                syncQuery = syncQuery.eq('nome', oldIdOrNome);
+            }
+            await syncQuery.eq('loja_id', lojaId);
         }
     } catch (e) { }
-
     return result;
 }
 
-export async function deleteItem(table, nome, lojaId) {
+export async function toggleItem(table, identifier, ativo, lojaId) {
     if (!['estoque', 'portais', 'vendedores'].includes(table)) return;
-    const result = db.prepare(`DELETE FROM ${table} WHERE nome = ? AND loja_id = ? `).run(nome, lojaId);
-
-    // ☁️ SYNC SUPABASE (Instantâneo, sem timeout)
+    const activeLojaId = lojaId || getActiveStoreId() || DEFAULT_STORE_ID;
+    const isObj = typeof identifier === 'object';
+    const id = isObj ? identifier.id : null;
+    const nome = isObj ? identifier.nome : identifier;
+    let query = id ? `UPDATE ${table} SET ativo = ? WHERE (id = ? OR nome = ?) AND loja_id = ?` : `UPDATE ${table} SET ativo = ? WHERE nome = ? AND loja_id = ?`;
+    let params = id ? [ativo ? 1 : 0, id, nome, activeLojaId] : [ativo ? 1 : 0, nome, activeLojaId];
+    const result = db.prepare(query).run(...params);
     try {
-        const client = getSupabaseClient(lojaId || null);
+        const client = getSupabaseClient(activeLojaId);
         if (client) {
-            console.log(`☁️ [Sync] Excluindo ${nome} de ${table} no Supabase...`);
-            await client.from(table).delete().eq('nome', nome).eq('loja_id', lojaId);
+            let syncQuery = client.from(table).update({ ativo: !!ativo });
+            if (id) syncQuery = syncQuery.or(`id.eq.${id},nome.eq.${nome}`);
+            else syncQuery = syncQuery.eq('nome', nome);
+            await syncQuery.eq('loja_id', activeLojaId);
         }
-    } catch (e) {
-        console.error(`❌ [Sync] Erro ao excluir ${nome} de ${table}:`, e.message);
-    }
+    } catch (e) { }
+    return result;
+}
 
+export async function deleteItem(table, identifier, lojaId) {
+    if (!['estoque', 'portais', 'vendedores'].includes(table)) return;
+    
+    // ✅ FALLBACK AUTOMÁTICO DE LOJA
+    const finalLojaId = lojaId || getActiveStoreId() || DEFAULT_STORE_ID;
+    
+    const isObj = typeof identifier === 'object';
+    const id = isObj ? identifier.id : null;
+    const nome = isObj ? identifier.nome : identifier;
+    
+    let query = id 
+        ? `DELETE FROM ${table} WHERE (id = ? OR nome = ?) AND loja_id = ?`
+        : `DELETE FROM ${table} WHERE nome = ? AND loja_id = ?`;
+    
+    let params = id ? [id, nome, finalLojaId] : [nome, finalLojaId];
+    
+    console.log('🗑️ [deleteItem] Query:', query, 'Params:', params);
+    
+    const result = db.prepare(query).run(...params);
+    
+    if (result.changes === 0) {
+        console.warn('⚠️ [deleteItem] Nenhum registro deletado!');
+    }
+    
+    try {
+        const client = getSupabaseClient(finalLojaId);
+        if (client) {
+            let syncQuery = client.from(table).delete();
+            if (id) syncQuery = syncQuery.or(`id.eq.${id},nome.eq.${nome}`);
+            else syncQuery = syncQuery.eq('nome', nome);
+            await syncQuery.eq('loja_id', finalLojaId);
+        }
+    } catch (e) { }
+    
     return result;
 }
 
@@ -2588,7 +2546,7 @@ export function enableRealtimeSync(lojaId = null) {
     if (!client) return;
 
     isRealtimeEnabled = true;
-    console.log(`📡 [Supabase Realtime] Iniciando listeners para loja: ${lojaId || 'Global'}...`);
+    console.log('🔄 [Realtime] Ativando para loja:', lojaId);
 
     // Garante que sempre tem filtro de loja (segurança)
     if (!lojaId) {
@@ -2831,20 +2789,21 @@ export function enableRealtimeSync(lojaId = null) {
                         db.prepare(`
                             INSERT INTO visitas(
                                 id, datahora, mes, cliente, telefone, portal,
-                                veiculo_interesse, veiculo_troca, vendedor, vendedor_sdr, negociacao, status,
+                                veiculo_interesse, veiculo_id, foto_veiculo, veiculo_troca, vendedor, vendedor_sdr, negociacao, status,
                                 data_agendamento, temperatura, motivo_perda, forma_pagamento, status_pipeline,
                                 valor_proposta, cpf_cliente, historico_log, loja_id, created_at, updated_at
                             )
                             VALUES(
                                 @id, @datahora, @mes, @cliente, @telefone, @portal,
-                                @veiculo_interesse, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao, @status,
+                                @veiculo_interesse, @veiculo_id, @foto_veiculo, @veiculo_troca, @vendedor, @vendedor_sdr, @negociacao, @status,
                                 @data_agendamento, @temperatura, @motivo_perda, @forma_pagamento, @status_pipeline,
                                 @valor_proposta, @cpf_cliente, @historico_log, @loja_id, @created_at, @updated_at
                             )
                             ON CONFLICT(id) DO UPDATE SET
                                 datahora = excluded.datahora, mes = excluded.mes, cliente = excluded.cliente,
                                 telefone = excluded.telefone, portal = excluded.portal,
-                                veiculo_interesse = excluded.veiculo_interesse, veiculo_troca = excluded.veiculo_troca,
+                                veiculo_interesse = excluded.veiculo_interesse, veiculo_id = excluded.veiculo_id, foto_veiculo = excluded.foto_veiculo, 
+                                veiculo_troca = excluded.veiculo_troca,
                                 vendedor = excluded.vendedor, vendedor_sdr = excluded.vendedor_sdr,
                                 negociacao = excluded.negociacao, status = excluded.status,
                                 data_agendamento = excluded.data_agendamento, temperatura = excluded.temperatura,
@@ -2854,6 +2813,8 @@ export function enableRealtimeSync(lojaId = null) {
                                 loja_id = excluded.loja_id, updated_at = excluded.updated_at
                         `).run({
                             ...newRec,
+                            veiculo_id: newRec.veiculo_id || null,
+                            foto_veiculo: newRec.foto_veiculo || null,
                             created_at: newRec.created_at || null,
                             updated_at: newRec.updated_at || null,
                         });
@@ -3445,7 +3406,7 @@ export async function fullCloudSync(lojaId = DEFAULT_STORE_ID) {
     console.log(`🚀 [Startup Sync] Iniciando sincronização massiva para: ${lojaId}...`);
 
     const startTime = Date.now();
-    const tables = ['lojas', 'usuarios', 'vendedores', 'portais', 'scripts', 'estoque', 'crm_settings'];
+    const tables = ['lojas', 'usuarios', 'vendedores', 'portais', 'scripts', 'estoque', 'crm_settings', 'visitas'];
     const results = { success: true, tables: {}, duration: 0 };
 
     try {
@@ -3569,6 +3530,68 @@ export async function fullCloudSync(lojaId = DEFAULT_STORE_ID) {
                                     value: item.value || '',
                                     updated_at: item.updated_at || new Date().toISOString(),
                                     loja_id: item.loja_id || DEFAULT_STORE_ID
+                                });
+                            } else if (table === 'visitas') {
+                                db.prepare(`
+                                    INSERT INTO visitas(
+                                        id, loja_id, datahora, mes, cliente, telefone, portal, 
+                                        veiculo_interesse, veiculo_id, foto_veiculo, veiculo_troca, 
+                                        vendedor, vendedor_sdr, negociacao, data_agendamento, 
+                                        temperatura, motivo_perda, detalhes_perda, forma_pagamento, 
+                                        status_pipeline, valor_proposta, cpf_cliente, historico_log, 
+                                        status, visitou_loja, nao_compareceu, created_at, updated_at
+                                    ) 
+                                    VALUES(
+                                        @id, @loja_id, @datahora, @mes, @cliente, @telefone, @portal, 
+                                        @veiculo_interesse, @veiculo_id, @foto_veiculo, @veiculo_troca, 
+                                        @vendedor, @vendedor_sdr, @negociacao, @data_agendamento, 
+                                        @temperatura, @motivo_perda, @detalhes_perda, @forma_pagamento, 
+                                        @status_pipeline, @valor_proposta, @cpf_cliente, @historico_log, 
+                                        @status, @visitou_loja, @nao_compareceu, @created_at, @updated_at
+                                    )
+                                    ON CONFLICT(id) DO UPDATE SET
+                                        loja_id = excluded.loja_id, datahora = excluded.datahora, mes = excluded.mes,
+                                        cliente = excluded.cliente, telefone = excluded.telefone, portal = excluded.portal,
+                                        veiculo_interesse = excluded.veiculo_interesse, veiculo_id = excluded.veiculo_id,
+                                        foto_veiculo = excluded.foto_veiculo, veiculo_troca = excluded.veiculo_troca,
+                                        vendedor = excluded.vendedor, vendedor_sdr = excluded.vendedor_sdr,
+                                        negociacao = excluded.negociacao, data_agendamento = excluded.data_agendamento,
+                                        temperatura = excluded.temperatura, motivo_perda = excluded.motivo_perda,
+                                        detalhes_perda = excluded.detalhes_perda, forma_pagamento = excluded.forma_pagamento,
+                                        status_pipeline = excluded.status_pipeline, valor_proposta = excluded.valor_proposta,
+                                        cpf_cliente = excluded.cpf_cliente, historico_log = excluded.historico_log,
+                                        status = excluded.status, visitou_loja = excluded.visitou_loja,
+                                        nao_compareceu = excluded.nao_compareceu, created_at = excluded.created_at,
+                                        updated_at = excluded.updated_at
+                                `).run({
+                                    id: item.id,
+                                    loja_id: item.loja_id || DEFAULT_STORE_ID,
+                                    datahora: item.datahora || '',
+                                    mes: item.mes || 0,
+                                    cliente: item.cliente || '',
+                                    telefone: item.telefone || '',
+                                    portal: item.portal || '',
+                                    veiculo_interesse: item.veiculo_interesse || '',
+                                    veiculo_id: item.veiculo_id || null,
+                                    foto_veiculo: item.foto_veiculo || null,
+                                    veiculo_troca: item.veiculo_troca || '',
+                                    vendedor: item.vendedor || '',
+                                    vendedor_sdr: item.vendedor_sdr || '',
+                                    negociacao: item.negociacao || '',
+                                    data_agendamento: item.data_agendamento || null,
+                                    temperatura: item.temperatura || null,
+                                    motivo_perda: item.motivo_perda || null,
+                                    detalhes_perda: item.detalhes_perda || null,
+                                    forma_pagamento: item.forma_pagamento || null,
+                                    status_pipeline: item.status_pipeline || '',
+                                    valor_proposta: item.valor_proposta || '',
+                                    cpf_cliente: item.cpf_cliente || null,
+                                    historico_log: item.historico_log || '',
+                                    status: item.status || 'Pendente',
+                                    visitou_loja: item.visitou_loja ? 1 : 0,
+                                    nao_compareceu: item.nao_compareceu ? 1 : 0,
+                                    created_at: item.created_at || null,
+                                    updated_at: item.updated_at || null
                                 });
                             }
                         }

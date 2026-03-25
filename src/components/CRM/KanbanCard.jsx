@@ -42,7 +42,7 @@ export default function KanbanCard({ lead, isDragging, onClick, estoque, usuario
     };
 
     const targetCar = findCarInEstoque(estoque, lead.veiculo_interesse);
-    const photoUrl = getPhotoUrl(targetCar);
+    const photoUrl = getPhotoUrl(targetCar) || lead.foto_veiculo;
     const finalPrice = targetCar?.valor || lead.valor_proposta || null;
     const rawInteresse = (lead.veiculo_interesse || '').split(' #')[0].trim();
     const cleanInteresse = rawInteresse.split(/\s+/).filter((w, i, arr) => w.toLowerCase() !== arr[i - 1]?.toLowerCase()).join(' ');

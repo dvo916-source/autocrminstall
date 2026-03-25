@@ -10,6 +10,7 @@ export function LeadsProvider({ children, user }) {
     const [notas, setNotas] = useState([]);
     const [estoque, setEstoque] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [isInitialLoad, setIsInitialLoad] = useState(true);
 
     const isAdmin = ['admin', 'master', 'developer'].includes(user?.role);
     const [selectedUserView, setSelectedUserView] = useState(isAdmin ? 'ALL' : user?.username);
@@ -64,9 +65,16 @@ export function LeadsProvider({ children, user }) {
         }
     };
 
+    // 🚀 O ÚNICO CARREGAMENTO QUE IMPORTA (Reativo a tudo que precisa)
     useEffect(() => {
-        loadData();
-    }, [currentLoja?.id, selectedUserView]);
+        console.log('🔥 [LeadsContext] Reatividade Avaliada! Loja:', currentLoja?.id, 'User:', user?.username);
+        if (user && currentLoja?.id) {
+            console.log('🚀 [LeadsContext] Disparando FETCH das tabelas...');
+            loadData(true);
+        } else {
+            console.log('⏳ [LeadsContext] Aguardando Loja e User estarem prontos...');
+        }
+    }, [currentLoja?.id, selectedUserView, user?.username, user?.role]); // ← DEPENDÊNCIAS BLINDADAS (user estava faltando!)
 
     // 2. COMUNICAÇÃO EM TEMPO REAL
     useEffect(() => {

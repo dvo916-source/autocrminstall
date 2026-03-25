@@ -132,7 +132,7 @@ const VisitListItem = memo(({
         : findCarInEstoque(listaEstoque, v.veiculo_interesse);
 
     const vehicleName = targetCar?.nome || (v.veiculo_interesse || '').split(' #')[0].trim();
-    const photoUrl = getPhotoUrl(targetCar);
+    const photoUrl = getPhotoUrl(targetCar) || v.foto_veiculo;
     const finalPrice = targetCar?.valor || formatCurrency(v.valor_proposta) || 'Consulte';
 
     return (

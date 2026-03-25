@@ -13,7 +13,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 
 // Importa os módulos internos que lidam com Banco de Dados e IA
-import * as db from './db.js';
+import * as db from './db/index.js';
 import * as aiservice from './aiservice.js';
 
 // Utilitários para converter o caminho do arquivo para o padrão do Node.js ESM
@@ -41,12 +41,9 @@ process.on('uncaughtException', (err) => {
 // 🔍 DIAGNÓSTICO: Executar SQL direto (apenas para debug)
 ipcMain.handle('execute-sql', async (e, { query }) => {
     try {
-        const Database = require('better-sqlite3');
-        const dbPath = path.join(app.getPath('userData'), 'crystal.db');
-        const dbInstance = new Database(dbPath);
-        const result = dbInstance.prepare(query).all();
-        dbInstance.close();
-        return result;
+        // Usa a instância 'db' exportada pelo nosso módulo (que é a instância do better-sqlite3)
+        // Como o main.js importa 'import * as db', a instância está em db.db
+        return db.db.prepare(query).all();
     } catch (err) {
         console.error('Erro ao executar SQL:', err);
         throw err;
@@ -136,6 +133,13 @@ function createWindow() {
     const win = mainWindow;
     win.maximize(); // Abre maximizada
     win.setMenu(null); // Remove o menu padrão completamente
+
+    // LIMPEZA DE CACHE (Solução Temporária corrigida para não deslogar o admin)
+    win.webContents.session.clearCache();
+    win.webContents.session.clearStorageData({
+        storages: ['appcache', 'serviceworkers', 'cachestorage'],
+        quotas: ['temporary']
+    });
 
     // Define se carrega do servidor local (Vite) ou do arquivo pronto (Build)
     if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
@@ -361,9 +365,13 @@ ipcMain.handle('create-loja', async (e, { storeData, adminData }) => await db.cr
 // CRUD Genérico (Tabelas: estoque, portais, vendedores, etc)
 ipcMain.handle('get-list', async (e, { table, lojaId }) => await db.getList(table, lojaId));
 ipcMain.handle('add-item', async (e, { table, data }) => await db.addItem(table, data));
-ipcMain.handle('update-item', async (e, { table, oldNome, data }) => await db.updateItem(table, oldNome, data));
-ipcMain.handle('toggle-item', async (e, { table, nome, ativo, loja_id }) => await db.toggleItem(table, nome, ativo, loja_id));
-ipcMain.handle('delete-item', async (e, { table, nome, loja_id }) => await db.deleteItem(table, nome, loja_id));
+ipcMain.handle('update-item', async (e, { table, oldIdOrNome, oldNome, data }) => await db.updateItem(table, oldIdOrNome || oldNome, data));
+ipcMain.handle('toggle-item', async (e, { table, identifier, nome, ativo, loja_id }) => await db.toggleItem(table, identifier || nome, ativo, loja_id));
+ipcMain.handle('delete-item', async (e, payload) => {
+    const { table, nome, id, identifier, loja_id } = payload;
+    const finalIdentifier = identifier || (id ? { id, nome } : nome);
+    return await db.deleteItem(table, finalIdentifier, loja_id);
+});
 
 // Scripts e Mensagens
 ipcMain.handle('get-scripts', async (e, { username, lojaId }) => await db.getScripts({ username, lojaId }));
